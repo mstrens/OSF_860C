@@ -1,0 +1,44 @@
+{
+    "core": {
+        "version": "2.3.1.43352"
+    },
+    "opt": {
+        "props": {
+            "capabilities": [
+                "adc",
+                "bsp_gen4",
+                "cat3",
+                "ccu4",
+                "ccu8",
+                "comp",
+                "flash_64k",
+                "i2c",
+                "i2s",
+                "kit_xmc13_boot_001",
+                "led",
+                "low_power",
+                "mcu_gp",
+                "posif",
+                "rtc",
+                "spi",
+                "sram_16k",
+                "uart",
+                "xmc",
+                "xmc1000"
+            ],
+            "dependencies": {
+                "core-lib": "release-v1.4.3",
+                "core-make": "release-v3.4.1",
+                "mtb-xmclib-cat3": "release-v4.4.0",
+                "recipe-make-cat3": "release-v2.3.1"
+            },
+            "docs_dir": "docs",
+            "flow_version": "2.0",
+            "min_tools": "3.0.0",
+            "template": {
+                "id": "mtb-template-cat3",
+                "version": "release-v1.2.1"
+            }
+        }
+    }
+}

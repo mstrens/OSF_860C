@@ -1,0 +1,37 @@
+{
+    "version": 4,
+    "env": {
+        "mtbCompilerArgs": [
+            "-gdwarf-3","-c","-mcpu=cortex-m0","--specs=nano.specs","-Og","-mthumb","-ffunction-sections","-fdata-sections","-ffat-lto-objects","-g","-Wall","-pipe"
+        ],
+        "mtbDefaultIncludePath": [
+            ".","bsps/TARGET_tsdz8_for_GPIO_TEST","bsps","bsps/TARGET_tsdz8_for_GPIO_TEST/config/GeneratedSource","bsps/TARGET_tsdz8_for_GPIO_TEST/config","ProbeScope","../mtb_shared/retarget-io-cat3/release-v1.1.0","../mtb_shared/cmsis/release-v5.8.0/Core/Include","../mtb_shared/cmsis/release-v5.8.0/Core","../mtb_shared/cmsis/release-v5.8.0","../mtb_shared/core-lib/release-v1.4.3/include","../mtb_shared/core-lib/release-v1.4.3","../mtb_shared/mtb-xmclib-cat3/release-v4.4.0/CMSIS/Infineon/COMPONENT_XMC1300/Include","../mtb_shared/mtb-xmclib-cat3/release-v4.4.0/CMSIS/Infineon/COMPONENT_XMC1300","../mtb_shared/mtb-xmclib-cat3/release-v4.4.0/CMSIS/Infineon","../mtb_shared/mtb-xmclib-cat3/release-v4.4.0/CMSIS","../mtb_shared/mtb-xmclib-cat3/release-v4.4.0","../mtb_shared/mtb-xmclib-cat3/release-v4.4.0/XMCLib/inc","../mtb_shared/mtb-xmclib-cat3/release-v4.4.0/XMCLib"
+        ],
+        "mtbDefaultDefines": [
+            "COMPONENT_CAT3","COMPONENT_CM0","COMPONENT_CM0_0","COMPONENT_Debug","COMPONENT_GCC_ARM","COMPONENT_MW_CMSIS","COMPONENT_MW_CORE_LIB","COMPONENT_MW_CORE_MAKE","COMPONENT_MW_MTB_XMCLIB_CAT3","COMPONENT_MW_RECIPE_MAKE_CAT3","COMPONENT_MW_RETARGET_IO_CAT3","COMPONENT_SOFTFP","COMPONENT_XMC1300","COMPONENT_XMC13XX","COMPONENT_tsdz8_for_GPIO_TEST","CORE_NAME_CM0_0=1","CY_APPNAME_mtb_example_xmc_gpio_toggle","CY_SUPPORTS_DEVICE_VALIDATION","CY_TARGET_BOARD=tsdz8_for_GPIO_TEST","DEBUG=DEBUG","TARGET_tsdz8_for_GPIO_TEST","XMC1302_T038x0064"
+        ]
+    },
+    "configurations": [
+        {
+            "name": "MTB",
+            "compilerPath": "C:/Users/pc/ModusToolbox/tools_3.3/gcc/bin/arm-none-eabi-gcc",
+            "compilerArgs": [
+                "${mtbCompilerArgs}"
+            ],
+            "compileCommands": "${workspaceFolder}/build/compile_commands.json",
+            "intelliSenseMode": "gcc-arm",
+            "cStandard": "c99",
+            "cppStandard": "c++11",
+            "includePath": [
+                "${mtbDefaultIncludePath}"
+            ],
+            "browse": {
+                "limitSymbolsToIncludedHeaders": true,
+                "databaseFilename": ""
+            },
+            "defines": [
+                "${mtbDefaultDefines}"
+            ]
+        }
+    ]
+}

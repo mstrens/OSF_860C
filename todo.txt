@@ -1,0 +1,124 @@
+done : In 860C version, uart is at 19200 ; so it should be changed in bps
+
+done : in 860C we use ui8_m_system_state at bit level; this requires to change some code in main.c
+
+here seems to be quite huge current variations (at least when motor runs without load)
+There seems also to be quite huge variations of the enlapsed time between 2 hall pattern changes.
+I am not sure that the hall sensors are really placed at 120°
+A test with slow rotation seem to show that the hall sensor are not at regular interval.
+Currently, I used the average of forward and backward runs to set up the positions.
+It could be that it is better to use only the forward values.
+The differences between forward and average is about 20. This is also about the value require to match 90° (currently we use an offset of 50; with 20 more, we would be close to 64 = 90°)
+
+
+in xls sheet, 
+- there should be the possibility to use advance miles (and so to fill one more line)
+- there should also be some other values for display mode 2 and mode 3
+
+add calibration of torque sensor
+we could reuse some code to limit the cuurent if temperature is to high (between min and max) - code exist in original project
+
+
+
+Check in uart.c the ui16_display_data_factor because it is a ui16 but there is a multiplying factor of 1475 (so quite big)
+
+restore values for max current in main.h when more tests are done about hall sensor positions
+
+change some parameters (max current, battery volt,...)    
+    - pehaps ui8_pedal_torque_per_10_bit_ADC_step_x100 has to be adapted
+    - FOC_ANGLE_MULTIPLIER has probably to be adapted because L (inductance) is different (and also erps)
+
+CCU4 slice 1 could be disabled in bps (it was used to capture the intervals between 2 hall pattern changes)
+
+
+in ebike.app, there is:
+ui16_adc_pedal_torque_delta = (uint16_t)((ui8_riding_mode_parameter + ui8_pedal_cadence_RPM) >> 2);
+I am not sure this is correct when the 2 parameters are more than 128 (sum exceed 255)
+
+
+
+After debugging : 
+- in ebike_app_controller, remove the code that force the current on a fixed value in order to enable the switch on riding mode
+- Change/Add code for eeprom and initialisation for m_configuration when eeprom is in use
+- there was a set up #define PWM_DUTY_CYCLE_MAX 255 in ebike_app.c
+    there is perhaps an issue in motor because this generates a PWM compare value that exceeds the period (1680 = 4*420)
+    furthermore in motor.c, the code that increases the g_duty_cycle does not take action whe g_duty_cycle is at 255
+    So current can exceed the max; 
+    For testing, I reduced PWM_DUTY_CYCLE_MAX to 128 in main.h 
+    note: Instead of a #define, I changed the program to use extern const uint8_t ui8_pwm_duty_cycle_max;
+
+
+Test code for Wheel speed sensor detection
+Add code to save (in eeprom) actual battery consumption when power goes low (in tsdz2 at the end of the IRQ 19 kz when volt goes low) 
+    amongst other parts, in uart.c, there should be a call to EEPROM_controller to save the config; currently it is just commented
+
+
+In ccu8 irq0 (and main.c) reduce the data used for calibration to the minimum so the messages are easier to undestand
+
+Make some test to verify if the values for HALL_COUNTER_OFFSET_DOWN and UP in motor.c are the best one.
+    The datasheet of an infineon hall sensor says that there is a delay of 16usec between magnetic field change and output change (can be max 30usec)
+    This seems much less than the value of 
+Check if ui8_foc_angle_multiplier is valid for TSDZ8
+
+In motor.c, there is a variable ui16_cadence_sensor_ticks_counter_min that is increased in some cases but this does not seems consistent 
+    it is increased only when there is a valid change for the refrence (so only for 1 of the 4 patterns) 
+
+
+Note: about PWM signals for motor
+In tsdz2, we have:
+- OCiRef are high at begining of pwm cycle, Low in the middel and High at the end
+- Oci are the same because they use OCpolarity_high (and are LOW in case of a break because idlestate use RESET)
+- OCNi are the opposite because it is normally the opposite and because they use OCpolarity_high too (in case of break, they go HIGH because they use idelstate SET)
+- OCi are connected to High side of mosfet (pins C3,C2,C1)
+- OCiN is connected to Low side of mosfet (pins B2, B1, B0)
+So in TSDZ2, when running:
+- the High side is ON at beginning of PWM, it becomes OFF in the middle and ON at the end (OFF in case of break)
+- the Low side is OFF     "                           ON                    OFF           (ON in case of break)
+
+For TSDZ8, ST signal is LOW at the beginning of PWM and HIGH in the middle
+We use a set up that says invert ST on OUT0 and OUT0 is connected to the HIGH side
+So, OUT0 = HIGH side is HIGH at the begining of PWM
+This is the same as TSDZ2
+
+Note:
+in motor.c there are functions for motor_enable_pwm() and motor_disable_pwm()
+For TSDZ8, we stop 3 of the 4 slides to disable and we make a start of the 4 via a common cmd to enable in a synchronized way
+
+
+To check also
+value of #define BATTERY_VOLTAGE_PER_10_BIT_ADC_STEP_X1000 (check battery voltage provided - perhaps also some >>2 from ADC 12 bits to 10 bits)
+value of PEDAL_TORQUE_PER_10_BIT_ADC_STEP_X100
+value of PEDAL_TORQUE_PER_10_BIT_ADC_STEP_ADV_X100
+
+
+done:
+- MOTOR_SPEED_FIELD_WEAKENING_MIN is 490 in tsdz2 ; it is compared to erps; so it should probably be changed 
+        changed to 980 (*2) because erps can be twice as big for the same rps/rpm
+- BATTERY_CURRENT_PER_10_BIT_ADC_STEP_X100 ; TSDZ2 uses 16 (=0,16A / adc step); this match the theoretical value but not the measured!!!!!!!!!
+        test measurement gives 1,1A <=> 60 adc steps12 bits ; 1,1 = 15 steps adc 10bits ; so 0,07A/step10 bits = 7 when X100
+        In theory: R= 0.003 ohm, so 1A => 0,003V before Ampli; after Ampli = 0,03V
+        5V adc => 4096 adc 12bits; so 1A => 4096/5V*0,03V = 24,5 steps/A ; so 1A/24,5 = 0,04A/step12 bits
+        for tsdz2, 1A should be 1/0,16 steps =  6,25 steps
+        for tsdz8, 1A should be 1/0,04 steps = 24,5 steps
+        So to use the same setup , tsdz8 Adc 12 bits should be divided by 4 (>>2)
+        Note:  in tsdz2 the firmware uses only the lowest 8 bits (because voltage is low in all cases)
+- MOTOR_CHECK_ERPS_THRESHOLD has probably to be changed because the number of poles is different for tsdz8
+        - it was 20 for tsdz2 ; it becomes 10 for tsdz8 (4 poles instead of 8) because TSDZ8 has less erps for the same rps
+- MOTOR_BLOCKED_ERPS_THRESHOLD to be changed perhaps because pole is different
+        - it was 20 in tsdz2; reduced to 10 for tsdz8 (4 poles instead of 8) because TSDZ8 has less erps for the same rps
+- BATTERY_VOLTAGE_PER_10_BIT_ADC_STEP_X1000 (to change in main.h) 
+    With TSDZ8, when battery voltage is 37V, ADC 12 bits is 1720 so 430 in ADC 10 bits
+    37000mv/430 = 86: So 87 mvolt/adc10bits from TSDZ2 is OK
+- BATTERY_LOW_VOLTAGE_CUT_OFF ; set to 30V for testing, but was 39 for 48V battery
+        we also have ui16_adc_voltage_cut_off = 300*100/BATTERY_VOLTAGE_PER_10_BIT_ADC_STEP_X1000; // 30Volt default value (at least for testing)
+        This one is automatically calculated in main.h 
+- MOTOR_BLOCKED_BATTERY_CURRENT_THRESHOLD_X10 
+        - it was 30A in tsdz2; it is reduced to 20A for testing 
+- ADC_THROTTLE_MIN_VALUE_THRESHOLD is the same as TSDZ2 (ADC values for throttle seems the same)
+- ADC ratio for current is the same for TSDZ8, so no need to change those values (in main.h)
+        - #define ADC_10_BIT_BATTERY_EXTRACURRENT				50  //  8 amps
+        - #define ADC_10_BIT_BATTERY_CURRENT_MAX				112	// 18 amps // 1 = 0.16 Amp
+        -define ADC_10_BIT_MOTOR_PHASE_CURRENT_MAX			187	// 30 amps // 1 = 0.16 Amp
+- in config.h
+    - ENABLE_THROTTLE has been set on 1 (test with throttle)        
+- in uart.c, I added an error on temperature based on the chip temperature.

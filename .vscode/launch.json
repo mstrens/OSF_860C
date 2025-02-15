@@ -1,0 +1,131 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    //
+    // NOTE for JLink users:
+    //
+    //    Please create the following setting in your VSCode User Settings or in
+    //    your global PATH.  Cortex-Debug needs to find the specific gdb-server
+    //    you want to use.
+    //
+    //       Windows     : "cortex-debug.JLinkGDBServerPath": "<JLinkInstallDir>/JLinkGDBServerCL"
+    //       Linux / Mac : "cortex-debug.JLinkGDBServerPath": "<JLinkInstallDir>/JLinkGDBServer"
+    //
+    //    User settings are located in:
+    //
+    //       Windows : %APPDATA%/Code/User/settings.json
+    //       Mac     : $HOME/Library/Application Support/Code/User/settings.json
+    //       Linux   : $HOME/.config/Code/User/settings.json
+    //
+    //    You can use the VSCode Settings UI to edit the files mentioned above.
+    //
+    //    For the JLink configurations in this file, the "device" name comes from
+    //    the list found here:
+    //       https://www.segger.com/downloads/supported-devices.php
+    //
+    //    To use KitProg3/MiniProg4 JTAG interface, update transport in openocd.tcl located at the
+    //    project root - find "transport select [swd|jtag]" and specify the appropriate interface.
+    //    To use JLink JTAG interface, update corresponding JLink configuration. Set "interface"
+    //    property to "jtag" and delete the "_tm" suffix (if present) in the "device" property.
+    //
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Launch (JLink)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "executable": "build/last_config/mtb-example-xmc-gpio-toggle.elf",
+            "servertype": "jlink",
+            "device": "XMC1302-T038x0064",
+            "interface": "swd",
+            "serialNumber": "",
+            "preLaunchCommands": [
+                // Program via the hex file to get complete coverage
+                "exec-file build/last_config/mtb-example-xmc-gpio-toggle.hex"
+            ],
+            "overrideRestartCommands": [
+                "starti"
+            ],
+            // svdFile is optional, it can be very large.
+            "svdFile": "../mtb_shared/mtb-xmclib-cat3/release-v4.4.0/CMSIS/Infineon/SVD/XMC1300.svd",
+            "breakAfterReset": true,
+            "runToEntryPoint": "main",    // Specifies application entry point name where program will halt
+            "preLaunchTask": "Build", // Set this to run a task from tasks.json before
+                                                     // starting a debug session
+            "showDevDebugOutput": "none" 
+        },
+        // When using 'attach', make sure your program is running on the board and that your
+        // executable matches the image in the chip exactly, or else strange things can happen
+        // with breakpoints, variables, etc.
+        {
+            "name": "Attach (JLink)",
+            "type": "cortex-debug",
+            "request": "attach",
+            "cwd": "${workspaceFolder}",
+            "executable": "build/last_config/mtb-example-xmc-gpio-toggle.elf",
+            "servertype": "jlink",
+            "device": "XMC1302-T038x0064",
+            "interface": "swd",
+            "serialNumber": "",
+            "overrideRestartCommands": [
+                "starti"
+            ],
+            // svdFile is optional, it can be very large.
+            "svdFile": "../mtb_shared/mtb-xmclib-cat3/release-v4.4.0/CMSIS/Infineon/SVD/XMC1300.svd",
+            "breakAfterReset": true,
+            "runToEntryPoint": "main",    // Specifies application entry point name for restart/reset
+            "showDevDebugOutput": "none" 
+        },
+        {
+            "name": "Erase Device (JLink)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            // executable not needed but need some valid file to get the session to start
+            "executable": "build/last_config/mtb-example-xmc-gpio-toggle.elf",
+            "servertype": "jlink",
+            "device": "XMC1302-T038x0064",
+            "interface": "swd",
+            "serialNumber": "",
+            "overrideLaunchCommands": [
+                "monitor reset",      // Reset both core and the peripherals
+                "monitor flash erase",
+                "monitor reset"       // Reset both core and the peripherals
+            ],
+            "postStartSessionCommands": [
+                "quit"
+            ],
+            "showDevDebugOutput": "none" 
+        },
+        {
+            "name": "Program (JLink)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            // Program via the hex file to get complete coverage, no need for symbols
+            "executable": "build/last_config/mtb-example-xmc-gpio-toggle.elf",
+            "servertype": "jlink",
+            "device": "XMC1302-T038x0064",
+            "interface": "swd",
+            "serialNumber": "",
+            "preLaunchCommands": [
+                // Program via the hex file to get complete coverage
+                "exec-file build/last_config/mtb-example-xmc-gpio-toggle.hex"
+            ],
+            "overrideLaunchCommands": [
+                "monitor reset",      // Reset both core and the peripherals
+                "-target-download",
+                "monitor reset",      // Reset both core and the peripherals
+                "monitor go"
+            ],
+            "postStartSessionCommands": [
+                "quit"
+            ],
+            "preLaunchTask": "Build",    // Set this to run a task from tasks.json
+                                                        // before device programming
+            "showDevDebugOutput": "none" 
+        }
+    ]
+}

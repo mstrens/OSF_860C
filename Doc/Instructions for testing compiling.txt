@@ -1,0 +1,443 @@
+Instructions:
+
+about modus vscode
+https://www.infineon.com/dgdl/Infineon-Visual-Studio-Code-user-guide-UserManual-v04_00-EN.pdf?fileId=8ac78c8c92416ca50192787be52923b2&redirId=248223
+It explains also how to debug with jlink in vscode
+
+
+
+To create an bsp
+	open modustoolbox dashbord
+	click on edit a bsp
+		create one from template or from scratch (select a dir and a name)
+		select mcu (xmc1302-t38-0064 or similar)
+		select pins
+		bsp is automatically created in the entered dir.
+	click on create an application or use cli
+		It is possible to create an application from the gui.
+		Select create an application
+		Select browse to select a local BSP and vscode as IDE
+		Then click CREATE
+		
+		It is also possible to use cli, open modus_shell
+		enter a command like
+			project-creator-cli --board-id KIT_XMC47_RELAX_V1 --app-id mtb-example-xmc-uart-shell --user-app-name UARTShell --target-dir "C:/mtb_projects"
+		where board-id has to be changed, app-id is ???, user-app-name is the name assigned to the application and target-dir is the folder to put it
+		Then go to the folder where application has been created and type "make vscode"
+		You can now open the workspace in vscode
+
+  1. In VS Code, File->Open Workspace From File (Welcome page->Start->Open File)
+  2. Select the .code-workspace file from app root directory and open
+  3. Builds: Terminal->Run Task
+  4. Debugging: "Bug icon" on the left-hand pane:
+
+For more information, refer to the Visual Studio Code for ModusToolbox user guide.
+
+
+In order to debug with jlink, Some changes were required:
+1)- in vs code setting, the path to gdb server is not the default. The file launch.json says
+NOTE for JLink users:
+    //
+    //    Please create the following setting in your VSCode User Settings or in
+    //    your global PATH.  Cortex-Debug needs to find the specific gdb-server
+    //    you want to use.
+    //
+    //       Windows     : "cortex-debug.JLinkGDBServerPath": "<JLinkInstallDir>/JLinkGDBServerCL"
+
+I tried to change the settings because jlink was installed in another folder.
+Still when I did it, I was not able to debug in vscode. It did not find the file jlinkgdbservercl.exe (I think)
+Finally I solved it when I copy all files from jlink folder to the default folder
+"cortex-debug.JLinkGDBServerPath.windows": "C:/Program Files/SEGGER/JLink/JLinkGDBServerCL.exe",
+
+
+2)- in vscode launch.json, I also noticed that the xmc device was not know by my version of segger
+Anyway: when I let modusbox generates an application, it could be that I have afterwards to change
+- the launch.json file to edit the devive name to "XMC1302-0064" (on several places (in launch, Attach, Erase, Program)
+
+
+------------ viewing live data ----------	
+When using Jlink, it is possible to monitor some variable.
+as said here https://www.infineon.com/dgdl/Infineon-Visual-Studio-Code-user-guide-UserManual-v04_00-EN.pdf?fileId=8ac78c8c92416ca50192787be52923b2&redirId=248223
+In launch.json file, it is possible to add in launch config the following lines:
+"liveWatch": {
+ "enabled": true,
+ }
+
+ Then when windows opens the debug session,  add the variable to the CORTEX LIVE WATCH section
+and press the [Enter] key.
+
+
+-------- regenerate vscode files when bsp.mk has been changed
+- when bsp.mk is changed, open modus_shell in the directory of the application and type in the command "make vscode"
+
+
+------ Changing the pin being used ------------------
+It is possible in an application in vscode to open the modustoolbox (an icon in left panel)
+Then there is a list of options; one is bsp/device configurator X.x.
+Selecting it allows to configure other pins, peripherals.
+When those changes are saved, the vscode application is automatically updated in config/generatedSource.
+It is then possible to edit the source (main.c, ...) using the new names defined in the configurator.
+Note: in the device configurator, in tab pin, there is (on the right) a tab Code preview that allows to find the names defined by the configurator (for e.g. the port, the pin, ...)
+
+
+------------------------ To do from FOC
+
+To do
+
+Check how the controller is powered on/off with a signal from the Display
+
+Check uart RX and TX pin (not clear is RX is from XMC or display point of vue)
+Check the levels on the 3 phases pins when motor does not run
+
+
+
+Create own config files
+Currently Configure for an open loop Voltage (or based on the speed) (is this based on define SETTING_TARGET_SPEED)
+
+Remove TRAP_PIN and INVERTER_EN_PIN and TEST_PIN function (not supported by tsdz controller)
+For TRAP there is also a define CCU8_INPUT_TRAP_LEVEL in the custom_inverter.h file
+For Trap, I removed 
+- TRAP_PIN in custom_Mcu.h and gpio.c
+- CCU8 initialisations for TRAP in ccu8_init() in ccu8.c
+Should be removed from interrupt but I expect interrupt should not be called anymore
+
+INVERTER_ENABLE_PIN can now be disable with the #define 
+
+
+For UART best is probably to rewrite it using code generated by modus example
+anyway : test uart // take care that TSDZ8 does not use the same pins for TX and RX
+Pin mapping says  : RX is 0.6 (instead of 1.3 or 1.5), TX is 0.7 (instead of 1.2 or 1.4)
+Still it is not clear if it is RX on controller side or on Display side
+XMC allows 2 configurations for P0.6 and P0.7 on channel 1
+P0.6 can't be use for data in with channel 0; so it is clear that it is for channel 1
+P0.6 can be map to DX0C (= RX) as DATA type for Channel 1 or as DOUT0 (= Tx) for channel 1
+P0.7 can be map to DX0D (= RX) as data type for channel 1 or as DOUT0 (= TX) for channel 1.  
+Uart has to be changed in uart.c file (I already create a new code for one define), change also perhaps the alternate number
+
+
+test debugging
+test probeScope
+set a limit to the speed even when working with torque controller
+Check if it is possible to use group 0 Chanel 1 for DC current measurement when channel 1 is defined as alternate???
+If not, current must probaly be assigned to the default group (not group 0 or 1) or DC current sensor must be disabled
+Disable vdac potentiometer for a first test ; afterward we can connect the tsdz8 throtle.
+
+MCU is a xmc1302-t038x0064 (38 pins, 64k flash, 16k ram, 32Mhz clock , 64Mz for peripherals clocks)
+Functions of pins of xmc13 is in datasheet pg 1252
+Here the pins descriptions from github TSDZ2_motor_controller_v2-test_bldc
+MStrens add that 2 pins are missing : BRAKE(digital) and THROTTLE(ADC)
+Pin	Port	Funktion	                                        Cable color/connector
+1	2.4	    U Battery 1,99V @ 34,6 Vbat																vadc group 1 channel 6
+2	2.5	    Analog input J7 left, J7 right = 5V (not used)											vadc group 1 channel 7
+3	2.6	    Anlalog input over 2k2 to FB Pin XL7005A (Voltage measurement)							vadc group 0 channel 6
+4	2.7	    Ca. 2,2V (unknown origin)																vadc group 1 channel 1
+5	2.8	    Current Total ADC																		vadc group 0 channel 1 and group 1 channel 0
+6	2.9	    Current Phase U ADC																		vadc group 0 channel 2 and group 1 channel 4
+7	2.10	Current Phase V ADC																		vadc group 0 channel 3 and group 1 channel 2
+8	2.11	Current Phase W ADC																		vadc group 0 channel 4 and group 1 channel 3
+9	VSS		
+10	VDD		
+11	1.5	    Light switching output											Sensor cable green
+12	1.4	    high	
+13	1.3	    PWM out Torque sensor, pulse length 2.5µs high, distance 20µs	
+14	1.2	    Hallsensor 3	                                                Hall cable blue
+15	1.1	    Hallsensor 2	                                                Hall cable yellow
+16	1.0	    Hallsensor 1	                                                Hall cable green
+17	0.0	    PWM High Phase U	                                            Motor cable green
+18	0.1	    PWM Low Phase U	
+19	0.2	    PWM High Phase V	                                            Motor cable blue
+20	0.3	    PWM Low Phase V	
+21	0.4	    Speed Signal	                                                Sensor cable white
+22	0.5	    PAS 1 Signal	                                                PAS cable blue
+23	0.6	    RX Display communication	                                    Display cable orange
+24	0.7	    TX Display communication	                                    Display cable brown
+25	VSSP		
+26	VDDP		
+27	0.8	    PWM High Phase W	                                            Motor cable yellow
+28	0.9	    PWM Low Phase W	
+29	0.10		
+30	0.11		
+31	0.12		
+32	0.13	PAS 2 Signal	                                                PAS cable yellow
+33	0.14	SWD Debug Pin	                                                Sensor cable purple
+34	0.15	SWCLK Debug Pin	                                                Sensor cable black
+35	2.0	    Serial signal on unused pad 1	
+36	2.1	    Input from unused pad 2	
+37	2.2	    Analog value torque sensor																vadc group 0 channel 7
+38	2.3	    Analogsignal 2,5V																		vadc group 1 channel 5
+		    Lichtausgang +6V	                                            Sensor cable green
+		    U Mos Driver and torque sensor 12,7V	
+		    GND	                                                            Sensor cable orange
+		    +5V	                                                            Sensor cable brown
+		    GND	                                                            Display cable black
+		    VBatt	                                                        Display cable green
+		    VBatt Motor Ein Spannung kommt von Display	                    Display cable white
+		    Vermutlich Brake Sensor	                                        Display cable purple
+
+Torque sensor supplies negative pulse (approx.5µs) with level that is torque dependent.
+Inductance L = 76µH 36V Motor, 135µH 48V Motor. for TSDZ2 motor.
+
+------------------------- Wiring ----------------
+For the speed sensor connector, I used a extension cable and I cut it.
+Part is connected to Jlink.
+Here the function of the different wires:
+- orange = grnd (to be connected to Jlink)
+- brun = Vcc = Vref when connected to Jlink and controller is not connected to a battery
+- yellow =  speed sensor
+- green = light
+- Red = SWDIO (to be connected to JLink)
+- black = SWCLK (to be connected to jlink)
+
+For the display connector I also used an extension cable (from bafang - T14 with 8 pins)
+The pin out is given at : https://github.com/OpenSourceEBike/TSDZ2_wiki/blob/master/TSDZ2_8Pin_Connector_Higo_B8_Cable_Map_2.jpg
+- Black = Gnd = mid pin
+- White= 4.3V when display is ON
+- Blue = battery (used to power the display with 48V; is present even display is off = direct connection with the battery
+- Read = 48V but only when display is ON; it is used to power the controller it self
+- Yellow = short frames beginning with 0X59: = UART RX from controller point of view
+- Orange = Throttle = voltage between 0 and 3.5 V (100%)
+- Green = Brake = 4.75V when brake is not activated, 0V when brake is activated 
+
+- Brun = longer frame beginning with 0X43 = UART TX from controller point of view
+
+
+
+
+In tsdz2 controller v2 on github (in file pin.h) it is mentioned:
+/* Connections:
+ *
+ * Motor PHASE_A: blue wire
+ * Motor PHASE_B: green wire
+ * Motor PHASE_C: yellow wire
+ * 
+ * LM258
+ * opamp pins 1, 2 and 3, is configured with as a unity gain buffer, providing at output a 2.5 volts signal (probably for the offset voltage used by the other MCP602 opamps measuring the phase currents)
+ * opamp pins 7, 6 and 5, is used to amplify the torque sensor signal.
+ * 
+ * MCP602 1 (near shunt resistor):
+ * opamp pins 1, 2 and 3, green phase resistor measurement, amplification factor 10, 2.5 volts offset
+ * opamp pins 7, 6 and 5, shunt resistor measurement, amplification factor -11
+ * 
+ * MCP602 2:
+ * opamp pins 1, 2 and 3, yellow phase resistor measurement, amplification factor 10, 2.5 volts offset
+ * opamp pins 7, 6 and 5, blue phase resistor measurement, amplification factor 10, 2.5 volts offset
+ *
+ */
+
+// Current shunt: P2.8
+// there is power resistor of 0.003 ohms
+// and then a Non-inverting Operational Amplifier Configuration (MCP602, ouput pin 7), with a gain of -11 (Rf = 10k and R2 = 1k)
+// voltage on this pin is 0 volts when motor is not running
+// VCC = 5 volts and considering ADC is 12 bits mode
+#define CURRENT_SHUNT_ADC_TO_AMPS                       (0.037) // 1 / (0.033 / (5 / 4095))
+#define CURRENT_SHUNT__PORT                             2
+#define CURRENT_SHUNT__PIN                              8
+
+#define BRAKE__PORT                                     PORT0_BASE
+
+///// There is also this in https://www.infineon.com/dgdl/Infineon-AP32370_PMSM_FOC_for_XMC1000_4000-ApplicationNotes-v01_06-EN.pdf?fileId=5546d4626bb628d7016be669c3eb7e60
+@abrainer, on your notes about the pins, you refer that there are inputs for measurements of shunt resistor and also to the 3 motor phases resistor, although I just find measurements to only 2 motor phase resistor:
+- LM258:
+1. opamp working as unity gain buffer, providing at output a 2.5 volts signal for the other opamps using a voltage offset of 2.5 volts.
+2. amplification of the signal related to the torque sensor.
+
+- MCP6022 1 (near shunt resistor):
+1. shunt resistor measurement, amplification factor 10, 2.5 volts offset
+2. shunt resistor measurement, amplification factor -11
+
+- MCP6022 2:
+1. yellow phase resistor measurement, amplification factor 10, 2.5 volts offset
+2. blue phase resistor measurement, amplification factor 10, 2.5 volts offset
+
+
+// it is also some info on TSDZ2 in https://github.com/OpenSourceEBike/TSDZ2_motor_controller_v2/blob/master/README.md
+Technical characteristics of TSDZ2 electric motor:
+there are 2 different motors, one that is 36V and other 48V
+motor voltage: 36V or 48V
+no load speed: 4000 RPM for both motors
+motor resistance: 36V motor has 0.094 ohm, 48V motor has 0.125 ohm
+motor inductance: 36V motor has 76uH, 48V motor has 135uH
+pole pair: 8 for both motors
+
+---------------------
+here a link on using jlink to read peripherals https://stackoverflow.com/questions/35365105/reading-peripheral-register-of-cortex-m0-mcu-using-jlink-and-gdb
+ 
+ There is a tools in seegers named J-mem.exe that allows to access memory
+ It is explained here : https://wiki.segger.com/J-Mem
+ Not sure if it works for peripherals and how long it block the mcu. So best to include a huge resistor to limit the currents (to avoid short circuit in bridge)
+ 
+ 
+ ----------- debugging with jlink in vscode
+ Here a link on how to use jlink in vscode
+ https://wiki.segger.com/J-Link_Visual_Studio_Code
+ 
+ 
+ --------------VADC du xmc13-------------
+ La conversion peut etre demandée par 3 (request) sources différentes: group0 (0), group1 (1) et background(2)
+ Pour celles commandées via un group 0 ou 1, il peut y avoir un ou plusieurs channels (max 8 par group) définis dans une queue ou en scan mode (du plus haut numéro au plus petit)
+ Pour le background, c'est toujours en scan mode mais on peut y associer des channels des 2 groupes
+ A noter qu'une conversion commandée par le background est quand même associée à un groupe (car les multiplexeurs sont au niveau du groupe)
+ Chaque request source peut recevoir un niveau de priorité différent (donc pas de prioité par channel)
+ 
+ Le résultat peut être stocké dans un des 16 registres de chaque groupe (donc 2*16)(il faut en faire un priority result) ou dans un seul registre du background.
+ Même le resultat d'une conversion commandée par le background peut être strockée dans des registres du group associé. Pour cela il ne doit être désigné comme priority result
+ 
+ On peut définir 4 (ou 6?) classes de conversion (sample time, legnth, reference voltage) ; 2 classes par groupe + 2 classes globales; chaque channel peut utiliser une des 4 classes
+ 
+ Les 16 registres résultats peuvent être groupés en FIFO.
+ 
+ On peut générer un service request (interrupt) sur base de 3 types d'event:
+ - source event: quand toutes les conversions d'une des 3 sources est terminée
+ - chanel event : quand la conversion d'un channel déterminé est terminée (peut être associé à des limites de valeurs
+ - result event: quand un résultat est disponible dans un des registres de résultat (à la fin de la réduction de valeur si cela est activé)
+ Les events à utiliser doivent être associés à un node (max 8 nodes, plusieurs évents peuvent être associés au meme node) pour générer un service request;
+ 
+ Chaque channel (0-7) d'un groupe (0-1) peut (ou non) être associé (=priority channel) à son groupe. S'il est associé au groupe, il ne peut être associé au background; sinon il peut aussi être associé au background
+ Chaque registre résultat (0-15) d'un groupe peut (ou non) être associé (=priority result) à son groupe. S'il est associé au groupe, il ne peut être associé au background; sinon il peut aussi être associé au background
+ 
+ Chacune des 3 (séquence de) conversions peut être commandée par software ou par un trigger externe.
+ Pour chaque request source (0-2), on peut définer le trigger ((0-15) et un gate (0-15)
+ 
+ 
+ Quand on utilise une queue , chaque entrée dans la queue précise:
+ - le channel
+ - le fait que cette entrée doit ou non être remise dans la queue après conversion
+ - si un event (request interrupt) doit ou non être généré quand la conversion est faite (note: the service request (1 de 8) to activate is defined in one single register per group, so not per channel)
+ - si un external trigger doit survenir avant de procéder à cette conversion
+ 
+ Pour utiliser une queue, il faut:
+ - remplir la queue avec toutes les entrées voulues
+ - si des triggers souhaités, il faut définir les trigger et gating (result register(0-15), trigger (0-15), trigger type (0-3), gate(0-15), timer mode for equidistant sampling (0-1)
+ - définir les paramètres de l'attribution de chaque request source (priorité, enable , mode de gestion des priorités (wait for end, cancel lower priority)
+
+ Il faut aussi définir (par groupe) le service request (1 de 8) à activer (le registre configure le choix pour un mode queue et pour un mode scan.
+ Il semble que les conversions en background ne peuvent pas générer de service request) (????)
+ 
+ En scan mode, il faut choisir les channels à convertir (= associés dans le group 0, 1 ou le background).
+ Le source request event est généré quand toutes les conversions de la source sont faites (donc pas après certains channels -comme c'est la cas dans le mode queue)
+ Il n'y a qu'un trigger pour commander toute la séquence (= tous les channels associés) (donc pas par channel comme en mode queue)
+ Il faut aussi configuer (pour le groupe 0,1 ou background):
+ - le registre qui stocke résultat (comment mettre chaque channel dans un registre différent???)
+ - le trigger (0-15) qui déclenche la conversion et le mode de trigger (0-3), 
+ - le gate utilisé (0-15)
+ - si un timing entre conversion est utilisé
+ - comment se fait le load des paramètres d'une conversion avec des indicateurs pour
+	- dire si la conversion débute quand il y un channel pending (+ éventuellement un autre flag)
+	- un trigger est activé ou non
+	- un request source interrupt doit être généré ou non
+	- si l'autoscan est activé ou non (= répète les conversion définis dans ce scan)
+	- quelques autres (force un load, un clear, ...
+ - définir les paramètres d'arbitration du groupe (0-2) comme pour le mode queue (priorité, wait/cance, enable)
+ Après avoir confguré, il faut déclencher soit
+ - par un trigger externe
+ - par software avec un load (= 1 bit dans un registre)
+ - écrire directement dans le registre des pending channels
+ En scan mode, le request source event n'est généré que quand tous les channels du scan sont convertits (plus rien dans le pending register)
+ Il semble bien que ceci ne soit possible que pour une conversion du groupe 0 ou 1 (pas pour le background)
+ 
+ Pour chaque channel, on peut définir:
+ - une classe (parmi 4) associée (et donc le latch time, length or compare mode)
+ - une autre référence (Ch0) pour Grnd
+ - une valeur min (parmi 4 et une max (parmi 4) pour comparer avec la valeur de la conversion
+ - si un chanel event interrupt doit être généré ou non (et si oui sur quelle limite)
+ - necessite une synchronisation
+ - si le result est stocké dans le seul background result register ou dans un group specific et si oui lequel (0-15)
+ - si le résultat est aligné à gauche ou à droite
+ - si on doit utiliser la fonction "broken wire" ou non
+ 
+ Result registers
+ - there are 16 registers for each group (0,1) ; the register contains the value and the channel
+ - only one global register; this register contains the value, the channel and the group used for the conversion
+ It is possible to assing a single register (1...15) for
+ - a queue group (0 or 1)
+ - a scan group (0 or 1)
+ - the background scan
+ If the selected register at this level is "0", then the result is stored in the register defined at channel level+group;
+ This can be the global register or one of 16 register of the group
+ 
+ Chaque group result register (2*16 register) doit être configuré pour définir:
+ -un data reduction mode (accumulation, filtering, difference)
+ - comment les valeurs sont accmulées/stockées
+ - overwrite or wait read mode
+ - fifo mode (individual, part of fifo, store min, store max
+ - un service request doit être activé ou non après un nouveau result
+ 
+ Synchronisation:
+ When synchro is activated, when the master group sample channel X, then the same channel in also sample in the other group. Les 2 peuvent avoir des résolution, sample time différents.
+ 
+ 
+ Service request generation.
+ Chacun des 2 groupes + le background peut générer un service request.
+ Le service request peut être généré
+ - quand un request source est convertit (= un channel choisi dans une queue ou tous les channels d'un scan
+ - quand un channel est convertit (évétuellement tenant compte de limites)
+ - quand un result register est rempli (valid)
+ 
+ ----------------- ccu4 --------------------------
+ 
+	4 slices timers 16 bits ; CCU41, CCU42, ...
+	Chaque slice en compare or capture mode; each with 1 pwm output
+ 
+ 
+ -------------- pdf handling
+ 
+ use this to extract some pdf pages when doc is to long : https://www.ilovepdf.com/fr/diviser_pdf#split,range
+ It is then possible to convert pdf to xls with this link : https://www.ilovepdf.com/fr/pdf_en_excel
+ 
+ 
+ ------------ reading peripheral with jlink
+ 
+ In folder data/tsdz8/doc there is some scripts.
+ Open a windows command in the folder programs (x86)/segger/jlink_v612a.
+ then run the command     jlink.exe -CommandFile C:\data\tsdz8\doc\JLinkCommandFile_GPIO.jlink  (GPIO can be changed by VADC, CCU4, CCU8, POSI)
+	enter the command EXIT to close the log file
+	the results should be written in log file in the same folder.
+	
+-------------------------------	compiling and using ucprobe.
+It is explained here : https://www.infineon.com/dgdl/Infineon-Micro-Inspector-Pro-GettingStarted-v02_01-EN.pdf?fileId=5546d462700c0ae601708b3406ee1396
+and here (ask google to translate) : https://www.wpgdadatong.com/blog/detail/74940
+
+Furthermore compilation must be done in order to create a elf file of type DWARF 2, 3 or 4.
+I noticed in example provided by infineon that a makefile must have a line with "CFLAGS=-gdwarf-3" instead of "CFLAGS="
+When this is done, it is possible to open micrium uc/probe.
+Then in this application create a project.
+Click in tab Symbol browser on the ico ELF. It allows to select an elf file (in build folder).
+When this file is imported, a list of data fields is available.
+It is then possible to drag from the Toolbox e.g. a numeric box and afterward to drag a symbol on it.
+It is possible
+- to rename the project
+- to save it (as .wspx file) in folder pc/appdata/Roaming/micrium
+I created e.g. a file test_with_gpio.wspx
+
+Note:  in pmsm infineon project, 
+- this file (PMSM_FOC_SL_XMC1_uCProbe.wspx) is in the same folder as main.c)
+- in order to use the oscilloscope, the project has to be updated to use some files and functions.
+- the project contains also a folder ProbeScope (at the same level as main) that contains 3 files
+	- probe_scope_cfg.h
+	- probe_scope.c
+	- probe_scope.h
+- then in main, there is 
+	- an include
+		#if(uCPROBE_GUI_OSCILLOSCOPE == ENABLED)
+		#include "ProbeScope/probe_scope.h"
+		#endif
+	- a call to 
+		#if(uCPROBE_GUI_OSCILLOSCOPE == ENABLED)
+		ProbeScope_Init(USER_CCU8_PWM_FREQ_HZ);// USER_CCU8_PWM_FREQ_HZ = 20000
+		#endif
+- Then in a function (e.g. in the interrupt that manage the controller at 20khz, there is:
+	- also an include
+		#if (uCPROBE_GUI_OSCILLOSCOPE == ENABLED)
+		#include "../../ProbeScope/probe_scope.h"
+		#endif
+	- a call to a function:
+		#if (uCPROBE_GUI_OSCILLOSCOPE == ENABLED)
+		ProbeScope_Sampling();
+		#endif
+- Then in file .vscode/c_cpp_properties.json we have to add (in order to let the new added files being compiled
+	"mtbDefaultIncludePath": having "ProbeScope"
+
+
+
+
+ 
