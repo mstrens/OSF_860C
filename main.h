@@ -49,9 +49,9 @@
 // ************* Find best global hall offset
 //   this let the motor runs with different hall offset values and display for each the average current
 //   this allows to find the best offset and to fill it in global_offset_angle
-#define PWM_DUTY_CYCLE_MAX_FIND_BEST_GLOBAL_HALL_OFFSET 0 // max value during this process
+#define PWM_DUTY_CYCLE_MAX_FIND_BEST_GLOBAL_HALL_OFFSET 20 // max value during this process
 #define ADC_BATTERY_CURRENT_TARGET_FIND_BEST_GLOBAL_HALL_OFFSET 6 // 1 ADC step = 0,16A ; so 6 = 1A
-#define FIRST_OFFSET_ANGLE_FOR_CALIBRATION (47) // This is the first value used for calibration; it increases every 4 sec up to the max
+#define FIRST_OFFSET_ANGLE_FOR_CALIBRATION (67) // This is the first value used for calibration; it increases every 4 sec up to the max
 #define LAST_OFFSET_ANGLE_FOR_CALIBRATION (FIRST_OFFSET_ANGLE_FOR_CALIBRATION+8) // this is the max value to be tested; select a value that avoid increasing to much the current
 #define CALIBRATE_OFFSET_STEP 1    // 1// step used when increasing the global_offset_angle (normally 1; could be set to 0 for some kind of test)
 
