@@ -4,7 +4,7 @@ This repository is a fork of this "mbrusa" project https://github.com/emmebrusa/
 The purpose here is to have a version that can be used on a TSDZ8 Tongsheng motor.
 
 
-Note: this version requires that the 860C display is reprogrammed with a special firmware. This firmware has also been developped by mbrusa for the TSDZ2. This TSDZ8 version uses exactly the same firmware on the 860C display. So, to know how to install and use it, please look at the mbrusa project mentionned here above. 
+Note: this version requires that the 860C display is reprogrammed with a special firmware. This firmware has also been developped by mbrusa for the TSDZ2. This TSDZ8 version uses exactly the same firmware on the 860C display. So, to know how to install and to use it, please look at the mbrusa project mentionned here above. 
 
 
 Changes of the controller firmware were required because TSDZ8 uses a different microprocessor (XMC1302).
@@ -64,7 +64,7 @@ To flash, you can follow the instructions from here to know how to use Jlink:
 https://ebikestuff.eu/en/content/18-tsdz8-firmware-update-using-j-link-jlink-v9-programming-kit
 
 The HEX file to upload is the one you downloaded from this github site at step 1.
-It is named OSF_TSDZ8_860C_Vxx_xx.hex where xx.xx is a version number.
+It is named OSF_TSDZ8_860C_Vxx_xx_xx.hex where xx_xx_xx is a version number.
 
 Note: while flashing, the motor should not be powered by the battery. Disconnect it or at least power it OFF. In principe, the Jkink will provide power to the controller (at least if it is a Jlink clone device).
 It seems possible to keep the motor connected the display but do not press any button on the display.

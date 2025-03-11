@@ -45,9 +45,7 @@ extern "C" {
 #define ccu4_0_ENABLED 1U
 #define ccu4_0_NUM 0U
 #define ccu4_0_HW CCU40
-#define ccu4_0_SR0_INTERRUPT_HANDLER CCU40_0_IRQHandler
 #define ccu4_0_SR1_INTERRUPT_HANDLER CCU40_1_IRQHandler
-#define ccu4_0_SR0_IRQN CCU40_0_IRQn
 #define ccu4_0_SR1_IRQN CCU40_1_IRQn
 #define HALL_DELAY_TIMER_ENABLED 1U
 #define HALL_DELAY_TIMER_NUM 0U
@@ -57,10 +55,6 @@ extern "C" {
 #define HALL_SPEED_TIMER_NUM 1U
 #define HALL_SPEED_TIMER_HW CCU40_CC41
 #define HALL_SPEED_TIMER_TICK_NS 4000U
-#define RUNNING_250KH_TIMER_ENABLED 1U
-#define RUNNING_250KH_TIMER_NUM 2U
-#define RUNNING_250KH_TIMER_HW CCU40_CC42
-#define RUNNING_250KH_TIMER_TICK_NS 4000U
 #define PWM_TORQUE_TIMER_ENABLED 1U
 #define PWM_TORQUE_TIMER_NUM 3U
 #define PWM_TORQUE_TIMER_HW CCU40_CC43
@@ -147,10 +141,6 @@ extern const XMC_CCU4_SLICE_CAPTURE_CONFIG_t HALL_SPEED_TIMER_capture_config;
 extern const XMC_CCU4_SLICE_EVENT_CONFIG_t HALL_SPEED_TIMER_event0_config;
 extern const XMC_CCU4_SLICE_EVENT_CONFIG_t HALL_SPEED_TIMER_event1_config;
 extern const XMC_CCU4_SLICE_EVENT_CONFIG_t HALL_SPEED_TIMER_event2_config;
-extern const XMC_CCU4_SLICE_COMPARE_CONFIG_t RUNNING_250KH_TIMER_compare_config;
-extern const XMC_CCU4_SLICE_EVENT_CONFIG_t RUNNING_250KH_TIMER_event0_config;
-extern const XMC_CCU4_SLICE_EVENT_CONFIG_t RUNNING_250KH_TIMER_event1_config;
-extern const XMC_CCU4_SLICE_EVENT_CONFIG_t RUNNING_250KH_TIMER_event2_config;
 extern const XMC_CCU4_SLICE_COMPARE_CONFIG_t PWM_TORQUE_TIMER_compare_config;
 extern const XMC_CCU4_SLICE_EVENT_CONFIG_t PWM_TORQUE_TIMER_event0_config;
 extern const XMC_CCU4_SLICE_EVENT_CONFIG_t PWM_TORQUE_TIMER_event1_config;
@@ -182,19 +172,30 @@ extern XMC_VADC_GROUP_CONFIG_t vadc_0_group0_init_config;
 extern XMC_VADC_GROUP_CONFIG_t vadc_0_group1_init_config;
 extern const XMC_VADC_GLOBAL_CONFIG_t vadc_0_config;
 extern const XMC_VADC_BACKGROUND_CONFIG_t vadc_0_background_scan_config;
+extern const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_0_queue_entries_0;
+extern const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_0_queue_entries_1;
+extern const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_0_queue_entries_2;
+extern const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_0_queue_entries_3;
+extern const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_0_queue_entries_4;
+extern const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_0_queue_entries_5;
 extern const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_0_queue_entries_6;
 extern const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_0_queue_entries_7;
-extern const XMC_VADC_RESULT_CONFIG_t vadc_0_group_0_result_8_config;
+extern const XMC_VADC_RESULT_CONFIG_t vadc_0_group_0_result_15_config;
 extern const XMC_VADC_RESULT_CONFIG_t vadc_0_group_0_result_2_config;
 extern const XMC_VADC_QUEUE_CONFIG_t vadc_0_group_0_queue_config;
 extern const XMC_VADC_GROUP_CLASS_t vadc_0_0_iclass_0;
 extern const XMC_VADC_GROUP_CLASS_t vadc_0_0_iclass_1;
 extern const XMC_VADC_CHANNEL_CONFIG_t G0_CH1_CURRENT_P2_8_config;
 extern const XMC_VADC_CHANNEL_CONFIG_t G0_CH7_TORQUE_P2_2_config;
+extern const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_1_queue_entries_0;
+extern const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_1_queue_entries_1;
+extern const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_1_queue_entries_2;
+extern const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_1_queue_entries_3;
+extern const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_1_queue_entries_4;
 extern const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_1_queue_entries_5;
 extern const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_1_queue_entries_6;
 extern const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_1_queue_entries_7;
-extern const XMC_VADC_RESULT_CONFIG_t vadc_0_group_1_result_12_config;
+extern const XMC_VADC_RESULT_CONFIG_t vadc_0_group_1_result_15_config;
 extern const XMC_VADC_RESULT_CONFIG_t vadc_0_group_1_result_4_config;
 extern const XMC_VADC_RESULT_CONFIG_t vadc_0_group_1_result_5_config;
 extern const XMC_VADC_QUEUE_CONFIG_t vadc_0_group_1_queue_config;

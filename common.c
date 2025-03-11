@@ -51,7 +51,7 @@ uint16_t map_ui16(uint16_t in, uint16_t in_min, uint16_t in_max, uint16_t out_mi
 // Returns the mapped value within the specified output range.
 uint8_t map_ui8(uint8_t in, uint8_t in_min, uint8_t in_max, uint8_t out_min, uint8_t out_max) {
     // If input is out of bounds, clamp it to the nearest boundary value
-    if (in < in_min) {return out_min;}
+    if (in <= in_min) {return out_min;}
     if (in >= in_max) {return out_max;}
 
     if (out_max < out_min) {

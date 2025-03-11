@@ -23,10 +23,9 @@
 #include "ProbeScope/probe_scope.h"
 #endif
 
-#include "uart.h"
 #include "motor.h"
 #include "ebike_app.h"
-#include "eeprom.h"
+//#include "eeprom.h"
 
 
 /*******************************************************************************
@@ -69,20 +68,13 @@ extern volatile uint32_t posif_SR0;
 extern volatile uint32_t posif_SR1;
 extern volatile uint32_t posif_print_current_pattern ;
 
-extern volatile uint32_t hall_pattern_irq;                   // current hall pattern
-extern volatile uint16_t hall_pattern_change_ticks_irq; // ticks from ccu4 slice 2 for last pattern change
+extern volatile uint8_t current_hall_pattern;                   // current hall pattern
 extern uint8_t  previous_hall_pattern; 
 
 extern volatile uint16_t ui16_a ;
 extern volatile uint16_t ui16_b ;
 extern volatile uint16_t ui16_c ;
-extern uint8_t ui8_svm_table_index_print  ; 
-extern uint16_t ui16_temp_print  ;
-extern uint16_t ui16_a_print ;
-extern uint16_t ui16_new_angle_print; 
-uint16_t ccu4_S2_timer ; 
-extern uint16_t current_average ;
-extern uint16_t hall_pattern_intervals[8];
+
 // to measure time in irq
 extern volatile uint16_t debug_time_ccu8_irq0; // to debug time in irq0 CCU8 (should be less than 25usec; 1 = 4 usec )
 extern volatile uint16_t debug_time_ccu8_irq1; // to debug time in irq0 CCU8 (should be less than 25usec; 1 = 4 usec )
@@ -93,16 +85,20 @@ extern volatile uint16_t debug_time_ccu8_irq1e; // to debug time in irq0 CCU8 (s
 
 extern volatile uint8_t ui8_adc_battery_current_filtered;
 extern uint8_t ui8_battery_current_filtered_x10;
-extern uint16_t ui16_adc_battery_current_acc_X8;
 extern uint16_t ui16_display_data_factor; 
 extern volatile uint8_t ui8_g_foc_angle;
 extern uint8_t ui8_throttle_adc_in;
 
-#if (PROCESS == FIND_BEST_GLOBAL_HALL_OFFSET)
-extern uint16_t calibration_offset_current_average_to_display;
-extern uint16_t calibration_offset_angle_to_display;
-#endif
-extern uint8_t global_offset_angle;
+extern volatile uint8_t ui8_best_ref_angles[8] ;
+extern uint32_t best_ref_angles_X16bits[8] ;
+
+extern volatile uint16_t ui16_adc_motor_phase_current;
+extern volatile uint16_t ui16_adc_motor_phase_current_max;
+extern volatile uint16_t ui16_hall_counter_total;
+extern volatile uint16_t ui16_adc_voltage;
+extern volatile uint16_t ui16_adc_voltage_cut_off;
+
+extern uint8_t hall_reference_angle;
 extern uint8_t ui8_m_system_state;
 /*******************************************************************************
 * Function Name: SysTick_Handler
@@ -152,6 +148,13 @@ int main(void)
     {
         CY_ASSERT(0);
     }
+       
+
+    // fill table used for knowing the best hall pattern positions
+    for (uint8_t i = 0; i<8 ; i++) { 
+        ui8_best_ref_angles[i] = ui8_hall_ref_angles[i];
+        best_ref_angles_X16bits[i] = ui8_hall_ref_angles[i] << 8;
+    } // init best value with reference values.
 
     #if(uCPROBE_GUI_OSCILLOSCOPE == MY_ENABLED)
     ProbeScope_Init(20000);
@@ -209,8 +212,7 @@ int main(void)
 
     // **** load the config from flash
     XMC_WDT_Service();
-    // todo should be adapted to get them from flash memory; currently we only use default)
-    //init_extra_fields_config (); // get the user parameters (
+    //init_extra_fields_config (); // get the user parameters from flash
     // todo : change when eeprom is coded properly add some initialisation (e.g. m_configuration_init() and ebike_app.init)
     // currently it is filled with parameters from user setup + some dummy values (e.g. for soc)
     //m_configuration_init();
@@ -224,8 +226,8 @@ int main(void)
     XMC_POSIF_Start(HALL_POSIF_HW);
     
     // set interrupt 
-    NVIC_SetPriority(CCU40_1_IRQn, 0U); //capture hall pattern and slice 2 time when a hall change occurs
-	NVIC_EnableIRQ(CCU40_1_IRQn);
+//    NVIC_SetPriority(CCU40_1_IRQn, 0U); //capture hall pattern and slice 2 time when a hall change occurs
+//	NVIC_EnableIRQ(CCU40_1_IRQn);
     /* CCU80_0_IRQn and CCU80_1_IRQn. slice 3 interrupt on counting up and down. at 19 khz to manage rotating flux*/
 	NVIC_SetPriority(CCU80_0_IRQn, 1U);
 	NVIC_EnableIRQ(CCU80_0_IRQn);
@@ -247,12 +249,7 @@ int main(void)
     //XMC_VADC_GLOBAL_EnablePostCalibration(vadc_0_HW, 1U);
     //XMC_VADC_GLOBAL_StartupCalibration(vadc_0_HW);
     
-    #if (PROCESS == DETECT_HALL_SENSORS_POSITIONS ) // is not done when we are just testing slow motion to detect hall pattern
-    XMC_WDT_Stop();  // do not use watchdog when running this part of the code
-    log_hall_sensor_position();  // let the motor run slowly (10 turns) in each direction, log via jlink the angles of hall pattern changes
-    // note: this function never ends
-    #endif
-    start = system_ticks;
+   start = system_ticks;
     
 //***************************** while ************************************
     while (1) // main loop
@@ -267,24 +264,24 @@ int main(void)
         }
         // must be activated for real production
         // Here we should call a funtion every 25 msec (based on systick or on an interrupt based on a CCU4 timer)
-        #if (PROCESS != DETECT_HALL_SENSORS_POSITIONS )
         if ((system_ticks - loop_25ms_ticks) > 25) { 
             loop_25ms_ticks = system_ticks;
             ebike_app_controller();  // this performs some checks and update some variable every 25 msec
         }
-        #endif
-              
+   
         #if (uCPROBE_GUI_OSCILLOSCOPE == MY_ENABLED)
         ProbeScope_Sampling(); // this should be moved e.g. in a interrupt that run faster
         #endif
         
         // for debug
+
         #if (DEBUG_ON_JLINK == 1)
          // do debug if communication with display is working
         //if( take_action(1, 250)) SEGGER_RTT_printf(0,"Light is= %u\r\n", (unsigned int) ui8_lights_button_flag);
         if (ui8_m_system_state) { // print a message when there is an error detected
             if( take_action(1,200)) jlink_print_system_state();
         }
+
 //        if( take_action(2, 500)) SEGGER_RTT_printf(0,"Adc current= %u adcX8=%u  current_Ax10=%u  factor=%u\r\n", 
 //            (unsigned int) ui8_adc_battery_current_filtered ,
 //            (unsigned int) ui16_adc_battery_current_acc_X8 ,
@@ -305,52 +302,21 @@ int main(void)
             //(unsigned int) ui8_motor_enabled
         );
         */
-        // monitor results of find best global hall offset
-        #if ( PROCESS == FIND_BEST_GLOBAL_HALL_OFFSET ) 
-        if( take_action(4 , 500)) SEGGER_RTT_printf(0,"offset=%u current=%u erps=%u foc%u   dctarg=%u dc=%u    ctarg=%u cfilt=%u\r\n",
-            (unsigned int) calibration_offset_angle_to_display ,
-            (unsigned int) calibration_offset_current_average_to_display,
-            (unsigned int) ui16_motor_speed_erps,
-            (unsigned int) ui8_g_foc_angle,
-            (unsigned int) ui8_controller_duty_cycle_target,
-            (unsigned int) ui8_g_duty_cycle,
-            (unsigned int) ui8_controller_adc_battery_current_target,
-            (unsigned int) ui8_adc_battery_current_filtered
-        );
-        #endif
-        #if ( PROCESS == TEST_WITH_FIXED_DUTY_CYCLE ) || ( PROCESS == TEST_WITH_THROTTLE )
-        if( take_action(5, 200)) {
-            uint16_t adc_throttle = XMC_VADC_GROUP_GetResult(vadc_0_group_1_HW , 5 ) & 0x0FFF;
+
+        #define DEBUG_HALL_POSITIONS (1)
+        #if (DEBUG_HALL_POSITIONS == (1) )
+        if( take_action(6, 5000)) {
             SEGGER_RTT_printf(0,
-            "trotl=%u  bcT=%u cbcT=%u bcF=%u   dcT=%u cdcT=%u  gdc=%u   erps=%u foc%u  moEn=%u t1=%u t2=%u t3=%u t4=%u t5=%u t6=%u m1=%u m2=%u thr=%u\r\n",
-                (unsigned int) ui8_throttle_adc_in,
-
-                (unsigned int) ui8_adc_battery_current_target,
-                (unsigned int) ui8_controller_adc_battery_current_target,
+            "c10b=%u  dc=%u erps=%u t360=%u  best1=%u best2=%u best3=%u best4=%u best5=%u best6=%u\r\n",
                 (unsigned int) ui8_adc_battery_current_filtered,
-
-                (unsigned int) ui8_duty_cycle_target,
-                (unsigned int) ui8_controller_duty_cycle_target,
                 (unsigned int) ui8_g_duty_cycle,
-                
                 (unsigned int) ui16_motor_speed_erps,
-                (unsigned int) ui8_g_foc_angle,
-                (unsigned int) ui8_motor_enabled,
-
-                (unsigned int) mstest1,
-                (unsigned int) mstest2,
-                (unsigned int) mstest3,
-                (unsigned int) mstest4,
-                (unsigned int) mstest5,
-                (unsigned int) mstest6,
-                (unsigned int) ui8_adc_battery_current_max_temp_1,
-                (unsigned int)  ui8_adc_battery_current_max_temp_2,
-
-                (unsigned int) adc_throttle
-                );
-        }        
+                (unsigned int) ui16_hall_counter_total,
+                ui8_best_ref_angles[1], ui8_best_ref_angles[2], ui8_best_ref_angles[3], ui8_best_ref_angles[4], ui8_best_ref_angles[5], ui8_best_ref_angles[6]
+            );
+        }
         #endif
-        #endif    
+        #endif    // end DEBUG_ON_JLINK
        
     } // end while main loop
 }

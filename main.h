@@ -9,71 +9,44 @@
 #ifndef _MAIN_H_
 #define _MAIN_H_
 
-#include "config.h"
+//#include "config.h"
 #include "common.h"
 
-#define VERSION "0.0.0"
+#define FIRMWARE_VERSION "0.1.5"      // is not used; just for reference)
+//#define MAIN_CONFIGURATOR_VERSION 2   // for configurator (must be the same as in xls sheet)
+//#define SUB_CONFIGURATOR_VERSION 1    // is not used (just for reference)
 
-#define DEBUG_ON_JLINK         (1)  // when 1, messages are generated on jlink; best is to connect only 3 wires (grnd + SWO and S???)
+#define DEBUG_ON_JLINK         (0)  // when 1, messages are generated on jlink; best is to connect only 3 wires (grnd + SWO and S???)
 
-
-#define NORMAL_OPERATIONS             0
-#define DETECT_HALL_SENSORS_POSITIONS 1 // rotate the motor in both directions very slowly and performs some calculations
-#define FIND_BEST_GLOBAL_HALL_OFFSET  2 // rotate the motor with progressive values of hall offset to find the best one
-#define TEST_WITH_FIXED_DUTY_CYCLE    3 // rotate the motor with fixed duty cycle and a max current target
-#define TEST_WITH_THROTTLE            4 // rotate the motor with a duty cycle based on throttle
-// this define selects the main way the firmware is used; select one of the 5 options here above
-#define PROCESS  NORMAL_OPERATIONS  
-
-#define USE_CONFIG_FROM_COMPILATION (0)  // this should normally be set on 0; set to 1 only if you want to give priority to
+#define USE_CONFIG_FROM_COMPILATION (0)  // this should normally be set on 0; Then values defined in configurator and stored in flash are applied
+                                        // set to 1 only if you want to give priority to
                                          // the parameters defined in config.h and used for compilation
                                          // this can be convenient for testing/debugging
 
-// ***************** setup to detect hall sensors positions -- to be done only once for a new motor
-    // There may not be a load on the motor
-    // we rotate the motor in both directions and report via jlink the angles that provides a change of the hall pattern
-    // For each hall pattern (1...6), then we have to calculate (e.g. in xls) the average of the angles from forward and reverse 
-    // those averages are then strored in a table
-    // Note: after the rotations in both directions the program stops (infinite loop) and PWM are disabled.
-    // We never call the main loop during this test
-    // during this test, do not forget to enable debug messages on Jlink ; #define DEBUG_ON_JLINK (1)
-// 0 is the code for production (run the motor detecting hall pattern changes and adapating flux for rotation)
-#define DUTY_CYLE_CAL_HALL_SENSORS_POSITIONS_1 30 // 255 is 100% and is unsecure; max seems to be 35 with delay 5 ; 30 is good for 36V
-#define WAIT_TIME_MS_CAL_HALL_SENSORS_POSITIONS_1 5 // could be e.g. up to 10 when duty cycle is lower
-#define DUTY_CYLE_CAL_HALL_SENSORS_POSITIONS_2 20 // max was 40 with wait = 1 ; 20 is good with 36V
-#define WAIT_TIME_MS_CAL_HALL_SENSORS_POSITIONS_2 5 // it was first tested with 10
-#define MAX_CURRENT_A_CAL_HALL_SENSORS_POSITIONS 6  // max current in A that is allowed during this test (6 seems more than eneough)
-#define NUMBER_OF_ROTATION_CAL_SENSORS_POSITIONS 16  // number of electrical rotations to do to get average (if magnets are OK there are no big differences)
-// Note!!!! using to high duty cycles and/or wait time and or max current or rotation could damage the motor/controller (heating)
 
-// ************* Find best global hall offset
-//   this let the motor runs with different hall offset values and display for each the average current
-//   this allows to find the best offset and to fill it in global_offset_angle
-#define PWM_DUTY_CYCLE_MAX_FIND_BEST_GLOBAL_HALL_OFFSET 20 // max value during this process
-#define ADC_BATTERY_CURRENT_TARGET_FIND_BEST_GLOBAL_HALL_OFFSET 6 // 1 ADC step = 0,16A ; so 6 = 1A
-#define FIRST_OFFSET_ANGLE_FOR_CALIBRATION (67) // This is the first value used for calibration; it increases every 4 sec up to the max
-#define LAST_OFFSET_ANGLE_FOR_CALIBRATION (FIRST_OFFSET_ANGLE_FOR_CALIBRATION+8) // this is the max value to be tested; select a value that avoid increasing to much the current
-#define CALIBRATE_OFFSET_STEP 1    // 1// step used when increasing the global_offset_angle (normally 1; could be set to 0 for some kind of test)
+// default parameters for easy testing;  can be changed with uc_probe
+#define DEFAULT_TEST_MODE_FLAG        NORMAL_RUNNING_MODE              // or TESTING_MODE 
 
-// ************* TEST WITH FIXED_DUTY_CYCLE *****************
-#define PWM_DUTY_CYCLE_MAX_TEST_WITH_FIXED_DUTY_CYCLE 20 // max is 254 !!!
-#define ADC_BATTERY_CURRENT_TARGET_TEST_WITH_FIXED_DUTY_CYCLE (6) // 1 adc step = 0,16A; so 6 = 1A
-        
-// ************* TEST WITH THROTTLE *****************
-// pwm_duty_cycle = 255 (set in ebike_app.c)
-#define ADC_BATTERY_CURRENT_TARGET_TEST_WITH_THROTTLE (40)// 1 adc step = 0,16A; so 6 = 1A
+// parameters that can be adapted when in testing mode
+#define DEFAULT_BATTERY_CURRENT_TARGET_TESTING_A    3 // in Amp ; value set for safety when testing
+#define DEFAULT_DUTY_CYCLE_TARTGET_TESTING          150      // max 255 ; can be changed in uc_probe
+
+
+// here the 2 modes; note TESTING_MODE = allow e.g. to find best global offset angle or to run at a fixed duty cycle
+#define NORMAL_RUNNING_MODE 0     // motor run as usual
+#define TESTING_MODE 1    // motor is controlled by a few set up defined in uc_probe
+
+
 
 // *************** from here we have more general parameters 
 
-// this is the value provided by the find best hall sensor offset process
-// it is used for NORMAL_OPERATION, TEST_WITH_FIXED_DUTY_CYCLE and TEST_WITH_TROTTLE
-#define CALIBRATED_OFFSET_ANGLE 70   
+// this value can be optimized using uc_probe and changing slightly the "global offset angle" in order to get the lowest measured current for a given duty cycle 
+#define DEFAULT_HALL_REFERENCE_ANGLE 66
 
 // for CCU4 slice 2
 #define HALL_COUNTER_FREQ                       250000U // 250KHz or 4us
 
-#define PWM_DUTY_CYCLE_MAX						254
-#define PWM_DUTY_CYCLE_MAX_NORMAL_OPERATIONS	254   // it is normally 255 but this seems to high because we exceed the max timer value        
+#define PWM_DUTY_CYCLE_MAX                      254     
 #define PWM_DUTY_CYCLE_STARTUP	                30    // Initial PWM Duty Cycle at motor startup
 
 
@@ -116,29 +89,32 @@
 // for TSDZ2
 //#define MOTOR_SPEED_FIELD_WEAKENING_MIN			490 // 90 rpm
 //#define ERPS_SPEED_OF_MOTOR_REENABLING				320 // 60 rpm
-//For TSDZ8, I expect that there must 2 * more ticks to reach the same mecanical speed
-#define MOTOR_SPEED_FIELD_WEAKENING_MIN				980 // 90 rpm
-#define ERPS_SPEED_OF_MOTOR_REENABLING				640 // 60 rpm
+//For TSDZ8, I expect that it must be 2 * smaller for the same mecanical speed (4 poles instead of 8)
+#define MOTOR_SPEED_FIELD_WEAKENING_MIN				245 // 90 rpm
 
+// for TSDZ8 is must be 2 * smaller (320 for TSDZ2 becomes 160)
+#define ERPS_SPEED_OF_MOTOR_REENABLING						160 // 60 rpm
 
-#define MOTOR_SPEED_FIELD_WEAKEANING_MIN				980
 // foc angle multiplier
-// 48 volt motor
-#define FOC_ANGLE_MULTIPLIER					39   // 39 for TSDZ2 48V, still to check for TSDZ8 because it depends on L
+// TSDZ2 48 volt motor has inductance = 135uH and 8 poles;
+// It seems TSDZ8 motor has an inductance of 180 uH and 4 poles
+// So, TSDZ2 uses a multiplier = 39, TSDZ8 should use 39 * 180 / 135 * 4 / 8 = 26  (foc is based on erps*L*I/V) 
+// I reduce it because erps should be 2X lower due to the reduced number of poles
+#define FOC_ANGLE_MULTIPLIER					26
 
 
 // cadence
 #define CADENCE_SENSOR_CALC_COUNTER_MIN                         (uint16_t)((uint32_t)PWM_CYCLES_SECOND*100U/446U)  // 3500 at 15.625KHz ; 4270 at 19kHz
 #define CADENCE_SENSOR_TICKS_COUNTER_MIN_AT_SPEED               (uint16_t)((uint32_t)PWM_CYCLES_SECOND*10U/558U)   // 280 at 15.625KHz ; 341 at 19 khz
 #define CADENCE_TICKS_STARTUP                                   (uint16_t)((uint32_t)PWM_CYCLES_SECOND*10U/25U)  // 7619 ui16_cadence_sensor_ticks value for startup. About 7-8 RPM (6250 at 15.625KHz)
-//#define CADENCE_SENSOR_STANDARD_MODE_SCHMITT_TRIGGER_THRESHOLD	(uint16_t)((uint32_t)PWM_CYCLES_SECOND*10U/446U)	// software based Schmitt trigger to stop motor jitter when at resolution limits (350 at 15.625KHz)
 #define CADENCE_SENSOR_STANDARD_MODE_SCHMITT_TRIGGER_THRESHOLD	(uint16_t)((uint32_t)PWM_CYCLES_SECOND*10U/892U)	// Quick stop value as version 4.4
-
 
 // Wheel speed sensor
 #define WHEEL_SPEED_SENSOR_TICKS_COUNTER_MAX			(uint16_t)((uint32_t)PWM_CYCLES_SECOND*10U/1157U)   // 164 at 19 khz (135 at 15,625KHz) something like 200 m/h with a 6'' wheel
 #define WHEEL_SPEED_SENSOR_TICKS_COUNTER_MIN			(uint16_t)((uint32_t)PWM_CYCLES_SECOND*1000U/477U) // 32767@15625KHz could be a bigger number but will make for a slow detection of stopped wheel speed
+
 #define WHEEL_SPEED_SENSOR_SIMULATION					0
+
 
 
 
@@ -259,7 +235,7 @@ HALL_COUNTER_OFFSET_UP:    29 -> 44
 
 // smooth start ramp
 #define SMOOTH_START_RAMP_DEFAULT				165 // from 860C 35% (255=0% long ramp)
-#define SMOOTH_START_RAMP_MIN					30  // from 860C
+#define SMOOTH_START_RAMP_MIN   				30
 
 
 // torque step mode Not used in 860C
@@ -559,5 +535,6 @@ HALL_COUNTER_OFFSET_UP:    29 -> 44
 #define AVAIABLE_FOR_FUTURE_USE				0 // EEPROM
 
 #define ADDRESS_OF_M_CONFIG_FLASH 0x1000F000U // address in flash where the config is strored (must be the same as the adrress set in the xls for config)
+
     
-#endif // _MAIN_H_
+#endif // USE_TSDZ8_VLCD5_VERSION

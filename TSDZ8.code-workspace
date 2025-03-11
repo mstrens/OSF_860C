@@ -26,7 +26,8 @@
         "cortex-debug.JLinkGDBServerPath.linux": "JLinkGDBServerCLExe",
         "files.associations": {
             "motor.h": "c",
-            "segger_rtt.h": "c"
+            "segger_rtt.h": "c",
+            "probe_scope.h": "c"
         }
     },
     "extensions": {

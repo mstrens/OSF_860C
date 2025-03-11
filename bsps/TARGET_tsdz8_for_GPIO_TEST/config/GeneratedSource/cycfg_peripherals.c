@@ -67,7 +67,7 @@ const XMC_CCU4_SLICE_EVENT_CONFIG_t HALL_DELAY_TIMER_event2_config =
 const XMC_CCU4_SLICE_CAPTURE_CONFIG_t HALL_SPEED_TIMER_capture_config =
 {
     .fifo_enable = false,
-    .timer_clear_mode = XMC_CCU4_SLICE_TIMER_CLEAR_MODE_ALWAYS,
+    .timer_clear_mode = XMC_CCU4_SLICE_TIMER_CLEAR_MODE_NEVER,
     .same_event = false,
     .ignore_full_flag = true,
     .prescaler_mode = XMC_CCU4_SLICE_PRESCALER_MODE_NORMAL,
@@ -89,39 +89,6 @@ const XMC_CCU4_SLICE_EVENT_CONFIG_t HALL_SPEED_TIMER_event1_config =
     .duration = XMC_CCU4_SLICE_EVENT_FILTER_DISABLED,
 };
 const XMC_CCU4_SLICE_EVENT_CONFIG_t HALL_SPEED_TIMER_event2_config =
-{
-    .edge = XMC_CCU4_SLICE_EVENT_EDGE_SENSITIVITY_NONE,
-    .level = XMC_CCU4_SLICE_EVENT_LEVEL_SENSITIVITY_ACTIVE_HIGH,
-    .duration = XMC_CCU4_SLICE_EVENT_FILTER_DISABLED,
-};
-const XMC_CCU4_SLICE_COMPARE_CONFIG_t RUNNING_250KH_TIMER_compare_config =
-{
-    .timer_mode = XMC_CCU4_SLICE_TIMER_COUNT_MODE_EA,
-    .monoshot = XMC_CCU4_SLICE_TIMER_REPEAT_MODE_REPEAT,
-    .shadow_xfer_clear = false,
-    .dither_timer_period = false,
-    .dither_duty_cycle = false,
-    .prescaler_mode = XMC_CCU4_SLICE_PRESCALER_MODE_NORMAL,
-    .mcm_enable = false,
-    .prescaler_initval = XMC_CCU4_SLICE_PRESCALER_256,
-    .float_limit = XMC_CCU4_SLICE_PRESCALER_32768,
-    .dither_limit = 0U,
-    .passive_level = XMC_CCU4_SLICE_OUTPUT_PASSIVE_LEVEL_LOW,
-    .timer_concatenation = false,
-};
-const XMC_CCU4_SLICE_EVENT_CONFIG_t RUNNING_250KH_TIMER_event0_config =
-{
-    .edge = XMC_CCU4_SLICE_EVENT_EDGE_SENSITIVITY_NONE,
-    .level = XMC_CCU4_SLICE_EVENT_LEVEL_SENSITIVITY_ACTIVE_HIGH,
-    .duration = XMC_CCU4_SLICE_EVENT_FILTER_DISABLED,
-};
-const XMC_CCU4_SLICE_EVENT_CONFIG_t RUNNING_250KH_TIMER_event1_config =
-{
-    .edge = XMC_CCU4_SLICE_EVENT_EDGE_SENSITIVITY_NONE,
-    .level = XMC_CCU4_SLICE_EVENT_LEVEL_SENSITIVITY_ACTIVE_HIGH,
-    .duration = XMC_CCU4_SLICE_EVENT_FILTER_DISABLED,
-};
-const XMC_CCU4_SLICE_EVENT_CONFIG_t RUNNING_250KH_TIMER_event2_config =
 {
     .edge = XMC_CCU4_SLICE_EVENT_EDGE_SENSITIVITY_NONE,
     .level = XMC_CCU4_SLICE_EVENT_LEVEL_SENSITIVITY_ACTIVE_HIGH,
@@ -194,9 +161,9 @@ const XMC_CCU8_SLICE_DEAD_TIME_CONFIG_t PHASE_U_TIMER_dead_time_config =
     .channel1_inv_st_path = true,
     .channel2_inv_st_path = false,
     .div = XMC_CCU8_SLICE_DTC_DIV_1,
-    .channel1_st_rising_edge_counter = 24,
+    .channel1_st_rising_edge_counter = 100,
     .channel2_st_rising_edge_counter = 0,
-    .channel1_st_falling_edge_counter = 24,
+    .channel1_st_falling_edge_counter = 100,
     .channel2_st_falling_edge_counter = 0,
 };
 const XMC_CCU8_SLICE_EVENT_CONFIG_t PHASE_U_TIMER_event0_config =
@@ -252,9 +219,9 @@ const XMC_CCU8_SLICE_DEAD_TIME_CONFIG_t PHASE_V_TIMER_dead_time_config =
     .channel1_inv_st_path = true,
     .channel2_inv_st_path = false,
     .div = XMC_CCU8_SLICE_DTC_DIV_1,
-    .channel1_st_rising_edge_counter = 24,
+    .channel1_st_rising_edge_counter = 100,
     .channel2_st_rising_edge_counter = 0,
-    .channel1_st_falling_edge_counter = 24,
+    .channel1_st_falling_edge_counter = 100,
     .channel2_st_falling_edge_counter = 0,
 };
 const XMC_CCU8_SLICE_EVENT_CONFIG_t PHASE_V_TIMER_event0_config =
@@ -310,9 +277,9 @@ const XMC_CCU8_SLICE_DEAD_TIME_CONFIG_t PHASE_W_TIMER_dead_time_config =
     .channel1_inv_st_path = true,
     .channel2_inv_st_path = false,
     .div = XMC_CCU8_SLICE_DTC_DIV_1,
-    .channel1_st_rising_edge_counter = 24,
+    .channel1_st_rising_edge_counter = 100,
     .channel2_st_rising_edge_counter = 0,
-    .channel1_st_falling_edge_counter = 24,
+    .channel1_st_falling_edge_counter = 100,
     .channel2_st_falling_edge_counter = 0,
 };
 const XMC_CCU8_SLICE_EVENT_CONFIG_t PHASE_W_TIMER_event0_config =
@@ -476,6 +443,48 @@ const XMC_VADC_BACKGROUND_CONFIG_t vadc_0_background_scan_config =
     .enable_auto_scan = (uint32_t) true,
     .load_mode = (uint32_t) XMC_VADC_SCAN_LOAD_OVERWRITE,
 };
+const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_0_queue_entries_0 =
+{
+    .channel_num = (uint8_t)1,
+    .refill_needed = (uint32_t)true,
+    .generate_interrupt = (uint32_t)false,
+    .external_trigger = (uint32_t)false,
+};
+const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_0_queue_entries_1 =
+{
+    .channel_num = (uint8_t)1,
+    .refill_needed = (uint32_t)true,
+    .generate_interrupt = (uint32_t)false,
+    .external_trigger = (uint32_t)false,
+};
+const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_0_queue_entries_2 =
+{
+    .channel_num = (uint8_t)1,
+    .refill_needed = (uint32_t)true,
+    .generate_interrupt = (uint32_t)false,
+    .external_trigger = (uint32_t)false,
+};
+const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_0_queue_entries_3 =
+{
+    .channel_num = (uint8_t)1,
+    .refill_needed = (uint32_t)true,
+    .generate_interrupt = (uint32_t)false,
+    .external_trigger = (uint32_t)false,
+};
+const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_0_queue_entries_4 =
+{
+    .channel_num = (uint8_t)1,
+    .refill_needed = (uint32_t)true,
+    .generate_interrupt = (uint32_t)false,
+    .external_trigger = (uint32_t)false,
+};
+const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_0_queue_entries_5 =
+{
+    .channel_num = (uint8_t)1,
+    .refill_needed = (uint32_t)true,
+    .generate_interrupt = (uint32_t)false,
+    .external_trigger = (uint32_t)false,
+};
 const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_0_queue_entries_6 =
 {
     .channel_num = (uint8_t)7,
@@ -490,10 +499,10 @@ const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_0_queue_entries_7 =
     .generate_interrupt = (uint32_t)false,
     .external_trigger = (uint32_t)false,
 };
-const XMC_VADC_RESULT_CONFIG_t vadc_0_group_0_result_8_config =
+const XMC_VADC_RESULT_CONFIG_t vadc_0_group_0_result_15_config =
 {
-    .data_reduction_control = (uint32_t) 0,
-    .post_processing_mode = (uint32_t) XMC_VADC_DMM_REDUCTION_MODE,
+    .data_reduction_control = (uint32_t) 14,
+    .post_processing_mode = (uint32_t) XMC_VADC_DMM_FILTERING_MODE,
     .wait_for_read_mode = (uint32_t) false,
     .part_of_fifo = (uint32_t) false,
     .event_gen_enable = false,
@@ -539,7 +548,7 @@ const XMC_VADC_CHANNEL_CONFIG_t G0_CH1_CURRENT_P2_8_config =
     .event_gen_criteria = (uint32_t) XMC_VADC_CHANNEL_EVGEN_OUTBOUND,
     .sync_conversion = (uint32_t) false,
     .alternate_reference = (uint32_t) XMC_VADC_CHANNEL_REF_INTREF,
-    .result_reg_number = (uint32_t) 8,
+    .result_reg_number = (uint32_t) 15,
     .use_global_result = (uint32_t) 0,
     .result_alignment = (uint32_t) XMC_VADC_RESULT_ALIGN_LEFT,
     .broken_wire_detect_channel = (uint32_t) XMC_VADC_CHANNEL_BWDCH_VAGND,
@@ -563,6 +572,41 @@ const XMC_VADC_CHANNEL_CONFIG_t G0_CH7_TORQUE_P2_2_config =
     .channel_priority = (bool) false,
     .alias_channel = (int8_t) XMC_VADC_CHANNEL_ALIAS_DISABLED,
 };
+const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_1_queue_entries_0 =
+{
+    .channel_num = (uint8_t)0,
+    .refill_needed = (uint32_t)true,
+    .generate_interrupt = (uint32_t)false,
+    .external_trigger = (uint32_t)false,
+};
+const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_1_queue_entries_1 =
+{
+    .channel_num = (uint8_t)0,
+    .refill_needed = (uint32_t)true,
+    .generate_interrupt = (uint32_t)false,
+    .external_trigger = (uint32_t)false,
+};
+const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_1_queue_entries_2 =
+{
+    .channel_num = (uint8_t)7,
+    .refill_needed = (uint32_t)true,
+    .generate_interrupt = (uint32_t)false,
+    .external_trigger = (uint32_t)false,
+};
+const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_1_queue_entries_3 =
+{
+    .channel_num = (uint8_t)0,
+    .refill_needed = (uint32_t)true,
+    .generate_interrupt = (uint32_t)false,
+    .external_trigger = (uint32_t)false,
+};
+const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_1_queue_entries_4 =
+{
+    .channel_num = (uint8_t)0,
+    .refill_needed = (uint32_t)true,
+    .generate_interrupt = (uint32_t)false,
+    .external_trigger = (uint32_t)false,
+};
 const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_1_queue_entries_5 =
 {
     .channel_num = (uint8_t)6,
@@ -572,7 +616,7 @@ const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_1_queue_entries_5 =
 };
 const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_1_queue_entries_6 =
 {
-    .channel_num = (uint8_t)7,
+    .channel_num = (uint8_t)0,
     .refill_needed = (uint32_t)true,
     .generate_interrupt = (uint32_t)false,
     .external_trigger = (uint32_t)false,
@@ -584,13 +628,13 @@ const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_1_queue_entries_7 =
     .generate_interrupt = (uint32_t)false,
     .external_trigger = (uint32_t)false,
 };
-const XMC_VADC_RESULT_CONFIG_t vadc_0_group_1_result_12_config =
+const XMC_VADC_RESULT_CONFIG_t vadc_0_group_1_result_15_config =
 {
-    .data_reduction_control = (uint32_t) 0,
-    .post_processing_mode = (uint32_t) XMC_VADC_DMM_REDUCTION_MODE,
+    .data_reduction_control = (uint32_t) 14,
+    .post_processing_mode = (uint32_t) XMC_VADC_DMM_FILTERING_MODE,
     .wait_for_read_mode = (uint32_t) false,
     .part_of_fifo = (uint32_t) false,
-    .event_gen_enable = false,
+    .event_gen_enable = true,
 };
 const XMC_VADC_RESULT_CONFIG_t vadc_0_group_1_result_4_config =
 {
@@ -639,7 +683,7 @@ const XMC_VADC_CHANNEL_CONFIG_t G1_CH0_CURRENT_P2_8_config =
     .event_gen_criteria = (uint32_t) XMC_VADC_CHANNEL_EVGEN_OUTBOUND,
     .sync_conversion = (uint32_t) false,
     .alternate_reference = (uint32_t) XMC_VADC_CHANNEL_REF_INTREF,
-    .result_reg_number = (uint32_t) 12,
+    .result_reg_number = (uint32_t) 15,
     .use_global_result = (uint32_t) 0,
     .result_alignment = (uint32_t) XMC_VADC_RESULT_ALIGN_LEFT,
     .broken_wire_detect_channel = (uint32_t) XMC_VADC_CHANNEL_BWDCH_VAGND,
@@ -710,7 +754,7 @@ void init_cycfg_peripherals(void)
     XMC_CCU4_SLICE_SetTimerValue(HALL_DELAY_TIMER_HW, 0U);
     XMC_CCU4_SLICE_StartTimer(HALL_DELAY_TIMER_HW);
     XMC_CCU4_SLICE_CaptureInit(HALL_SPEED_TIMER_HW, &HALL_SPEED_TIMER_capture_config);
-    XMC_CCU4_SLICE_SetTimerPeriodMatch(HALL_SPEED_TIMER_HW, 65534U);
+    XMC_CCU4_SLICE_SetTimerPeriodMatch(HALL_SPEED_TIMER_HW, 0XFFFFU);
     XMC_CCU4_SetMultiChannelShadowTransferMode(ccu4_0_HW, XMC_CCU4_MULTI_CHANNEL_SHADOW_TRANSFER_SW_SLICE1);
     XMC_CCU4_EnableShadowTransfer(ccu4_0_HW,
         XMC_CCU4_SHADOW_TRANSFER_SLICE_1 |
@@ -719,27 +763,10 @@ void init_cycfg_peripherals(void)
     XMC_CCU4_SLICE_ConfigureEvent(HALL_SPEED_TIMER_HW, XMC_CCU4_SLICE_EVENT_0, &HALL_SPEED_TIMER_event0_config);
     XMC_CCU4_SLICE_ConfigureEvent(HALL_SPEED_TIMER_HW, XMC_CCU4_SLICE_EVENT_1, &HALL_SPEED_TIMER_event1_config);
     XMC_CCU4_SLICE_ConfigureEvent(HALL_SPEED_TIMER_HW, XMC_CCU4_SLICE_EVENT_2, &HALL_SPEED_TIMER_event2_config);
-    XMC_CCU4_SLICE_StartConfig(HALL_SPEED_TIMER_HW, XMC_CCU4_SLICE_EVENT_0, XMC_CCU4_SLICE_START_MODE_TIMER_START_CLEAR);
     XMC_CCU4_SLICE_Capture0Config(HALL_SPEED_TIMER_HW, XMC_CCU4_SLICE_EVENT_0);
-    XMC_CCU4_SLICE_SetInterruptNode(HALL_SPEED_TIMER_HW, XMC_CCU4_SLICE_IRQ_ID_EVENT0, XMC_CCU4_SLICE_SR_ID_0);
-    XMC_CCU4_SLICE_EnableEvent(HALL_SPEED_TIMER_HW, XMC_CCU4_SLICE_IRQ_ID_EVENT0);
     XMC_CCU4_EnableClock(ccu4_0_HW, HALL_SPEED_TIMER_NUM);
     XMC_CCU4_SLICE_SetTimerValue(HALL_SPEED_TIMER_HW, 0U);
     XMC_CCU4_SLICE_StartTimer(HALL_SPEED_TIMER_HW);
-    XMC_CCU4_SLICE_CompareInit(RUNNING_250KH_TIMER_HW, &RUNNING_250KH_TIMER_compare_config);
-    XMC_CCU4_SLICE_SetTimerCompareMatch(RUNNING_250KH_TIMER_HW, 0U);
-    XMC_CCU4_SLICE_SetTimerPeriodMatch(RUNNING_250KH_TIMER_HW, 0XFFFFU);
-    XMC_CCU4_SetMultiChannelShadowTransferMode(ccu4_0_HW, XMC_CCU4_MULTI_CHANNEL_SHADOW_TRANSFER_SW_SLICE2);
-    XMC_CCU4_EnableShadowTransfer(ccu4_0_HW,
-        XMC_CCU4_SHADOW_TRANSFER_SLICE_2 |
-        XMC_CCU4_SHADOW_TRANSFER_DITHER_SLICE_2 |
-        XMC_CCU4_SHADOW_TRANSFER_PRESCALER_SLICE_2 );
-    XMC_CCU4_SLICE_ConfigureEvent(RUNNING_250KH_TIMER_HW, XMC_CCU4_SLICE_EVENT_0, &RUNNING_250KH_TIMER_event0_config);
-    XMC_CCU4_SLICE_ConfigureEvent(RUNNING_250KH_TIMER_HW, XMC_CCU4_SLICE_EVENT_1, &RUNNING_250KH_TIMER_event1_config);
-    XMC_CCU4_SLICE_ConfigureEvent(RUNNING_250KH_TIMER_HW, XMC_CCU4_SLICE_EVENT_2, &RUNNING_250KH_TIMER_event2_config);
-    XMC_CCU4_EnableClock(ccu4_0_HW, RUNNING_250KH_TIMER_NUM);
-    XMC_CCU4_SLICE_SetTimerValue(RUNNING_250KH_TIMER_HW, 0U);
-    XMC_CCU4_SLICE_StartTimer(RUNNING_250KH_TIMER_HW);
     XMC_CCU4_SLICE_CompareInit(PWM_TORQUE_TIMER_HW, &PWM_TORQUE_TIMER_compare_config);
     XMC_CCU4_SLICE_SetTimerCompareMatch(PWM_TORQUE_TIMER_HW, 160U);
     XMC_CCU4_SLICE_SetTimerPeriodMatch(PWM_TORQUE_TIMER_HW, 1279U);
@@ -870,10 +897,16 @@ void init_cycfg_peripherals(void)
                                vadc_0_group_0_ICLASS_1);
     
     /* RESULT init. */
-    XMC_VADC_GROUP_ResultInit(vadc_0_group_0_HW, (uint32_t)8, &vadc_0_group_0_result_8_config);
+    XMC_VADC_GROUP_ResultInit(vadc_0_group_0_HW, (uint32_t)15, &vadc_0_group_0_result_15_config);
     XMC_VADC_GROUP_ResultInit(vadc_0_group_0_HW, (uint32_t)2, &vadc_0_group_0_result_2_config);
     
     /* Insert channels into the background request sources. */
+    XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_0_HW, vadc_0_group_0_queue_entries_0);
+    XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_0_HW, vadc_0_group_0_queue_entries_1);
+    XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_0_HW, vadc_0_group_0_queue_entries_2);
+    XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_0_HW, vadc_0_group_0_queue_entries_3);
+    XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_0_HW, vadc_0_group_0_queue_entries_4);
+    XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_0_HW, vadc_0_group_0_queue_entries_5);
     XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_0_HW, vadc_0_group_0_queue_entries_6);
     XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_0_HW, vadc_0_group_0_queue_entries_7);
     /* Channel init. */
@@ -907,11 +940,16 @@ void init_cycfg_peripherals(void)
                                vadc_0_group_1_ICLASS_1);
     
     /* RESULT init. */
-    XMC_VADC_GROUP_ResultInit(vadc_0_group_1_HW, (uint32_t)12, &vadc_0_group_1_result_12_config);
+    XMC_VADC_GROUP_ResultInit(vadc_0_group_1_HW, (uint32_t)15, &vadc_0_group_1_result_15_config);
     XMC_VADC_GROUP_ResultInit(vadc_0_group_1_HW, (uint32_t)4, &vadc_0_group_1_result_4_config);
     XMC_VADC_GROUP_ResultInit(vadc_0_group_1_HW, (uint32_t)5, &vadc_0_group_1_result_5_config);
     
     /* Insert channels into the background request sources. */
+    XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_1_HW, vadc_0_group_1_queue_entries_0);
+    XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_1_HW, vadc_0_group_1_queue_entries_1);
+    XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_1_HW, vadc_0_group_1_queue_entries_2);
+    XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_1_HW, vadc_0_group_1_queue_entries_3);
+    XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_1_HW, vadc_0_group_1_queue_entries_4);
     XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_1_HW, vadc_0_group_1_queue_entries_5);
     XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_1_HW, vadc_0_group_1_queue_entries_6);
     XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_1_HW, vadc_0_group_1_queue_entries_7);

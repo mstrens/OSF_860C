@@ -14,7 +14,7 @@
 #include "cy_utils.h"
 
 #include "SEGGER_RTT.h"
-#include "config.h"
+//#include "config.h"
 
 
 // riding modes
@@ -44,6 +44,8 @@
 //#define STANDARD_MODE                             0
 //#define ADVANCED_MODE                             1
 //#define CALIBRATION_MODE                          2
+
+
 
 
 uint16_t map_ui16(uint16_t in, uint16_t in_min, uint16_t in_max, uint16_t out_min, uint16_t out_max);
