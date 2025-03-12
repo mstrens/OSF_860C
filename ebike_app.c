@@ -2280,11 +2280,11 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		// motor inductance & cruise pid parameter
 		if (ui8_motor_type == 0) {
 			// 48 V motor
-			ui8_foc_angle_multiplicator = FOC_ANGLE_MULTIPLIER_48V; // 35
+			ui8_foc_angle_multiplicator = FOC_ANGLE_MULTIPLIER; // mstrens : for TSDZ8, we do not take care of the motor type
 		}
 		else {
 			// 36 V motor
-			ui8_foc_angle_multiplicator = FOC_ANGLE_MULTIPLIER_36V; // 27
+			ui8_foc_angle_multiplicator = FOC_ANGLE_MULTIPLIER; // mstrens : for TSDZ8, we do not take care of the motor type
 		}
 		
 		// startup boost

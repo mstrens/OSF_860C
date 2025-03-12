@@ -138,8 +138,8 @@ volatile uint16_t ui16_a = PWM_COUNTER_MAX / 2 ;//   840 in tsdz8   // 4*210 fro
 volatile uint16_t ui16_b = PWM_COUNTER_MAX / 2 ;//   840 in tsdz8   // 4*210 from tsdz2
 volatile uint16_t ui16_c = PWM_COUNTER_MAX / 2 ;//   840 in tsdz8   // 4*210 from tsdz2
 
-uint8_t hall_reference_angle  ; // This value is initialised in ebike_app.c with DEFAULT_HALL_REFERENCE_ANGLE and m_config.global_offset_angle 
-
+// This value is initialised in ebike_app.c for VLCD5 version with DEFAULT_HALL_REFERENCE_ANGLE and m_config.global_offset_angle 
+uint8_t hall_reference_angle  = DEFAULT_HALL_REFERENCE_ANGLE; // here it is directly initilise when compiling
 // to debug time spent in irq0 and irq1
 //volatile uint16_t debug_time_ccu8_irq0 = 0;
 //volatile uint16_t debug_time_ccu8_irq1 = 0;
