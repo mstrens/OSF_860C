@@ -1729,7 +1729,7 @@ if (ui8_test_mode_flag == NORMAL_RUNNING_MODE) {  // check only in normal runnin
 #define MOTOR_BLOCKED_COUNTER_THRESHOLD               	10  // 10 * 100ms = 1.0 seconds
 #define MOTOR_BLOCKED_BATTERY_CURRENT_THRESHOLD_X10   	30 // 30 = 3.0 amps
 #define MOTOR_BLOCKED_BATTERY_CURRENT_THRESHOLD_X5   	(uint8_t)(MOTOR_BLOCKED_BATTERY_CURRENT_THRESHOLD_X10 / 2)
-#define MOTOR_BLOCKED_ERPS_THRESHOLD                  	20 // 20 ERPS
+#define MOTOR_BLOCKED_ERPS_THRESHOLD                  	10 // 20 ERPS for TSDZ2; so 10 for TSDZ8 (4 poles instead of 8 poles)
 
     static uint8_t ui8_motor_blocked_counter;
     
@@ -1965,7 +1965,7 @@ void ebike_control_lights(void)
 void fillRxBuffer(void)
 {
 	// when there is a byte received and we are not yet processing the frame
-	while ((XMC_USIC_CH_RXFIFO_IsEmpty(	CYBSP_DEBUG_UART_HW	)) && (ui8_received_package_flag == 0)){
+	while ((XMC_USIC_CH_RXFIFO_IsEmpty(	CYBSP_DEBUG_UART_HW	) == false) && (ui8_received_package_flag == 0)){
 		// get the byte
 		uint8_t	ui8_byte_received = (uint8_t) XMC_USIC_CH_RXFIFO_GetData(CYBSP_DEBUG_UART_HW);
  		switch (ui8_state_machine) {

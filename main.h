@@ -12,7 +12,7 @@
 //#include "config.h"
 #include "common.h"
 
-#define FIRMWARE_VERSION "0.1.5"      // is not used; just for reference)
+#define FIRMWARE_VERSION "0.1.6"      // is not used; just for reference) ; !!! this version is similar to 0.1.5 for vlcd5
 //#define MAIN_CONFIGURATOR_VERSION 2   // for configurator (must be the same as in xls sheet)
 //#define SUB_CONFIGURATOR_VERSION 1    // is not used (just for reference)
 
