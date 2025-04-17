@@ -126,17 +126,17 @@ const XMC_GPIO_CONFIG_t CURRENT_W_P2_11_config =
 const XMC_GPIO_CONFIG_t TORQUE_P2_2_config =
 {
     .mode = (XMC_GPIO_MODE_t)TORQUE_P2_2_MODE,
-    .output_level = XMC_GPIO_OUTPUT_LEVEL_LOW,
+    .input_hysteresis = XMC_GPIO_INPUT_HYSTERESIS_STANDARD,
 };
 const XMC_GPIO_CONFIG_t BATTERY_P2_4_config =
 {
     .mode = (XMC_GPIO_MODE_t)BATTERY_P2_4_MODE,
-    .output_level = XMC_GPIO_OUTPUT_LEVEL_LOW,
+    .input_hysteresis = XMC_GPIO_INPUT_HYSTERESIS_STANDARD,
 };
 const XMC_GPIO_CONFIG_t THROTTLE_P2_5_config =
 {
     .mode = (XMC_GPIO_MODE_t)THROTTLE_P2_5_MODE,
-    .output_level = XMC_GPIO_OUTPUT_LEVEL_LOW,
+    .input_hysteresis = XMC_GPIO_INPUT_HYSTERESIS_STANDARD,
 };
 const XMC_GPIO_CONFIG_t VCC_P2_6_config =
 {

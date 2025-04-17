@@ -12,37 +12,54 @@
 //#include "config.h"
 #include "common.h"
                                     // !!!!!!!!!!!!!!
-#define FIRMWARE_VERSION "0.1.7"      // is not used; just for reference) ; !!! this version is similar to 0.1.5 for vlcd5 !!!!!!!!!!
+#define FIRMWARE_VERSION "0.1.13"      // is not used; just for reference) ; !!! this version is similar to 0.1.13 for vlcd5 !!!!!!!!!!
 //#define MAIN_CONFIGURATOR_VERSION 2   // for configurator (must be the same as in xls sheet)
 //#define SUB_CONFIGURATOR_VERSION 1    // is not used (just for reference)
 
+
+// here some parameters for testing/debugging
 #define DEBUG_ON_JLINK         (0)  // when 1, messages are generated on jlink; best is to connect only 3 wires (grnd + SWO and S???)
 
 #define USE_CONFIG_FROM_COMPILATION (0)  // this should normally be set on 0; Then values defined in configurator and stored in flash are applied
                                         // set to 1 only if you want to give priority to
-                                         // the parameters defined in config.h and used for compilation
+                                         // the parameters defined in config_tsdz8.h and used for compilation
                                          // this can be convenient for testing/debugging
 
+#define WHEEL_SPEED_SIMULATE  (0)   // 0 = do not simulate; when >0 =  fixed simulated speed in km/h 
 
 // default parameters for easy testing;  can be changed with uc_probe
-#define DEFAULT_TEST_MODE_FLAG        NORMAL_RUNNING_MODE              // or TESTING_MODE 
+// in TESTING_MODE, motor is driven only by a fixed duty cycle (target) but can't exceed a given current
+//      when current is not reached, motor runs at max speed (for this duty cycle)
+//      the only way to stop it is using the brake.
+#define DEFAULT_TEST_MODE_FLAG        NORMAL_RUNNING_MODE              //  TESTING_MODE  or NORMAL_RUNNING_MODE
 
 // parameters that can be adapted when in testing mode
-#define DEFAULT_BATTERY_CURRENT_TARGET_TESTING_A    3 // in Amp ; value set for safety when testing
+#define DEFAULT_BATTERY_CURRENT_TARGET_TESTING_A   2 // in Amp ; value set for safety when testing
 #define DEFAULT_DUTY_CYCLE_TARTGET_TESTING          150      // max 255 ; can be changed in uc_probe
+#define DEFAULT_RAMP_UP_INVERSE_TESTING     194     // min = 24(=100% accel), default= 194 (=0% accel)
+#define DEFAULT_RAMP_DOWN_INVERSE_TESTING   73     // min = 9 (=100%decel), default = 73 (=0% decel)
 
 
 // here the 2 modes; note TESTING_MODE = allow e.g. to find best global offset angle or to run at a fixed duty cycle
 #define NORMAL_RUNNING_MODE 0     // motor run as usual
 #define TESTING_MODE 1    // motor is controlled by a few set up defined in uc_probe
 
+#define GENERATE_DATA_FOR_REGRESSION_ANGLES (0) // 1 to let irq0 generate intervals to apply regtression and calculate best angles
+
+//#define APPLY_ENHANCED_POSITIONING (0) // 0 = do not apply; 1 = apply enhanced
+// enhanced means that we use only pattern 1 as reference +
+// that speed for angle extrapolation on next electric rotation includes a correction based on actual error
+// that speed for next rotation is based on the speed on last 180° (and not last 360°)
+// those rules apply only when rotor rotation speed is fast enough otherwise we use "normal positioning"
+// Normal positionning means that extrapolation is based on each pattern change and on speed on last 360°
 
 
 // *************** from here we have more general parameters 
 
 // this value can be optimized using uc_probe and changing slightly the "global offset angle" in order to get the lowest measured current for a given duty cycle 
 #define DEFAULT_HALL_REFERENCE_ANGLE 66
-
+//#define MID__RISING_FALLING_EDGE_HALL_SENSOR 5 // half difference between first and second 180 ticks interval 
+#define FINE_TUNE_ANGLE_OFFSET 0 // to change a little hall reference angle
 // for CCU4 slice 2
 #define HALL_COUNTER_FREQ                       250000U // 250KHz or 4us
 
@@ -100,14 +117,14 @@
 // It seems TSDZ8 motor has an inductance of 180 uH and 4 poles
 // So, TSDZ2 uses a multiplier = 39, TSDZ8 should use 39 * 180 / 135 * 4 / 8 = 26  (foc is based on erps*L*I/V) 
 // I reduce it because erps should be 2X lower due to the reduced number of poles
-#define FOC_ANGLE_MULTIPLIER					26
+#define FOC_ANGLE_MULTIPLIER					14
 
 
 // cadence
 #define CADENCE_SENSOR_CALC_COUNTER_MIN                         (uint16_t)((uint32_t)PWM_CYCLES_SECOND*100U/446U)  // 3500 at 15.625KHz ; 4270 at 19kHz
 #define CADENCE_SENSOR_TICKS_COUNTER_MIN_AT_SPEED               (uint16_t)((uint32_t)PWM_CYCLES_SECOND*10U/558U)   // 280 at 15.625KHz ; 341 at 19 khz
 #define CADENCE_TICKS_STARTUP                                   (uint16_t)((uint32_t)PWM_CYCLES_SECOND*10U/25U)  // 7619 ui16_cadence_sensor_ticks value for startup. About 7-8 RPM (6250 at 15.625KHz)
-#define CADENCE_SENSOR_STANDARD_MODE_SCHMITT_TRIGGER_THRESHOLD	(uint16_t)((uint32_t)PWM_CYCLES_SECOND*10U/892U)	// Quick stop value as version 4.4
+#define CADENCE_SENSOR_STANDARD_MODE_SCHMITT_TRIGGER_THRESHOLD  (uint16_t)((uint32_t)PWM_CYCLES_SECOND*10U/446U)   // 446 ; software based Schmitt trigger to stop motor jitter when at resolution limits (350 at 15.625KHz)
 
 // Wheel speed sensor
 #define WHEEL_SPEED_SENSOR_TICKS_COUNTER_MAX			(uint16_t)((uint32_t)PWM_CYCLES_SECOND*10U/1157U)   // 164 at 19 khz (135 at 15,625KHz) something like 200 m/h with a 6'' wheel
@@ -165,11 +182,11 @@ HALL_COUNTER_OFFSET_UP:    29 -> 44
 #define HALL_COUNTER_OFFSET_UP                  (HALL_COUNTER_OFFSET_DOWN + 21)
 #define FW_HALL_COUNTER_OFFSET_MAX              5 // 5*4=20us max time offset
 
-#define MOTOR_ROTOR_INTERPOLATION_MIN_ERPS      20 // it was 10 for tsdz2 that used 8 poles; tsdz8 uses 4 poles so it takes 2* more ticks
+#define MOTOR_ROTOR_INTERPOLATION_MIN_ERPS      5 // it was 10 for tsdz2 that used 8 poles; tsdz8 uses 4 poles so erps is 2 smaller
 
 // set on the display with motor type
-#define FOC_ANGLE_MULTIPLIER_36V				30 // 36 volt motor
-#define FOC_ANGLE_MULTIPLIER_48V				39 // 48 volt motor
+//#define FOC_ANGLE_MULTIPLIER_36V				30 // 36 volt motor Mstrens not used for TSDZ8
+//#define FOC_ANGLE_MULTIPLIER_48V				39 // 48 volt motor Mstrens not used for TSDZ8
 
 // adc torque offset gap value for error
 #define ADC_TORQUE_SENSOR_OFFSET_THRESHOLD		30
@@ -234,22 +251,19 @@ HALL_COUNTER_OFFSET_UP:    29 -> 44
 #define TORQUE_ASSIST_FACTOR_DENOMINATOR		120
 
 // smooth start ramp
-#define SMOOTH_START_RAMP_DEFAULT				165 // from 860C 35% (255=0% long ramp)
-#define SMOOTH_START_RAMP_MIN   				30
-
+#define SMOOTH_START_RAMP_DEFAULT					165 // 35% (255=0% long ramp)
+#define SMOOTH_START_RAMP_MIN						30
 
 // torque step mode Not used in 860C
 //#define TORQUE_STEP_DEFAULT				    0 // not calibrated
 //#define TORQUE_STEP_ADVANCED				1 // calibrated
 
 
-// adc current
-//#define ADC_10_BIT_BATTERY_EXTRACURRENT		38  //  6 amps
-#define ADC_10_BIT_BATTERY_EXTRACURRENT			50//50 // value for TSDZ2=50; should be OK for TSDZ8 too  // 50 = 50*0.16= 8 amps
-#define ADC_10_BIT_BATTERY_CURRENT_MAX			112//112 // value for Tsdz2= 112;  should be ok for TSDZ8; 112 = 18 amps // 1 = 0.16 Amp
-//#define ADC_10_BIT_BATTERY_CURRENT_MAX		124	// 20 amps // 1 = 0.16 Amp
-//#define ADC_10_BIT_BATTERY_CURRENT_MAX		136	// 22 amps // 1 = 0.16 Amp
-#define ADC_10_BIT_MOTOR_PHASE_CURRENT_MAX		187//187 // value for tsdz2 = 187 ; :187 = 30 amps // 1 = 0.16 Amp
+// adc current (38 = 6A, 50 = 8A, 112 = 18A, 124 = 20A , 136 = 22A, 143 = 23A, 187 = 30A)
+#define ADC_10_BIT_BATTERY_EXTRACURRENT				50  //  8 amps
+#define ADC_10_BIT_BATTERY_CURRENT_MAX				143	// 23 amps // 1 = 0.16 Amp
+
+#define ADC_10_BIT_MOTOR_PHASE_CURRENT_MAX			187	// 30 amps // 1 = 0.16 Amp
 /*---------------------------------------------------------
  NOTE: regarding ADC battery current max
 

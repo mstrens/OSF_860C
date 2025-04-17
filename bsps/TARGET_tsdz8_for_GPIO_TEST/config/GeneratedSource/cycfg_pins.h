@@ -287,10 +287,10 @@ extern "C" {
 #define TORQUE_P2_2_PORT XMC_GPIO_PORT2
 #define TORQUE_P2_2_PORT_NUM 2U
 #define TORQUE_P2_2_PIN 2U
-#ifndef ioss_0_port_2_pin_2_ALT
-    #define ioss_0_port_2_pin_2_ALT 0U
+#ifndef ioss_0_port_2_pin_2_INPUT
+    #define ioss_0_port_2_pin_2_INPUT 0U
 #endif
-#define TORQUE_P2_2_MODE (XMC_GPIO_MODE_OUTPUT_PUSH_PULL | ioss_0_port_2_pin_2_ALT)
+#define TORQUE_P2_2_MODE (XMC_GPIO_MODE_INPUT_TRISTATE | ioss_0_port_2_pin_2_INPUT)
 #ifndef ioss_0_port_2_pin_2_HWO
     #define ioss_0_port_2_pin_2_HWO XMC_GPIO_HWCTRL_DISABLED
 #endif
@@ -302,10 +302,10 @@ extern "C" {
 #define BATTERY_P2_4_PORT XMC_GPIO_PORT2
 #define BATTERY_P2_4_PORT_NUM 2U
 #define BATTERY_P2_4_PIN 4U
-#ifndef ioss_0_port_2_pin_4_ALT
-    #define ioss_0_port_2_pin_4_ALT 0U
+#ifndef ioss_0_port_2_pin_4_INPUT
+    #define ioss_0_port_2_pin_4_INPUT 0U
 #endif
-#define BATTERY_P2_4_MODE (XMC_GPIO_MODE_OUTPUT_PUSH_PULL | ioss_0_port_2_pin_4_ALT)
+#define BATTERY_P2_4_MODE (XMC_GPIO_MODE_INPUT_TRISTATE | ioss_0_port_2_pin_4_INPUT)
 #ifndef ioss_0_port_2_pin_4_HWO
     #define ioss_0_port_2_pin_4_HWO XMC_GPIO_HWCTRL_DISABLED
 #endif
@@ -314,10 +314,10 @@ extern "C" {
 #define THROTTLE_P2_5_PORT XMC_GPIO_PORT2
 #define THROTTLE_P2_5_PORT_NUM 2U
 #define THROTTLE_P2_5_PIN 5U
-#ifndef ioss_0_port_2_pin_5_ALT
-    #define ioss_0_port_2_pin_5_ALT 0U
+#ifndef ioss_0_port_2_pin_5_INPUT
+    #define ioss_0_port_2_pin_5_INPUT 0U
 #endif
-#define THROTTLE_P2_5_MODE (XMC_GPIO_MODE_OUTPUT_PUSH_PULL | ioss_0_port_2_pin_5_ALT)
+#define THROTTLE_P2_5_MODE (XMC_GPIO_MODE_INPUT_TRISTATE | ioss_0_port_2_pin_5_INPUT)
 #ifndef ioss_0_port_2_pin_5_HWO
     #define ioss_0_port_2_pin_5_HWO XMC_GPIO_HWCTRL_DISABLED
 #endif

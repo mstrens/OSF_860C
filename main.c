@@ -99,7 +99,18 @@ extern volatile uint16_t ui16_adc_voltage;
 extern volatile uint16_t ui16_adc_voltage_cut_off;
 
 extern uint8_t hall_reference_angle;
+extern uint8_t ui8_wheel_speed_simulate ;  //added by mstrens to simulate a fixed speed whithout having a speed sensor 
+
 extern uint8_t ui8_m_system_state;
+
+// debug manipulating each ref angle and see impact
+uint8_t ui8_best_ref_angles1 ;
+uint8_t ui8_best_ref_angles2 ;
+uint8_t ui8_best_ref_angles3 ;
+uint8_t ui8_best_ref_angles4 ;
+uint8_t ui8_best_ref_angles5 ;
+uint8_t ui8_best_ref_angles6 ;
+
 /*******************************************************************************
 * Function Name: SysTick_Handler
 ********************************************************************************
@@ -138,7 +149,7 @@ int main(void)
 {
     cy_rslt_t result;
 
-    uint32_t wait_time = 600000;
+    uint32_t wait_time = 1200000;
     while (wait_time > 0){  // wait a little at power on to let VCC be stable and so get probably better ADC conversions
         wait_time--;
     }
@@ -155,6 +166,13 @@ int main(void)
         ui8_best_ref_angles[i] = ui8_hall_ref_angles[i];
         best_ref_angles_X16bits[i] = ui8_hall_ref_angles[i] << 8;
     } // init best value with reference values.
+    // debug when changing ref angle used in motor via uc probe
+    ui8_best_ref_angles1 = ui8_hall_ref_angles[1];
+    ui8_best_ref_angles2 = ui8_hall_ref_angles[2];
+    ui8_best_ref_angles3 = ui8_hall_ref_angles[3];
+    ui8_best_ref_angles4 = ui8_hall_ref_angles[4];
+    ui8_best_ref_angles5 = ui8_hall_ref_angles[5];
+    ui8_best_ref_angles6 = ui8_hall_ref_angles[6];
 
     #if(uCPROBE_GUI_OSCILLOSCOPE == MY_ENABLED)
     ProbeScope_Init(20000);
@@ -185,7 +203,7 @@ int main(void)
         .conv_start_mode = (uint32_t) XMC_VADC_STARTMODE_WFS,
         .req_src_priority = (uint32_t) XMC_VADC_GROUP_RS_PRIORITY_3,
         .src_specific_result_reg = (uint32_t) 0,
-        .trigger_signal = (uint32_t) XMC_VADC_REQ_TR_P, // use gate set up
+        .trigger_signal = (uint32_t) XMC_VADC_REQ_TR_J, // XMC_VADC_REQ_TR_J = CCU8 SR3 = mid point , // XMC_VADC_REQ_TR_P, // use gate set up
         .trigger_edge = (uint32_t) XMC_VADC_TRIGGER_EDGE_ANY,
         .gate_signal = (uint32_t) XMC_VADC_REQ_GT_E, //use CCU8_ST3A = when timer is at mid period counting up
         .timer_mode = (uint32_t) false,
@@ -198,7 +216,7 @@ int main(void)
             .conv_start_mode = (uint32_t) XMC_VADC_STARTMODE_WFS,
             .req_src_priority = (uint32_t) XMC_VADC_GROUP_RS_PRIORITY_2,
             .src_specific_result_reg = (uint32_t) 0,
-            .trigger_signal = (uint32_t) XMC_VADC_REQ_TR_P,  // use gate set up
+            .trigger_signal = (uint32_t) XMC_VADC_REQ_TR_I,  //XMC_VADC_REQ_TR_I = CCU8 SR2 = ONe match   // XMC_VADC_REQ_TR_P,  // use gate set up
             .trigger_edge = (uint32_t) XMC_VADC_TRIGGER_EDGE_ANY,
             .gate_signal = (uint32_t) XMC_VADC_REQ_GT_E, ////use CCU8_ST3A = when timer is at mid period counting up
             .timer_mode = (uint32_t) false,
@@ -218,6 +236,11 @@ int main(void)
     //m_configuration_init();
     // add some initialisation in ebike_app.init
     //ebike_app_init();
+    // added by Mstrens
+	hall_reference_angle =  (uint8_t) DEFAULT_HALL_REFERENCE_ANGLE; //to do = add a small offset like in non 860c version
+	//hall_reference_angle = 66;
+	ui8_wheel_speed_simulate =  WHEEL_SPEED_SIMULATE; // load wheel speed simulate (so allow to change it with uc-probe)
+
     XMC_WDT_Service();
     // set initial position of hall sensor and first next expected one in shadow and load immediately in real register
     //posif_init_position();
@@ -225,9 +248,18 @@ int main(void)
     previous_hall_pattern = 0; // use a different hall pattern to force the angle. 
     XMC_POSIF_Start(HALL_POSIF_HW);
     
+        // set interrupt when current exceed 256 (10 bits) = 1024 (12 bits) = boundaries set in modus
+    // link event on group 0 channel 1 to group specific interrupt
+    XMC_VADC_GROUP_ChannelSetEventInterruptNode(vadc_0_group_0_HW, 1, XMC_VADC_SR_GROUP_SR0 );
+    NVIC_SetPriority(VADC0_G0_0_IRQn,0); // interrupt for group specific event G0 SR0
+    NVIC_EnableIRQ(VADC0_G0_0_IRQn);    
+    
     // set interrupt 
 //    NVIC_SetPriority(CCU40_1_IRQn, 0U); //capture hall pattern and slice 2 time when a hall change occurs
 //	NVIC_EnableIRQ(CCU40_1_IRQn);
+    // set irq triggered by posif when a pattern changes
+    NVIC_SetPriority(POSIF0_0_IRQn,0);
+    NVIC_EnableIRQ(POSIF0_0_IRQn);     
     /* CCU80_0_IRQn and CCU80_1_IRQn. slice 3 interrupt on counting up and down. at 19 khz to manage rotating flux*/
 	NVIC_SetPriority(CCU80_0_IRQn, 1U);
 	NVIC_EnableIRQ(CCU80_0_IRQn);
@@ -248,6 +280,8 @@ int main(void)
     //XMC_VADC_GLOBAL_EnablePostCalibration(vadc_0_HW, 0U);
     //XMC_VADC_GLOBAL_EnablePostCalibration(vadc_0_HW, 1U);
     //XMC_VADC_GLOBAL_StartupCalibration(vadc_0_HW);
+    
+    
     
    start = system_ticks;
     
@@ -274,7 +308,12 @@ int main(void)
         #endif
         
         // for debug
+        if( take_action(1,1000)) debug_time_ccu8_irq0 = 0;
 
+//        if(take_action(3,1000)){
+//            uint32_t vadc_group0_event = XMC_VADC_GROUP_ChannelGetAssertedEvents(vadc_0_group_0_HW );
+//            SEGGER_RTT_printf(0, "event gr0 %x\r\n", vadc_group0_event);              
+//        }
         #if (DEBUG_ON_JLINK == 1)
          // do debug if communication with display is working
         //if( take_action(1, 250)) SEGGER_RTT_printf(0,"Light is= %u\r\n", (unsigned int) ui8_lights_button_flag);

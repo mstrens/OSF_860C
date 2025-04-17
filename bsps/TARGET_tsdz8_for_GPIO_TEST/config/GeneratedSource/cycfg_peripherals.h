@@ -89,6 +89,8 @@ extern "C" {
 #define HALL_POSIF_ENABLED 1U
 #define HALL_POSIF_NUM 0U
 #define HALL_POSIF_HW POSIF0
+#define HALL_POSIF_SR0_INTERRUPT_HANDLER POSIF0_0_IRQHandler
+#define HALL_POSIF_SR0_IRQN POSIF0_0_IRQn
 #define CYBSP_DEBUG_UART_ENABLED 1U
 #define CYBSP_DEBUG_UART_NUM 1U
 #define CYBSP_DEBUG_UART_HW XMC_UART0_CH1
@@ -110,11 +112,14 @@ extern "C" {
 #define vadc_0_group_0_NUM 0U
 #define vadc_0_group_0_ICLASS_0 0U
 #define vadc_0_group_0_ICLASS_1 1U
+#define vadc_0_group_0_LOWER_BOUND_VALUE 0U
+#define vadc_0_group_0_UPPER_BOUND_VALUE 1000U
 #define vadc_0_group_0_SR0_INTERRUPT_HANDLER VADC0_G0_0_IRQHandler
 #define vadc_0_group_0_SR1_INTERRUPT_HANDLER VADC0_G0_1_IRQHandler
 #define vadc_0_group_0_SR0_IRQN VADC0_G0_0_IRQn
 #define vadc_0_group_0_SR1_IRQN VADC0_G0_1_IRQn
 #define G0_CH1_CURRENT_P2_8_ENABLED 1U
+#define G0_CH2_CURRENT_U_P2_9_ENABLED 1U
 #define G0_CH7_TORQUE_P2_2_ENABLED 1U
 #define vadc_0_group_1_ENABLED 1U
 #define vadc_0_group_1_HW VADC_G1
@@ -181,11 +186,13 @@ extern const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_0_queue_entries_5;
 extern const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_0_queue_entries_6;
 extern const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_0_queue_entries_7;
 extern const XMC_VADC_RESULT_CONFIG_t vadc_0_group_0_result_15_config;
+extern const XMC_VADC_RESULT_CONFIG_t vadc_0_group_0_result_9_config;
 extern const XMC_VADC_RESULT_CONFIG_t vadc_0_group_0_result_2_config;
 extern const XMC_VADC_QUEUE_CONFIG_t vadc_0_group_0_queue_config;
 extern const XMC_VADC_GROUP_CLASS_t vadc_0_0_iclass_0;
 extern const XMC_VADC_GROUP_CLASS_t vadc_0_0_iclass_1;
 extern const XMC_VADC_CHANNEL_CONFIG_t G0_CH1_CURRENT_P2_8_config;
+extern const XMC_VADC_CHANNEL_CONFIG_t G0_CH2_CURRENT_U_P2_9_config;
 extern const XMC_VADC_CHANNEL_CONFIG_t G0_CH7_TORQUE_P2_2_config;
 extern const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_1_queue_entries_0;
 extern const XMC_VADC_QUEUE_ENTRY_t vadc_0_group_1_queue_entries_1;

@@ -2,6 +2,7 @@
 
 #include "cybsp.h"
 #include "SEGGER_RTT.h"
+#include "main.h"
 
 
 
@@ -15,7 +16,6 @@ extern volatile uint8_t ui8_controller_duty_cycle_ramp_up_inverse_step;
 extern volatile uint8_t ui8_controller_duty_cycle_ramp_down_inverse_step;
 extern volatile uint16_t ui16_adc_voltage_cut_off;
 extern volatile uint8_t ui8_adc_battery_current_filtered;
-//extern volatile uint16_t ui16_adc_motor_phase_current;
 extern volatile uint8_t ui8_controller_adc_battery_current_target;
 extern volatile uint8_t ui8_g_duty_cycle;
 extern volatile uint8_t ui8_fw_hall_counter_offset;
@@ -23,17 +23,10 @@ extern volatile uint8_t ui8_fw_hall_counter_offset_max;
 extern volatile uint8_t ui8_field_weakening_enabled;
 extern volatile uint16_t ui16_hall_counter_total;    
 extern volatile uint8_t ui8_controller_duty_cycle_target;
-extern volatile uint8_t ui8_g_foc_angle;
-
-
-//extern volatile uint8_t ui8_g_foc_angle;
 extern volatile uint16_t ui16_hall_calib_cnt[6];
 extern uint8_t ui8_hall_ref_angles[8];  // was 6 in tsdz2
 extern const uint8_t ui8_hall_counter_offsets[8]; // was 6 in tsdz2
 extern volatile uint8_t ui8_hall_sensors_state;
-
-// FOC angle calculation parameter
-extern uint8_t ui8_foc_angle_multiplicator;
 
 // Sensors
 extern volatile uint8_t ui8_brake_state;
@@ -54,7 +47,17 @@ extern volatile uint8_t ui8_battery_SOC_reset_flag;
 
 // end of code copied from TSDZ2
 
+// added by ms because used in ebike_app.c
+extern volatile uint8_t ui8_g_foc_angle;
+extern uint8_t ui8_foc_angle_multiplicator;
 
+// added by mstrens to debug
+
+#if ( GENERATE_DATA_FOR_REGRESSION_ANGLES == (1) )
+extern uint16_t ticks_intervals[8]; // ticks intervals between 2 pattern changes;
+extern uint8_t ticks_intervals_status; // 0 =  new data can be written; 1 data being written; 2 all data written, must be transmitted
+extern uint16_t previous_hall_pattern_change_ticks;  // save the ticks of last pattern change
+#endif
 
 void CCU80_0_IRQHandler(); // called when ccu8 Slice 4 reaches 840  counting UP (= 1/4 of 19mhz cycles)
 void CCU80_1_IRQHandler(); // called when ccu8 Slice 4 reaches 840  counting DOWN (= 1/4 of 19mhz cycles)

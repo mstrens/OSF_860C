@@ -47,10 +47,13 @@ extern volatile uint16_t ui16_adc_motor_phase_current_max;
 // Motor enabled
 extern uint8_t ui8_motor_enabled;
 
+
+extern uint8_t ui8_m_system_state;
 /*
 typedef struct  _configuration_variables
 {
   //uint8_t ui8_motor_power_x10; // not used
+  uint32_t version;                 // added by mstrens to check the validity of configuration in flash; 32bits to use readWord
   uint8_t ui8_battery_current_max; // from  ebike_app.c
   uint16_t ui16_battery_low_voltage_cut_off_x10;
   uint16_t ui16_wheel_perimeter;
@@ -73,10 +76,18 @@ typedef struct  _configuration_variables
 */
 
 extern uint8_t ui8_test_mode_flag ;
-extern volatile uint32_t ui32_adc_battery_current_filtered_15b; // value in 12 +2 +1 = 15 bits (ADC + IIR + average)
+extern volatile uint32_t ui32_adc_battery_current_1_rotation_15b; // value in 12 +2 +1 = 15 bits (ADC + IIR + average)
 extern uint8_t hall_reference_angle ;
 
 void fillRxBuffer();
+
+extern uint8_t ui8_best_ref_angles1 ;
+extern uint8_t ui8_best_ref_angles2 ;
+extern uint8_t ui8_best_ref_angles3 ;
+extern uint8_t ui8_best_ref_angles4 ;
+extern uint8_t ui8_best_ref_angles5 ;
+extern uint8_t ui8_best_ref_angles6 ;
+
 void ebike_app_controller(void);
 //struct_configuration_variables* get_configuration_variables(void);
 

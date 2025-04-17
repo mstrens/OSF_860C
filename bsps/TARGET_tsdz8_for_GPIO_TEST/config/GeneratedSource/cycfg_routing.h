@@ -54,8 +54,6 @@ extern "C" {
 #define POSIF0_PCONF_INSEL1 XMC_POSIF_INPUT_PORT_A
 #define POSIF0_PCONF_INSEL2 XMC_POSIF_INPUT_PORT_A
 #define USIC0_CH1_DX0CR_DSEL_VALUE 3
-#define VADC0_BGGTSEL_VALUE 5
-#define VADC0_BGXTSEL_VALUE 9
 
 static inline void init_cycfg_routing(void) {}
 

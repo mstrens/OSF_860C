@@ -130,6 +130,8 @@ static uint8_t ui8_eMTB_based_on_power = 1;
 // wheel speed sensor
 static uint16_t ui16_wheel_speed_x10 = 0;
 static uint8_t ui8_speed_limit_high_exceeded = 0;
+uint8_t ui8_wheel_speed_simulate = 0;  //added by mstrens to simulate a fixed speed whithout having a speed sensor like for non 860C version
+
 
 // motor temperature control
 static uint16_t ui16_motor_temperature_filtered_x10 = 0;
@@ -203,6 +205,22 @@ static void communications_controller(void);
 static void communications_process_packages(uint8_t ui8_frame_type);
 //static void uart_receive_package(void);
 //static void uart_send_package(void);
+// to debug
+uint16_t debug1 =0;
+uint16_t debug2 =0;
+uint16_t debug3 =0;
+uint16_t debug4 =0;
+uint16_t debug5 =0;
+uint16_t debug6 =0;
+uint16_t debug7 =0;
+uint16_t debug8 =0;
+uint16_t debug9 =0;
+
+// added by mstrens to optimise hall positions
+extern volatile uint8_t ui8_best_ref_angles[8];
+
+
+
 		
 // system functions
 static void get_battery_voltage(void);
@@ -231,15 +249,20 @@ static void apply_temperature_limiting(void);
 static void apply_speed_limit(void);
 // added by mstrens
 uint8_t ui8_pwm_duty_cycle_max;
-// added for using testing mode
+// added by mstrens for using testing mode
 uint8_t ui8_test_mode_flag = DEFAULT_TEST_MODE_FLAG ; // can be changed in uc_probe
 uint8_t ui8_battery_current_target_testing = DEFAULT_BATTERY_CURRENT_TARGET_TESTING_A ; // value is in A ; this is a default value that can be changed with uc_probe
 uint8_t ui8_duty_cycle_target_testing = DEFAULT_DUTY_CYCLE_TARTGET_TESTING; // max is 245, this is a default value that can be changed with uc_probe
-#define AVERAGING_CNT 40 // 25 msec per cycle; 40 = 1 sec
-uint32_t ui32_adc_battery_current_filtered_15b_accumulated =0;
-uint32_t ui32_adc_battery_current_filtered_15b_cnt = AVERAGING_CNT;
-uint32_t ui32_battery_current_filtered_avg_mA ;
-	
+#define AVERAGING_BITS 6
+#define AVERAGING_CNT (1<<AVERAGING_BITS) // 25 msec per cycle; 64 = 1,5 sec
+uint32_t ui32_battery_current_mA_acc =0;
+uint32_t ui32_battery_current_mA_cnt = AVERAGING_CNT;
+uint32_t ui32_battery_current_mA_avg ;
+
+
+uint32_t ui32_current_1_rotation_ma; // average current over 1 electric rotation
+
+
 
 
 void ebike_app_controller(void) // is called every 25ms by main()
@@ -295,6 +318,14 @@ void ebike_app_controller(void) // is called every 25ms by main()
 			break;
 		case 3:
 			check_system();
+			// added by mstrens
+			ui8_best_ref_angles[1] = ui8_best_ref_angles1;
+			ui8_best_ref_angles[2] = ui8_best_ref_angles2;
+			ui8_best_ref_angles[3] = ui8_best_ref_angles3;
+			ui8_best_ref_angles[4] = ui8_best_ref_angles4;
+			ui8_best_ref_angles[5] = ui8_best_ref_angles5;
+			ui8_best_ref_angles[6] = ui8_best_ref_angles6; 			break;
+
 			break;
 	}
 	
@@ -309,6 +340,23 @@ void ebike_app_controller(void) // is called every 25ms by main()
      not cause any undesirable consequences.
 
      ------------------------------------------------------------------------*/
+	// for debugging
+	debug1 = ui8_best_ref_angles[2];
+	debug2 = ui8_best_ref_angles[3];
+	debug3 = ui8_best_ref_angles[4];
+	debug4 = ui8_best_ref_angles[5];
+	debug5 = ui8_best_ref_angles[6];
+	
+	#if ( GENERATE_DATA_FOR_REGRESSION_ANGLES == (1) )
+	// allow to calculate the regressions for each interval; 
+	// first is the duty cycle
+	// second value is the previous ticks for 360°
+	// next one is the ticks between 5 and 1; then between 1 and 3, between 3 and 2 ...
+	if (ticks_intervals_status == 2) { // when all 8 values have been written by irq0 in motor.c
+		SEGGER_RTT_printf(0,"%u,%u,%u,%u,%u,%u,%u,%u\r\n", ticks_intervals[7],ticks_intervals[0],ticks_intervals[1],ticks_intervals[3],ticks_intervals[2],ticks_intervals[6],ticks_intervals[4],ticks_intervals[5] );
+		ticks_intervals_status = 0; // reset status to allow a new capture
+	}
+	#endif
 }
 
 
@@ -362,17 +410,24 @@ static void ebike_control_motor(void) // is called every 25ms by ebike_app_contr
 		// for testing, we force the 4 parameters used to control the motor
 		ui8_duty_cycle_ramp_up_inverse_step = PWM_DUTY_CYCLE_RAMP_UP_INVERSE_STEP_DEFAULT;     // 194
 		ui8_duty_cycle_ramp_down_inverse_step = PWM_DUTY_CYCLE_RAMP_DOWN_INVERSE_STEP_DEFAULT;  //73
-		// Note : this code suppose that Throttle is connected ?? 
 		// set current target to the testing value and check with max
 		ui8_adc_battery_current_target = (uint16_t) ui8_battery_current_target_testing *100 / BATTERY_CURRENT_PER_10_BIT_ADC_STEP_X100;
 		if (ui8_adc_battery_current_target > ADC_10_BIT_BATTERY_CURRENT_MAX)
 				ui8_adc_battery_current_target = ADC_10_BIT_BATTERY_CURRENT_MAX;
+		// in case of error, force current target to 0 to avoid that motor starts again (with code for motor enable)
+		// todo : added by mstrens change ui8_system_state because 860c uses another field
+		if(	ui8_m_system_state )  {
+			ui8_adc_battery_current_target = 0;
+		}	
 		// set duty cycle target to the tesing value and check against max
 		ui8_duty_cycle_target = ui8_duty_cycle_target_testing;
 		if (ui8_duty_cycle_target >= ui8_pwm_duty_cycle_max ) {
 			ui8_duty_cycle_target = ui8_pwm_duty_cycle_max;  
 		}
 		ui8_riding_mode_parameter =  50; // if it is set on 0 , it means that there is no assist and motor stays/goes off in safety checks
+		// todo : check if those fields are ok for 860C version
+		ui8_duty_cycle_ramp_up_inverse_step = DEFAULT_RAMP_UP_INVERSE_TESTING;
+		ui8_duty_cycle_ramp_down_inverse_step = DEFAULT_RAMP_DOWN_INVERSE_TESTING;
 	}
 
     // select optional ADC function
@@ -459,15 +514,18 @@ static void ebike_control_motor(void) // is called every 25ms by ebike_app_contr
 			ui8_m_system_state |= ui8_error_battery_overcurrent;
 		}
 	}
-	// added by mstrens
-	// calculate an average current in mA (to find parameters giving lowest current)
-	ui32_adc_battery_current_filtered_15b_accumulated += ui32_adc_battery_current_filtered_15b;
-	ui32_adc_battery_current_filtered_15b_cnt--;
-	if (ui32_adc_battery_current_filtered_15b_cnt == 0){
-		ui32_battery_current_filtered_avg_mA = (ui32_adc_battery_current_filtered_15b_accumulated  *1000 
-				/ AVERAGING_CNT / BATTERY_CURRENT_PER_10_BIT_ADC_STEP_X100) >> 5;
-		ui32_adc_battery_current_filtered_15b_cnt = AVERAGING_CNT ;
-		ui32_adc_battery_current_filtered_15b_accumulated = 0;
+	
+	// for debug
+	// calculate an average in mA (to find parameters giving lowest current)
+	ui32_current_1_rotation_ma = (ui32_adc_battery_current_1_rotation_15b * 10 * BATTERY_CURRENT_PER_10_BIT_ADC_STEP_X100) >> 5;
+	ui32_battery_current_mA_acc += ui32_current_1_rotation_ma;
+	ui32_battery_current_mA_cnt--;
+	if (ui32_battery_current_mA_cnt == 0){ // so about 1.5 sec
+		// calculate avg current of avg of each rotation
+		ui32_battery_current_mA_avg = ui32_battery_current_mA_acc >> AVERAGING_BITS;
+		//  Var = (SumSq − (Sum × Sum) / n) / (n − 1)  Wikipedia
+		ui32_battery_current_mA_cnt = AVERAGING_CNT ;
+		ui32_battery_current_mA_acc = 0;		
 	}
 
     // reset control parameters if... (safety)
@@ -1363,6 +1421,9 @@ static void calc_wheel_speed(void)
 		#else
 		ui16_wheel_speed_x10 = 0;
 		#endif
+	}
+	if (ui8_wheel_speed_simulate > 0){ 
+		ui16_wheel_speed_x10 = ui8_wheel_speed_simulate * 10;
 	}
 }
 
