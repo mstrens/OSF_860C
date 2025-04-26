@@ -49,6 +49,12 @@ extern uint8_t ui8_motor_enabled;
 
 
 extern uint8_t ui8_m_system_state;
+
+// added by mstrens
+extern uint8_t ui8_m_motor_init_state ;
+extern uint8_t ui8_m_motor_init_status;
+
+
 /*
 typedef struct  _configuration_variables
 {

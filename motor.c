@@ -150,7 +150,7 @@ volatile uint16_t debug_time_ccu8_irq0 = 0;
 //volatile uint16_t debug_time_ccu8_irq1e = 0;
 uint16_t hall_ref_angles_counter = 0;
 
-extern uint8_t ui8_pwm_duty_cycle_max;
+//extern uint8_t ui8_pwm_duty_cycle_max;
 
 uint8_t ui8_hall_ref_angles[8] = { // Sequence is 1, 3, 2 , 6, 4, 5; so angle are in theory e.g. 39, 86, 127, 167, 216, 0 (256=360°)
         0,                     // error ; index must be between 1 and 6
@@ -612,14 +612,14 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
             if (++ui8_counter_duty_cycle_ramp_up > ui8_controller_duty_cycle_ramp_up_inverse_step) {
                 ui8_counter_duty_cycle_ramp_up = 0;
                 // increment duty cycle
-                if (ui8_g_duty_cycle < ui8_pwm_duty_cycle_max) {
+                if (ui8_g_duty_cycle < PWM_DUTY_CYCLE_MAX) {
                     ui8_g_duty_cycle++;
                     ui16_duty_cycle_count_up++;
                 }
             }
         }
 		else if ((ui8_field_weakening_enabled)
-				&& (ui8_g_duty_cycle == ui8_pwm_duty_cycle_max)) {
+				&& (ui8_g_duty_cycle == PWM_DUTY_CYCLE_MAX)) {
             // reset duty cycle ramp down counter (filter)
             ui8_counter_duty_cycle_ramp_down = 0;
             if (++ui8_counter_duty_cycle_ramp_up > ui8_controller_duty_cycle_ramp_up_inverse_step) {

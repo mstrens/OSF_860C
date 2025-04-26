@@ -45,7 +45,7 @@ uint32_t loop_25ms_ticks = 0;
 uint32_t start = 0 ; // mainly for debugging ; allow to print some variable every e.g. 5 sec
 
 // maximum duty cycle
-extern uint8_t ui8_pwm_duty_cycle_max; 
+//extern uint8_t ui8_pwm_duty_cycle_max; 
 
 // for debugging only at the beginning
 uint32_t count = 0;
@@ -308,12 +308,12 @@ int main(void)
         #endif
         
         // for debug
-        if( take_action(1,1000)) debug_time_ccu8_irq0 = 0;
+//        if( take_action(1,1000)) debug_time_ccu8_irq0 = 0;
 
-//        if(take_action(3,1000)){
+        if(take_action(3,1000)){
 //            uint32_t vadc_group0_event = XMC_VADC_GROUP_ChannelGetAssertedEvents(vadc_0_group_0_HW );
-//            SEGGER_RTT_printf(0, "event gr0 %x\r\n", vadc_group0_event);              
-//        }
+            SEGGER_RTT_printf(0, "init_state %x   status %X\r\n", ui8_m_motor_init_state , ui8_m_motor_init_status);              
+        }
         #if (DEBUG_ON_JLINK == 1)
          // do debug if communication with display is working
         //if( take_action(1, 250)) SEGGER_RTT_printf(0,"Light is= %u\r\n", (unsigned int) ui8_lights_button_flag);
