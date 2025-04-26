@@ -263,9 +263,6 @@ uint32_t ui32_battery_current_mA_avg ;
 
 uint32_t ui32_current_1_rotation_ma; // average current over 1 electric rotation
 
-// to debug optional adc function
-uint8_t rxbuf10; 
-
 
 void ebike_app_controller(void) // is called every 25ms by main()
 {
@@ -2106,9 +2103,7 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 
 		// optional ADC function, temperature sensor or throttle or not in use
 		ui8_optional_ADC_function = ui8_rx_buffer[10];
-		// added by mstrens only for debug
-		rxbuf10 = ui8_rx_buffer[10];
-
+		
 		// virtual throttle
 		ui8_throttle_virtual = ui8_rx_buffer[11];
 
