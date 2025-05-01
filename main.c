@@ -14,11 +14,8 @@
 #include "cy_retarget_io.h"
 
 #include "SEGGER_RTT.h"
+#include "adc.h"
 
-
-#define MY_ENABLED 1
-#define MY_DISABLED 0
-#define uCPROBE_GUI_OSCILLOSCOPE MY_DISABLED // ENABLED
 #if(uCPROBE_GUI_OSCILLOSCOPE == MY_ENABLED)
 #include "ProbeScope/probe_scope.h"
 #endif
@@ -159,8 +156,11 @@ int main(void)
     {
         CY_ASSERT(0);
     }
-       
+    
+    
 
+
+    /*
     // fill table used for knowing the best hall pattern positions
     for (uint8_t i = 0; i<8 ; i++) { 
         ui8_best_ref_angles[i] = ui8_hall_ref_angles[i];
@@ -173,9 +173,10 @@ int main(void)
     ui8_best_ref_angles4 = ui8_hall_ref_angles[4];
     ui8_best_ref_angles5 = ui8_hall_ref_angles[5];
     ui8_best_ref_angles6 = ui8_hall_ref_angles[6];
+    */
 
     #if(uCPROBE_GUI_OSCILLOSCOPE == MY_ENABLED)
-    ProbeScope_Init(20000);
+    ProbeScope_Init(19000);
     #endif
     // init segger to allow kind of printf
     SEGGER_RTT_Init ();     
@@ -197,6 +198,11 @@ int main(void)
     // some setup has to be done manually in the group1 queue
      // we have to connect sr2 to vadc group1 queue, to activate trigering and to disable gating.
 
+
+    // mstrens : we configure vadc with infineon init instead of with bsp
+    pmsm_adc_module_init(); 
+
+    /*
     //Here I overwite the config defined in device manage (and generated in cycfg_peripherals.c)     
     const XMC_VADC_QUEUE_CONFIG_t vadc_0_group_0_queue_config2 =
     {
@@ -224,12 +230,12 @@ int main(void)
         };
     XMC_VADC_GROUP_QueueSetGatingMode(vadc_0_group_1_HW, (XMC_VADC_GATEMODE_t) XMC_VADC_GATEMODE_IGNORE);
     XMC_VADC_GROUP_QueueInit(vadc_0_group_1_HW, &vadc_0_group_1_queue_config2);
+    */
 
     /* Start the temperature measurement */
     XMC_SCU_StartTempMeasurement();
 
     // **** load the config from flash
-    XMC_WDT_Service();
     //init_extra_fields_config (); // get the user parameters from flash
     // todo : change when eeprom is coded properly add some initialisation (e.g. m_configuration_init() and ebike_app.init)
     // currently it is filled with parameters from user setup + some dummy values (e.g. for soc)
@@ -241,18 +247,28 @@ int main(void)
 	//hall_reference_angle = 66;
 	ui8_wheel_speed_simulate =  WHEEL_SPEED_SIMULATE; // load wheel speed simulate (so allow to change it with uc-probe)
 
-    XMC_WDT_Service();
+    //XMC_WDT_Service();
     // set initial position of hall sensor and first next expected one in shadow and load immediately in real register
     //posif_init_position();
     get_hall_pattern();
     previous_hall_pattern = 0; // use a different hall pattern to force the angle. 
     XMC_POSIF_Start(HALL_POSIF_HW);
     
+    
+    //XMC_WDT_Service();
+    wait_time = 120000; // on more delay before starting the IRQ
+    while (wait_time > 0){  // wait a little at power on to let VCC be stable and so get probably better ADC conversions
+        wait_time--;
+    }
+    //XMC_WDT_Service();
+    
+
         // set interrupt when current exceed 256 (10 bits) = 1024 (12 bits) = boundaries set in modus
     // link event on group 0 channel 1 to group specific interrupt
-    XMC_VADC_GROUP_ChannelSetEventInterruptNode(vadc_0_group_0_HW, 1, XMC_VADC_SR_GROUP_SR0 );
-    NVIC_SetPriority(VADC0_G0_0_IRQn,0); // interrupt for group specific event G0 SR0
-    NVIC_EnableIRQ(VADC0_G0_0_IRQn);    
+    // mstrens : this part has not yet been updated for infineon init
+    //XMC_VADC_GROUP_ChannelSetEventInterruptNode(vadc_0_group_0_HW, 1, XMC_VADC_SR_GROUP_SR0 );
+    //NVIC_SetPriority(VADC0_G0_0_IRQn,0); // interrupt for group specific event G0 SR0
+    //NVIC_EnableIRQ(VADC0_G0_0_IRQn);    
     
     // set interrupt 
 //    NVIC_SetPriority(CCU40_1_IRQn, 0U); //capture hall pattern and slice 2 time when a hall change occurs
@@ -280,11 +296,20 @@ int main(void)
     //XMC_VADC_GLOBAL_EnablePostCalibration(vadc_0_HW, 0U);
     //XMC_VADC_GLOBAL_EnablePostCalibration(vadc_0_HW, 1U);
     //XMC_VADC_GLOBAL_StartupCalibration(vadc_0_HW);
-    
+   
+   
+   //XMC_WDT_Service();
+    wait_time = 120000; // on more delay before starting the IRQ
+    while (wait_time > 0){  // wait a little at power on to let VCC be stable and so get probably better ADC conversions
+        wait_time--;
+    }
+    //XMC_WDT_Service();
     
     
    start = system_ticks;
-    
+   XMC_WDT_Start();
+   XMC_WDT_Service();
+   
 //***************************** while ************************************
     while (1) // main loop
     {     
@@ -304,7 +329,7 @@ int main(void)
         }
    
         #if (uCPROBE_GUI_OSCILLOSCOPE == MY_ENABLED)
-        ProbeScope_Sampling(); // this should be moved e.g. in a interrupt that run faster
+        //ProbeScope_Sampling(); // this should be moved e.g. in a interrupt that run faster
         #endif
         
         // for debug

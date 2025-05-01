@@ -2,3 +2,8 @@ In ebike_app.c
 
 - remove comment in order to generate torque error (line 1628) ://ui8_m_system_state |= ERROR_TORQUE_SENSOR;
 
+
+To do
+- change peripherals.c to call adc for init
+- change all read vadc to take care of other channel being used
+

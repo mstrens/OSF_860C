@@ -27,6 +27,7 @@
  ******************************************************************************/
 
 #include "cycfg_peripherals.h"
+#include "../../adc.h"
 
 #define HALL_POSIF_HALPS(EP, CP) (((uint32_t)EP <<  3) | (uint32_t)CP)
 
@@ -878,118 +879,124 @@ void init_cycfg_peripherals(void)
     XMC_USIC_CH_RXFIFO_Configure(CYBSP_DEBUG_UART_HW, CYBSP_DEBUG_UART_RXFIFO_DPTR, CYBSP_DEBUG_UART_RXFIFO_SIZE, CYBSP_DEBUG_UART_RXFIFO_LIMIT);
     XMC_USIC_CH_TXFIFO_Configure(CYBSP_DEBUG_UART_HW, CYBSP_DEBUG_UART_TXFIFO_DPTR, CYBSP_DEBUG_UART_TXFIFO_SIZE, CYBSP_DEBUG_UART_TXFIFO_LIMIT);
     XMC_UART_CH_Start(CYBSP_DEBUG_UART_HW);
-    /* Update group input classes configuration. */
-    vadc_0_group0_init_config.class0 = vadc_0_0_iclass_0;
-    vadc_0_group1_init_config.class0 = vadc_0_1_iclass_0;
-    vadc_0_group0_init_config.class1 = vadc_0_0_iclass_1;
-    vadc_0_group1_init_config.class1 = vadc_0_1_iclass_1;
-    /* Global configuration. */
-    XMC_VADC_GLOBAL_Init(vadc_0_HW, &vadc_0_config);
-    XMC_VADC_GROUP_Init(vadc_0_group_0_HW, &vadc_0_group0_init_config);
-    XMC_VADC_GROUP_Init(vadc_0_group_1_HW, &vadc_0_group1_init_config);
-    XMC_VADC_GROUP_SetPowerMode(vadc_0_group_0_HW, (XMC_VADC_GROUP_POWERMODE_t) XMC_VADC_GROUP_POWERMODE_NORMAL);
-    XMC_VADC_GROUP_SetPowerMode(vadc_0_group_1_HW, (XMC_VADC_GROUP_POWERMODE_t) XMC_VADC_GROUP_POWERMODE_NORMAL);
-    XMC_VADC_GLOBAL_EnablePostCalibration(vadc_0_HW, 0U);
-    XMC_VADC_GLOBAL_EnablePostCalibration(vadc_0_HW, 1U);
-    XMC_VADC_GLOBAL_StartupCalibration(vadc_0_HW);
-    XMC_VADC_GLOBAL_BackgroundSetGatingMode(vadc_0_HW, (XMC_VADC_GATEMODE_t) XMC_VADC_GATEMODE_IGNORE);
-    XMC_VADC_GLOBAL_BackgroundInit(vadc_0_HW, &vadc_0_background_scan_config);
-    /* Request source initializations. */
-    XMC_VADC_GROUP_QueueSetGatingMode(vadc_0_group_0_HW, (XMC_VADC_GATEMODE_t) XMC_VADC_GATEMODE_IGNORE);
-    XMC_VADC_GROUP_QueueSetReqSrcEventInterruptNode(vadc_0_group_0_HW, (XMC_VADC_SR_t) XMC_VADC_SR_GROUP_SR0);
-    XMC_VADC_GROUP_QueueSetReqSrcEventInterruptNode(vadc_0_group_0_HW, (XMC_VADC_SR_t) XMC_VADC_SR_GROUP_SR1);
-    XMC_VADC_GROUP_QueueSetReqSrcEventInterruptNode(vadc_0_group_0_HW, (XMC_VADC_SR_t) XMC_VADC_SR_GROUP_SR2);
-    XMC_VADC_GROUP_QueueSetReqSrcEventInterruptNode(vadc_0_group_0_HW, (XMC_VADC_SR_t) XMC_VADC_SR_GROUP_SR3);
-    XMC_VADC_GROUP_QueueInit(vadc_0_group_0_HW, &vadc_0_group_0_queue_config);
-    
-    /* Initialize input classes. */
-    XMC_VADC_GROUP_InputClassInit(vadc_0_group_0_HW,
-                               vadc_0_0_iclass_0,
-                               XMC_VADC_GROUP_CONV_STD,
-                               vadc_0_group_0_ICLASS_0);
-    XMC_VADC_GROUP_InputClassInit(vadc_0_group_0_HW,
-                               vadc_0_0_iclass_0,
-                               XMC_VADC_GROUP_CONV_EMUX,
-                               vadc_0_group_0_ICLASS_0);
-    XMC_VADC_GROUP_InputClassInit(vadc_0_group_0_HW,
-                               vadc_0_0_iclass_1,
-                               XMC_VADC_GROUP_CONV_STD,
-                               vadc_0_group_0_ICLASS_1);
-    XMC_VADC_GROUP_InputClassInit(vadc_0_group_0_HW,
-                               vadc_0_0_iclass_1,
-                               XMC_VADC_GROUP_CONV_EMUX,
-                               vadc_0_group_0_ICLASS_1);
-    
-    XMC_VADC_GROUP_SetBoundaries(vadc_0_group_0_HW,
-                               vadc_0_group_0_LOWER_BOUND_VALUE,
-                               vadc_0_group_0_UPPER_BOUND_VALUE);
-    
-    /* RESULT init. */
-    XMC_VADC_GROUP_ResultInit(vadc_0_group_0_HW, (uint32_t)15, &vadc_0_group_0_result_15_config);
-    XMC_VADC_GROUP_ResultInit(vadc_0_group_0_HW, (uint32_t)9, &vadc_0_group_0_result_9_config);
-    XMC_VADC_GROUP_ResultInit(vadc_0_group_0_HW, (uint32_t)2, &vadc_0_group_0_result_2_config);
-    
-    /* Insert channels into the background request sources. */
-    XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_0_HW, vadc_0_group_0_queue_entries_0);
-    XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_0_HW, vadc_0_group_0_queue_entries_1);
-    XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_0_HW, vadc_0_group_0_queue_entries_2);
-    XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_0_HW, vadc_0_group_0_queue_entries_3);
-    XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_0_HW, vadc_0_group_0_queue_entries_4);
-    XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_0_HW, vadc_0_group_0_queue_entries_5);
-    XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_0_HW, vadc_0_group_0_queue_entries_6);
-    XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_0_HW, vadc_0_group_0_queue_entries_7);
-    /* Channel init. */
-    XMC_VADC_GROUP_ChannelInit(vadc_0_group_0_HW, (uint32_t)1, &G0_CH1_CURRENT_P2_8_config);
-    /* Channel init. */
-    XMC_VADC_GROUP_ChannelInit(vadc_0_group_0_HW, (uint32_t)2, &G0_CH2_CURRENT_U_P2_9_config);
-    /* Channel init. */
-    XMC_VADC_GROUP_ChannelInit(vadc_0_group_0_HW, (uint32_t)7, &G0_CH7_TORQUE_P2_2_config);
-    /* Request source initializations. */
-    XMC_VADC_GROUP_QueueSetGatingMode(vadc_0_group_1_HW, (XMC_VADC_GATEMODE_t) XMC_VADC_GATEMODE_IGNORE);
-    XMC_VADC_GROUP_QueueSetReqSrcEventInterruptNode(vadc_0_group_1_HW, (XMC_VADC_SR_t) XMC_VADC_SR_GROUP_SR0);
-    XMC_VADC_GROUP_QueueSetReqSrcEventInterruptNode(vadc_0_group_1_HW, (XMC_VADC_SR_t) XMC_VADC_SR_GROUP_SR1);
-    XMC_VADC_GROUP_QueueSetReqSrcEventInterruptNode(vadc_0_group_1_HW, (XMC_VADC_SR_t) XMC_VADC_SR_GROUP_SR2);
-    XMC_VADC_GROUP_QueueSetReqSrcEventInterruptNode(vadc_0_group_1_HW, (XMC_VADC_SR_t) XMC_VADC_SR_GROUP_SR3);
-    XMC_VADC_GROUP_QueueInit(vadc_0_group_1_HW, &vadc_0_group_1_queue_config);
-    
-    /* Initialize input classes. */
-    XMC_VADC_GROUP_InputClassInit(vadc_0_group_1_HW,
-                               vadc_0_1_iclass_0,
-                               XMC_VADC_GROUP_CONV_STD,
-                               vadc_0_group_1_ICLASS_0);
-    XMC_VADC_GROUP_InputClassInit(vadc_0_group_1_HW,
-                               vadc_0_1_iclass_0,
-                               XMC_VADC_GROUP_CONV_EMUX,
-                               vadc_0_group_1_ICLASS_0);
-    XMC_VADC_GROUP_InputClassInit(vadc_0_group_1_HW,
-                               vadc_0_1_iclass_1,
-                               XMC_VADC_GROUP_CONV_STD,
-                               vadc_0_group_1_ICLASS_1);
-    XMC_VADC_GROUP_InputClassInit(vadc_0_group_1_HW,
-                               vadc_0_1_iclass_1,
-                               XMC_VADC_GROUP_CONV_EMUX,
-                               vadc_0_group_1_ICLASS_1);
-    
-    /* RESULT init. */
-    XMC_VADC_GROUP_ResultInit(vadc_0_group_1_HW, (uint32_t)15, &vadc_0_group_1_result_15_config);
-    XMC_VADC_GROUP_ResultInit(vadc_0_group_1_HW, (uint32_t)4, &vadc_0_group_1_result_4_config);
-    XMC_VADC_GROUP_ResultInit(vadc_0_group_1_HW, (uint32_t)5, &vadc_0_group_1_result_5_config);
-    
-    /* Insert channels into the background request sources. */
-    XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_1_HW, vadc_0_group_1_queue_entries_0);
-    XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_1_HW, vadc_0_group_1_queue_entries_1);
-    XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_1_HW, vadc_0_group_1_queue_entries_2);
-    XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_1_HW, vadc_0_group_1_queue_entries_3);
-    XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_1_HW, vadc_0_group_1_queue_entries_4);
-    XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_1_HW, vadc_0_group_1_queue_entries_5);
-    XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_1_HW, vadc_0_group_1_queue_entries_6);
-    XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_1_HW, vadc_0_group_1_queue_entries_7);
-    /* Channel init. */
-    XMC_VADC_GROUP_ChannelInit(vadc_0_group_1_HW, (uint32_t)0, &G1_CH0_CURRENT_P2_8_config);
-    /* Channel init. */
-    XMC_VADC_GROUP_ChannelInit(vadc_0_group_1_HW, (uint32_t)6, &G1_CH6_BATTERY_P2_4_config);
-    /* Channel init. */
-    XMC_VADC_GROUP_ChannelInit(vadc_0_group_1_HW, (uint32_t)7, &G1_CH7_THROTTLE_P2_5_config);
+        // here is normally the code to init VADC; in this version, it is done by code in file adc.c to use the same setup as infineon
+    // VADC_init();
     XMC_WDT_Init(&wdt_0_config);
-    XMC_WDT_Start();
+    //XMC_WDT_Start();
+}
+
+// removed by mstrens to test another vadc init
+void VADC_init(){
+/* Update group input classes configuration. */
+vadc_0_group0_init_config.class0 = vadc_0_0_iclass_0;
+vadc_0_group1_init_config.class0 = vadc_0_1_iclass_0;
+vadc_0_group0_init_config.class1 = vadc_0_0_iclass_1;
+vadc_0_group1_init_config.class1 = vadc_0_1_iclass_1;
+/* Global configuration. */
+XMC_VADC_GLOBAL_Init(vadc_0_HW, &vadc_0_config);
+XMC_VADC_GROUP_Init(vadc_0_group_0_HW, &vadc_0_group0_init_config);
+XMC_VADC_GROUP_Init(vadc_0_group_1_HW, &vadc_0_group1_init_config);
+XMC_VADC_GROUP_SetPowerMode(vadc_0_group_0_HW, (XMC_VADC_GROUP_POWERMODE_t) XMC_VADC_GROUP_POWERMODE_NORMAL);
+XMC_VADC_GROUP_SetPowerMode(vadc_0_group_1_HW, (XMC_VADC_GROUP_POWERMODE_t) XMC_VADC_GROUP_POWERMODE_NORMAL);
+XMC_VADC_GLOBAL_EnablePostCalibration(vadc_0_HW, 0U);
+XMC_VADC_GLOBAL_EnablePostCalibration(vadc_0_HW, 1U);
+XMC_VADC_GLOBAL_StartupCalibration(vadc_0_HW);
+XMC_VADC_GLOBAL_BackgroundSetGatingMode(vadc_0_HW, (XMC_VADC_GATEMODE_t) XMC_VADC_GATEMODE_IGNORE);
+XMC_VADC_GLOBAL_BackgroundInit(vadc_0_HW, &vadc_0_background_scan_config);
+/* Request source initializations. */
+XMC_VADC_GROUP_QueueSetGatingMode(vadc_0_group_0_HW, (XMC_VADC_GATEMODE_t) XMC_VADC_GATEMODE_IGNORE);
+XMC_VADC_GROUP_QueueSetReqSrcEventInterruptNode(vadc_0_group_0_HW, (XMC_VADC_SR_t) XMC_VADC_SR_GROUP_SR0);
+XMC_VADC_GROUP_QueueSetReqSrcEventInterruptNode(vadc_0_group_0_HW, (XMC_VADC_SR_t) XMC_VADC_SR_GROUP_SR1);
+XMC_VADC_GROUP_QueueSetReqSrcEventInterruptNode(vadc_0_group_0_HW, (XMC_VADC_SR_t) XMC_VADC_SR_GROUP_SR2);
+XMC_VADC_GROUP_QueueSetReqSrcEventInterruptNode(vadc_0_group_0_HW, (XMC_VADC_SR_t) XMC_VADC_SR_GROUP_SR3);
+XMC_VADC_GROUP_QueueInit(vadc_0_group_0_HW, &vadc_0_group_0_queue_config);
+
+/* Initialize input classes. */
+XMC_VADC_GROUP_InputClassInit(vadc_0_group_0_HW,
+                           vadc_0_0_iclass_0,
+                           XMC_VADC_GROUP_CONV_STD,
+                           vadc_0_group_0_ICLASS_0);
+XMC_VADC_GROUP_InputClassInit(vadc_0_group_0_HW,
+                           vadc_0_0_iclass_0,
+                           XMC_VADC_GROUP_CONV_EMUX,
+                           vadc_0_group_0_ICLASS_0);
+XMC_VADC_GROUP_InputClassInit(vadc_0_group_0_HW,
+                           vadc_0_0_iclass_1,
+                           XMC_VADC_GROUP_CONV_STD,
+                           vadc_0_group_0_ICLASS_1);
+XMC_VADC_GROUP_InputClassInit(vadc_0_group_0_HW,
+                           vadc_0_0_iclass_1,
+                           XMC_VADC_GROUP_CONV_EMUX,
+                           vadc_0_group_0_ICLASS_1);
+
+XMC_VADC_GROUP_SetBoundaries(vadc_0_group_0_HW,
+                           vadc_0_group_0_LOWER_BOUND_VALUE,
+                           vadc_0_group_0_UPPER_BOUND_VALUE);
+
+/* RESULT init. */
+XMC_VADC_GROUP_ResultInit(vadc_0_group_0_HW, (uint32_t)15, &vadc_0_group_0_result_15_config);
+XMC_VADC_GROUP_ResultInit(vadc_0_group_0_HW, (uint32_t)9, &vadc_0_group_0_result_9_config);
+XMC_VADC_GROUP_ResultInit(vadc_0_group_0_HW, (uint32_t)2, &vadc_0_group_0_result_2_config);
+
+/* Insert channels into the background request sources. */
+XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_0_HW, vadc_0_group_0_queue_entries_0);
+XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_0_HW, vadc_0_group_0_queue_entries_1);
+XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_0_HW, vadc_0_group_0_queue_entries_2);
+XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_0_HW, vadc_0_group_0_queue_entries_3);
+XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_0_HW, vadc_0_group_0_queue_entries_4);
+XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_0_HW, vadc_0_group_0_queue_entries_5);
+XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_0_HW, vadc_0_group_0_queue_entries_6);
+XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_0_HW, vadc_0_group_0_queue_entries_7);
+/* Channel init. */
+XMC_VADC_GROUP_ChannelInit(vadc_0_group_0_HW, (uint32_t)1, &G0_CH1_CURRENT_P2_8_config);
+/* Channel init. */
+XMC_VADC_GROUP_ChannelInit(vadc_0_group_0_HW, (uint32_t)2, &G0_CH2_CURRENT_U_P2_9_config);
+/* Channel init. */
+XMC_VADC_GROUP_ChannelInit(vadc_0_group_0_HW, (uint32_t)7, &G0_CH7_TORQUE_P2_2_config);
+/* Request source initializations. */
+XMC_VADC_GROUP_QueueSetGatingMode(vadc_0_group_1_HW, (XMC_VADC_GATEMODE_t) XMC_VADC_GATEMODE_IGNORE);
+XMC_VADC_GROUP_QueueSetReqSrcEventInterruptNode(vadc_0_group_1_HW, (XMC_VADC_SR_t) XMC_VADC_SR_GROUP_SR0);
+XMC_VADC_GROUP_QueueSetReqSrcEventInterruptNode(vadc_0_group_1_HW, (XMC_VADC_SR_t) XMC_VADC_SR_GROUP_SR1);
+XMC_VADC_GROUP_QueueSetReqSrcEventInterruptNode(vadc_0_group_1_HW, (XMC_VADC_SR_t) XMC_VADC_SR_GROUP_SR2);
+XMC_VADC_GROUP_QueueSetReqSrcEventInterruptNode(vadc_0_group_1_HW, (XMC_VADC_SR_t) XMC_VADC_SR_GROUP_SR3);
+XMC_VADC_GROUP_QueueInit(vadc_0_group_1_HW, &vadc_0_group_1_queue_config);
+
+/* Initialize input classes. */
+XMC_VADC_GROUP_InputClassInit(vadc_0_group_1_HW,
+                           vadc_0_1_iclass_0,
+                           XMC_VADC_GROUP_CONV_STD,
+                           vadc_0_group_1_ICLASS_0);
+XMC_VADC_GROUP_InputClassInit(vadc_0_group_1_HW,
+                           vadc_0_1_iclass_0,
+                           XMC_VADC_GROUP_CONV_EMUX,
+                           vadc_0_group_1_ICLASS_0);
+XMC_VADC_GROUP_InputClassInit(vadc_0_group_1_HW,
+                           vadc_0_1_iclass_1,
+                           XMC_VADC_GROUP_CONV_STD,
+                           vadc_0_group_1_ICLASS_1);
+XMC_VADC_GROUP_InputClassInit(vadc_0_group_1_HW,
+                           vadc_0_1_iclass_1,
+                           XMC_VADC_GROUP_CONV_EMUX,
+                           vadc_0_group_1_ICLASS_1);
+
+/* RESULT init. */
+XMC_VADC_GROUP_ResultInit(vadc_0_group_1_HW, (uint32_t)15, &vadc_0_group_1_result_15_config);
+XMC_VADC_GROUP_ResultInit(vadc_0_group_1_HW, (uint32_t)4, &vadc_0_group_1_result_4_config);
+XMC_VADC_GROUP_ResultInit(vadc_0_group_1_HW, (uint32_t)5, &vadc_0_group_1_result_5_config);
+
+/* Insert channels into the background request sources. */
+XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_1_HW, vadc_0_group_1_queue_entries_0);
+XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_1_HW, vadc_0_group_1_queue_entries_1);
+XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_1_HW, vadc_0_group_1_queue_entries_2);
+XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_1_HW, vadc_0_group_1_queue_entries_3);
+XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_1_HW, vadc_0_group_1_queue_entries_4);
+XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_1_HW, vadc_0_group_1_queue_entries_5);
+XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_1_HW, vadc_0_group_1_queue_entries_6);
+XMC_VADC_GROUP_QueueInsertChannel(vadc_0_group_1_HW, vadc_0_group_1_queue_entries_7);
+/* Channel init. */
+XMC_VADC_GROUP_ChannelInit(vadc_0_group_1_HW, (uint32_t)0, &G1_CH0_CURRENT_P2_8_config);
+/* Channel init. */
+XMC_VADC_GROUP_ChannelInit(vadc_0_group_1_HW, (uint32_t)6, &G1_CH6_BATTERY_P2_4_config);
+/* Channel init. */
+XMC_VADC_GROUP_ChannelInit(vadc_0_group_1_HW, (uint32_t)7, &G1_CH7_THROTTLE_P2_5_config);
 }

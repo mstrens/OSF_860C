@@ -12,7 +12,7 @@
 //#include "config.h"
 #include "common.h"
                                     // !!!!!!!!!!!!!!
-#define FIRMWARE_VERSION "0.1.13"      // is not used; just for reference) ; !!! this version is similar to 0.1.13 for vlcd5 !!!!!!!!!!
+#define FIRMWARE_VERSION "0.1.14"      // is not used; just for reference) ; !!! this version is similar to 0.1.13 for vlcd5 !!!!!!!!!!
 //#define MAIN_CONFIGURATOR_VERSION 2   // for configurator (must be the same as in xls sheet)
 //#define SUB_CONFIGURATOR_VERSION 1    // is not used (just for reference)
 
@@ -45,6 +45,11 @@
 #define TESTING_MODE 1    // motor is controlled by a few set up defined in uc_probe
 
 #define GENERATE_DATA_FOR_REGRESSION_ANGLES (0) // 1 to let irq0 generate intervals to apply regtression and calculate best angles
+
+#define MY_ENABLED 1
+#define MY_DISABLED 0
+#define uCPROBE_GUI_OSCILLOSCOPE MY_DISABLED // MY_ENABLED
+
 
 //#define APPLY_ENHANCED_POSITIONING (0) // 0 = do not apply; 1 = apply enhanced
 // enhanced means that we use only pattern 1 as reference +

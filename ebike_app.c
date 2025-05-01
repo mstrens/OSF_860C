@@ -12,6 +12,8 @@
 #include "main.h"
 #include "motor.h"
 #include "common.h"
+#include "adc.h"
+
 //#include "uart.h"
 
 // for debug
@@ -193,12 +195,12 @@ volatile uint8_t ui8_rx_len = 0;
 volatile uint8_t ui8_tx_buffer[UART_NUMBER_DATA_BYTES_TO_SEND];
 // initialize the ui8_tx_counter like at the end of send operation to enable the first send.
 //volatile uint8_t ui8_tx_counter = UART_NUMBER_DATA_BYTES_TO_SEND + 1;
-static volatile uint8_t ui8_m_tx_buffer_index;
-volatile uint8_t ui8_i;
-volatile uint8_t ui8_byte_received;
+static volatile uint8_t ui8_m_tx_buffer_index = 0;
+volatile uint8_t ui8_i = 0;
+volatile uint8_t ui8_byte_received = 0;
 volatile uint8_t ui8_state_machine = 0;
-static uint16_t ui16_crc_rx;
-static uint16_t ui16_crc_tx;
+static uint16_t ui16_crc_rx = 0;
+static uint16_t ui16_crc_tx = 0;
 //volatile uint8_t ui8_message_ID = 0;
 static uint8_t ui8_comm_error_counter = 0;
 
@@ -258,10 +260,10 @@ uint8_t ui8_duty_cycle_target_testing = DEFAULT_DUTY_CYCLE_TARTGET_TESTING; // m
 #define AVERAGING_CNT (1<<AVERAGING_BITS) // 25 msec per cycle; 64 = 1,5 sec
 uint32_t ui32_battery_current_mA_acc =0;
 uint32_t ui32_battery_current_mA_cnt = AVERAGING_CNT;
-uint32_t ui32_battery_current_mA_avg ;
+uint32_t ui32_battery_current_mA_avg = 0;
 
 
-uint32_t ui32_current_1_rotation_ma; // average current over 1 electric rotation
+uint32_t ui32_current_1_rotation_ma = 0; // average current over 1 electric rotation
 
 
 void ebike_app_controller(void) // is called every 25ms by main()
@@ -483,8 +485,11 @@ static void ebike_control_motor(void) // is called every 25ms by ebike_app_contr
 	// current is available in gr0 ch1 result 8 in queue 0 p2.8 and/or in gr0 ch0 result in 12 (p2.8)
 	// here we take the average of the 2 conversions and so we should use >>3 instead of >>2
 	// Still due to IIR filtering, we have to add >>2 because it is returned in 14 bits instead of 12
-	uint8_t ui8_temp_adc_current = ((XMC_VADC_GROUP_GetResult(vadc_0_group_0_HW , 15 ) & 0xFFFF) +
-									(XMC_VADC_GROUP_GetResult(vadc_0_group_1_HW , 15 ) & 0xFFFF)) >>5  ;  // >>2 for IIR, >>2 for ADC12 to ADC10 , >>1 for averaging		
+	
+	//uint8_t ui8_temp_adc_current = ((XMC_VADC_GROUP_GetResult(vadc_0_group_0_HW , 15 ) & 0xFFFF) +
+	//								(XMC_VADC_GROUP_GetResult(vadc_0_group_1_HW , 15 ) & 0xFFFF)) >>5  ;  // >>2 for IIR, >>2 for ADC12 to ADC10 , >>1 for averaging		
+	// changed by mstrens to take care of infineon init for vadc (result 12bits and in reg 1)
+	uint8_t ui8_temp_adc_current = (XMC_VADC_GROUP_GetResult(vadc_0_group_0_HW , VADC_I4_RESULT_REG ) & 0xFFFF) >> 2;// from 12 to 10bits 
 	if ( ui8_temp_adc_current > ui8_adc_battery_overcurrent){ // 112+50 in tsdz2 (*0,16A) => 26A
 		ui8_error_battery_overcurrent = ERROR_BATTERY_OVERCURRENT ;
 	}
@@ -1279,7 +1284,9 @@ static void apply_calibration_assist(void)
 static void apply_throttle(void)
 {
 	//Next line has been moved from motor.c to here to save time in irq 1 ; >>2 because we use 10 bits instead of 12 bits
-	ui16_adc_throttle = (XMC_VADC_GROUP_GetResult(vadc_0_group_1_HW , 5 ) & 0x0FFF) >> 2; // throttle gr1 ch7 result 5  in bg  p2.5
+	//ui16_adc_throttle = (XMC_VADC_GROUP_GetResult(vadc_0_group_1_HW , 5 ) & 0x0FFF) >> 2; // throttle gr1 ch7 result 5  in bg  p2.5
+    // changed by mstrens to take care of infineon init
+	ui16_adc_throttle = (XMC_VADC_GROUP_GetResult(vadc_0_group_1_HW , VADC_POT_RESULT_REG ) & 0x0FFF) >> 2; // throttle gr1 ch7 result 7  in bg  p2.5
     if (ui8_throttle_feature_enabled) {
 		// map adc value from 0 to 255
 		ui8_throttle_adc_in = map_ui8((uint8_t)(ui16_adc_throttle >> 2),
@@ -1498,8 +1505,11 @@ static void get_pedal_torque(void)
 {
 	uint16_t ui16_temp = 0;
 	// this has been moved from motor.c to here in order to save time in the irq; >>2 is to go from ADC 12 bits to 10 bits like TSDZ2
-	ui16_adc_torque   = (XMC_VADC_GROUP_GetResult(vadc_0_group_0_HW , 2 ) & 0xFFF) >> 2; // torque gr0 ch7 result 2 in bg p2.2
-    if (toffset_cycle_counter < TOFFSET_CYCLES) {
+	//ui16_adc_torque   = (XMC_VADC_GROUP_GetResult(vadc_0_group_0_HW , 2 ) & 0xFFF) >> 2; // torque gr0 ch7 result 2 in bg p2.2
+    // change by mstrens to take care of infineon init
+	ui16_adc_torque   = (XMC_VADC_GROUP_GetResult(vadc_0_group_0_HW , VADC_TORQUE_RESULT_REG ) & 0xFFF) >> 2; // torque gr0 ch7 result 7 in bg p2.2
+    
+	if (toffset_cycle_counter < TOFFSET_CYCLES) {
         uint16_t ui16_tmp = ui16_adc_torque;
         ui16_adc_pedal_torque_offset_init = filter(ui16_tmp, ui16_adc_pedal_torque_offset_init, 2);
         toffset_cycle_counter++;
