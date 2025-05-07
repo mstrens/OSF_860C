@@ -13,7 +13,11 @@
 
 #include "cy_retarget_io.h"
 
+#include "main.h"
+#if (DEBUG_ON_JLINK == 1)
 #include "SEGGER_RTT.h"
+#endif 
+
 #include "adc.h"
 
 #if(uCPROBE_GUI_OSCILLOSCOPE == MY_ENABLED)
@@ -36,10 +40,16 @@
 * Global Variables
 *******************************************************************************/
 
-/* Variable for keeping track of time */
+// Variable for keeping track of time 
+/*
 volatile uint32_t system_ticks = 0;
 uint32_t loop_25ms_ticks = 0;  
 uint32_t start = 0 ; // mainly for debugging ; allow to print some variable every e.g. 5 sec
+*/
+uint16_t last_clock_ticks = 0;
+uint16_t last_system_ticks = 0;
+volatile uint32_t system_ticks2 = 0;
+
 
 // maximum duty cycle
 //extern uint8_t ui8_pwm_duty_cycle_max; 
@@ -108,6 +118,19 @@ uint8_t ui8_best_ref_angles4 ;
 uint8_t ui8_best_ref_angles5 ;
 uint8_t ui8_best_ref_angles6 ;
 
+//debug interval irq0
+extern uint16_t interval_ticks ;
+extern uint16_t error_ticks_counter ;
+extern uint16_t error_ticks_value;
+extern uint16_t error_ticks_prev;
+extern uint16_t interval_ticks_min; 
+extern uint16_t interval_ticks_max; 
+extern uint16_t irq0_min ;
+extern uint16_t irq0_max ;
+extern uint16_t irq1_min ;
+extern uint16_t irq1_max ;
+
+
 /*******************************************************************************
 * Function Name: SysTick_Handler
 ********************************************************************************
@@ -115,11 +138,12 @@ uint8_t ui8_best_ref_angles6 ;
 * This is the interrupt handler function for the SysTick timer interrupt.
 * It counts the time elapsed in milliseconds since the timer started. 
 *******************************************************************************/
+/*
 void SysTick_Handler(void)
 {
     system_ticks++;
 }
-
+*/
 
 #define CHANNEL_NUMBER_PIN_2_2              (7U) // Torque
 #define CHANNEL_NUMBER_PIN_2_3              (5U) // unknown
@@ -178,10 +202,13 @@ int main(void)
     #if(uCPROBE_GUI_OSCILLOSCOPE == MY_ENABLED)
     ProbeScope_Init(19000);
     #endif
+
+    #if (DEBUG_ON_JLINK == 1)
     // init segger to allow kind of printf
     SEGGER_RTT_Init ();     
     SEGGER_RTT_ConfigUpBuffer(0, NULL, NULL, 0, SEGGER_RTT_MODE_NO_BLOCK_TRIM);
     SEGGER_RTT_WriteString(0, RTT_CTRL_CLEAR); // clear the RTT terminal
+    #endif
 
     // set the PWM in such a way that PWM are set to passive levels when processor is halted for debugging (safety)
     XMC_CCU8_SetSuspendMode(ccu8_0_HW, XMC_CCU8_SUSPEND_MODE_SAFE_STOP);
@@ -191,7 +218,8 @@ int main(void)
     //cy_retarget_io_init(CYBSP_DEBUG_UART_HW);
 
     /* System timer configuration */
-    SysTick_Config(SystemCoreClock / TICKS_PER_SECOND);
+    //SysTick_Config(SystemCoreClock / TICKS_PER_SECOND);
+    
     // CCU8 slice 3 (IRQ at mid point) generates a SR3 when period match and this trigger a VADC group 0 for queue
     // CCU8 slice 2 (PWM) is configured in device generator to generate a sr2 when ONE match
     //  but device configurator does not allow to setup a second trigger for vadc queue conversion
@@ -274,17 +302,30 @@ int main(void)
 //    NVIC_SetPriority(CCU40_1_IRQn, 0U); //capture hall pattern and slice 2 time when a hall change occurs
 //	NVIC_EnableIRQ(CCU40_1_IRQn);
     // set irq triggered by posif when a pattern changes
+    #if (USE_IRQ_FOR_HALL == (1))    
     NVIC_SetPriority(POSIF0_0_IRQn,0);
     NVIC_EnableIRQ(POSIF0_0_IRQn);     
+    #endif
     /* CCU80_0_IRQn and CCU80_1_IRQn. slice 3 interrupt on counting up and down. at 19 khz to manage rotating flux*/
 	NVIC_SetPriority(CCU80_0_IRQn, 1U);
 	NVIC_EnableIRQ(CCU80_0_IRQn);
     NVIC_SetPriority(CCU80_1_IRQn, 1U);
 	NVIC_EnableIRQ(CCU80_1_IRQn);
 
-    /* Enable Global Start Control CCU80  in a synchronized way*/
-    XMC_SCU_SetCcuTriggerHigh(SCU_GENERAL_CCUCON_GSC80_Msk);
-    XMC_SCU_SetCcuTriggerLow(SCU_GENERAL_CCUCON_GSC80_Msk);
+    //added to test the same startup as infineon example
+    #define XMC_CCU8_GIDLC_CLOCK_MASK (15U) // start the 4 slice simultanously
+	XMC_CCU8_EnableMultipleClocks(ccu8_0_HW , XMC_CCU8_GIDLC_CLOCK_MASK);
+
+    XMC_SCU_SetCcuTriggerHigh(SCU_GENERAL_CCUCON_GSC80_Msk); // I had to use the High instead of LOw
+    // Clear idle bit slice 0,1,2,3 for CCU80 Kernel  // MASK = 1111 =the 4 slices
+    
+
+    
+    // Enable Global Start Control CCU80  in a synchronized way
+    //XMC_SCU_SetCcuTriggerHigh(SCU_GENERAL_CCUCON_GSC80_Msk);
+    
+    //XMC_SCU_SetCcuTriggerLow(SCU_GENERAL_CCUCON_GSC80_Msk);
+    /*
     uint32_t retry_start_counter = 10;
     while ((!XMC_CCU8_SLICE_IsTimerRunning(PHASE_U_TIMER_HW)) && (retry_start_counter > 0)){ // to be sure it is running
         XMC_SCU_SetCcuTriggerHigh(SCU_GENERAL_CCUCON_GSC80_Msk);
@@ -292,6 +333,7 @@ int main(void)
     
         //SEGGER_RTT_printf(0, "Retry CCU8 start; still %u try\r\n", retry_counter);
     }
+    */
 
     //XMC_VADC_GLOBAL_EnablePostCalibration(vadc_0_HW, 0U);
     //XMC_VADC_GLOBAL_EnablePostCalibration(vadc_0_HW, 1U);
@@ -303,13 +345,14 @@ int main(void)
     while (wait_time > 0){  // wait a little at power on to let VCC be stable and so get probably better ADC conversions
         wait_time--;
     }
-    //XMC_WDT_Service();
     
-    
-   start = system_ticks;
+    //start = system_ticks;
    XMC_WDT_Start();
    XMC_WDT_Service();
-   
+
+   // init the clock timer
+   last_clock_ticks = XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW) ; 
+   last_system_ticks = last_clock_ticks;
 //***************************** while ************************************
     while (1) // main loop
     {     
@@ -323,8 +366,26 @@ int main(void)
         }
         // must be activated for real production
         // Here we should call a funtion every 25 msec (based on systick or on an interrupt based on a CCU4 timer)
+        /*
         if ((system_ticks - loop_25ms_ticks) > 25) { 
             loop_25ms_ticks = system_ticks;
+            ebike_app_controller();  // this performs some checks and update some variable every 25 msec
+        }
+        */
+       
+        // avoid a reset
+        XMC_WDT_Service(); // reset if we do not run here within the 0,5 sec
+    
+        // Here we should call a funtion every 25 msec (based on systick or on an interrupt based on a CCU4 timer)
+        uint16_t temp_ticks = XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW);
+        if (temp_ticks < last_system_ticks) { // once every 65536 * 4 usec = about 0,25 sec
+            system_ticks2++; // add 1 every 0,25 sec (about)
+            last_system_ticks = temp_ticks;
+        }
+        uint16_t temp_interval = temp_ticks - last_clock_ticks;
+        //if ( (uint16_t) ((uint16_t) temp_ticks - (uint16_t) last_clock_ticks) > (uint16_t) 6250){ // 25000 usec / 4usec = 6250
+        if ( temp_interval > 6250){ // 25000 usec / 4usec = 6250
+            last_clock_ticks = temp_ticks;
             ebike_app_controller();  // this performs some checks and update some variable every 25 msec
         }
    
@@ -333,17 +394,46 @@ int main(void)
         #endif
         
         // for debug
+        // if (take_action_250ms(1,4))debug_time_ccu8_irq0 = 0;
 //        if( take_action(1,1000)) debug_time_ccu8_irq0 = 0;
 
-        if(take_action(3,1000)){
+        #if (DEBUG_ON_JLINK == 1)
+        if (take_action_250ms(3,4)){
+        //if(take_action(3,1000)){
 //            uint32_t vadc_group0_event = XMC_VADC_GROUP_ChannelGetAssertedEvents(vadc_0_group_0_HW );
-            SEGGER_RTT_printf(0, "init_state %x   status %X\r\n", ui8_m_motor_init_state , ui8_m_motor_init_status);              
+            //SEGGER_RTT_printf(0, "init_state %x   status %X\r\n", ui8_m_motor_init_state , ui8_m_motor_init_status);
+            /*
+            uint32_t is_running_0 = XMC_CCU8_SLICE_IsTimerRunning	(	PHASE_U_TIMER_HW	)	;
+            uint32_t is_running_1 = XMC_CCU8_SLICE_IsTimerRunning	(	PHASE_V_TIMER_HW	)	;
+            uint32_t is_running_2 = XMC_CCU8_SLICE_IsTimerRunning	(	PHASE_W_TIMER_HW	)	;
+            uint32_t is_running_3 = XMC_CCU8_SLICE_IsTimerRunning	(	PWM_IRQ_TIMER_HW	)	;  
+            uint32_t tim_0 = XMC_CCU8_SLICE_GetTimerValue(PHASE_U_TIMER_HW);
+            uint32_t tim_1 = XMC_CCU8_SLICE_GetTimerValue(PHASE_V_TIMER_HW);
+            uint32_t tim_2 = XMC_CCU8_SLICE_GetTimerValue(PHASE_W_TIMER_HW);
+            uint32_t tim_3 = XMC_CCU8_SLICE_GetTimerValue(PWM_IRQ_TIMER_HW);
+            SEGGER_RTT_printf(0, "running %u %u %u %u %u %u %u %u \r\n", is_running_0 , is_running_1 , is_running_2 , is_running_3, 
+                tim_0 , tim_1 ,tim_2 ,tim_3);
+            */
+           /*
+            for (uint32_t i = 0; i<=28 ; i++){
+                if (NVIC_GetEnableIRQ((IRQn_Type) i)) {
+                    SEGGER_RTT_printf (0, "irq on = %u\r\n", i);
+                }
+           }
+           */     
+               SEGGER_RTT_printf(0, "error ticks = %u %u %u %u %u %u %u%\r\n", error_ticks_counter, 
+                           interval_ticks_min , interval_ticks_max , irq0_min , irq0_max , irq1_min , irq1_max);
+                           
         }
+        #endif    
         #if (DEBUG_ON_JLINK == 1)
          // do debug if communication with display is working
-        //if( take_action(1, 250)) SEGGER_RTT_printf(0,"Light is= %u\r\n", (unsigned int) ui8_lights_button_flag);
+         //if( take_action_250ms(1, 1)) SEGGER_RTT_printf(0,"Light is= %u\r\n", (unsigned int) ui8_lights_button_flag);
+        
+         //if( take_action(1, 250)) SEGGER_RTT_printf(0,"Light is= %u\r\n", (unsigned int) ui8_lights_button_flag);
         if (ui8_m_system_state) { // print a message when there is an error detected
-            if( take_action(1,200)) jlink_print_system_state();
+            if( take_action_250ms(1,1)) jlink_print_system_state();
+            //if( take_action(1,200)) jlink_print_system_state();
         }
 
 //        if( take_action(2, 500)) SEGGER_RTT_printf(0,"Adc current= %u adcX8=%u  current_Ax10=%u  factor=%u\r\n", 
@@ -354,7 +444,9 @@ int main(void)
 //            );
         // monitor duty cycle, current when motor is running
         /*
-        if( take_action(3, 1000)) SEGGER_RTT_printf(0,"dctarg=%u dc=%u    ctarg=%u cfilt=%u Throttle=%u  erps=%u foc%u\r\n",
+        //if( take_action(3, 1000)) SEGGER_RTT_printf(0,"dctarg=%u dc=%u    ctarg=%u cfilt=%u Throttle=%u  erps=%u foc%u\r\n",
+        if( take_action_250ms(3, 4)) SEGGER_RTT_printf(0,"dctarg=%u dc=%u    ctarg=%u cfilt=%u Throttle=%u  erps=%u foc%u\r\n",
+        
             (unsigned int) ui8_controller_duty_cycle_target,
             (unsigned int) ui8_g_duty_cycle,
             (unsigned int) ui8_controller_adc_battery_current_target,
@@ -369,7 +461,8 @@ int main(void)
 
         #define DEBUG_HALL_POSITIONS (1)
         #if (DEBUG_HALL_POSITIONS == (1) )
-        if( take_action(6, 5000)) {
+        if( take_action_250ms(6, 20)) {
+        //if( take_action(6, 5000)) {
             SEGGER_RTT_printf(0,
             "c10b=%u  dc=%u erps=%u t360=%u  best1=%u best2=%u best3=%u best4=%u best5=%u best6=%u\r\n",
                 (unsigned int) ui8_adc_battery_current_filtered,
@@ -396,7 +489,7 @@ int main(void)
 // ERROR_BATTERY_OVERCURRENT               (1 << 6)	// "Overcurrent"
 // ERROR_SPEED_SENSOR	                    (1 << 7)	// "Speed fault"
 
-
+#if (DEBUG_ON_JLINK == 1)
 void jlink_print_system_state(){
     if (ui8_m_system_state & ERROR_NOT_INIT) SEGGER_RTT_printf(0,"Error : not init\r\n");
     if (ui8_m_system_state & ERROR_TORQUE_SENSOR) SEGGER_RTT_printf(0,"Error : torque sensor\r\n");
@@ -407,5 +500,5 @@ void jlink_print_system_state(){
     if (ui8_m_system_state & ERROR_BATTERY_OVERCURRENT) SEGGER_RTT_printf(0,"Error : battery_overcurrent\r\n");
     if (ui8_m_system_state & ERROR_SPEED_SENSOR) SEGGER_RTT_printf(0,"Error : speed sensor\r\n");
 }    
-
+#endif
 /* END OF FILE */

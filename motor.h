@@ -59,6 +59,14 @@ extern uint8_t ticks_intervals_status; // 0 =  new data can be written; 1 data b
 extern uint16_t previous_hall_pattern_change_ticks;  // save the ticks of last pattern change
 #endif
 
+#define AVERAGING_SIZE 64
+typedef struct {
+    uint32_t buffer[AVERAGING_SIZE];
+    int index;
+    int count;
+    uint32_t sum;
+} Moving_average;
+
 void CCU80_0_IRQHandler(); // called when ccu8 Slice 4 reaches 840  counting UP (= 1/4 of 19mhz cycles)
 void CCU80_1_IRQHandler(); // called when ccu8 Slice 4 reaches 840  counting DOWN (= 1/4 of 19mhz cycles)
 void POSIF0_1_IRQHandler(); // called when posif generate a SR 1 ( used currently to debug)

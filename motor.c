@@ -186,6 +186,20 @@ int16_t I_u; // to check current in each phase
 int16_t I_v;
 int16_t I_w;
 int16_t I_t;
+uint16_t prev_ticks = 0;
+uint16_t interval_ticks = 0;
+uint8_t first_ticks = 1; // says that interval has not yet been calculated
+uint16_t error_ticks_counter = 0;
+uint16_t error_ticks_value;
+uint16_t error_ticks_prev;
+uint16_t interval_ticks_min = 0xFFFF; 
+uint16_t interval_ticks_max = 0; 
+
+uint16_t irq0_min = 0xFFFF;
+uint16_t irq0_max = 0;
+uint16_t irq1_min = 0xFFFF;
+uint16_t irq1_max = 0;
+
 
 uint16_t hall_pattern_error_counter = 0;
 // used to calculate hall angles based of linear regression of all ticks intervals
@@ -215,6 +229,23 @@ uint32_t ui32_adc_battery_current_15b_accum = 0;
 uint32_t ui32_adc_battery_current_15b_counter = 0;
 
 
+// moving average
+Moving_average battery_current_avg_15b;
+uint32_t ui32_adc_battery_current_15b_moving_average = 0;
+int battery_current_moving_avg_index = 0;
+int battery_current_moving_avg_sum = 0;
+int battery_current_moving_avg_buffer[64] = {0};
+
+inline uint32_t update_moving_average(uint32_t new_value){
+    battery_current_moving_avg_sum -= battery_current_moving_avg_buffer[battery_current_moving_avg_index];
+    battery_current_moving_avg_buffer[battery_current_moving_avg_index] = new_value;
+    battery_current_moving_avg_sum += new_value;
+    battery_current_moving_avg_index = (battery_current_moving_avg_index + 1) & 0x3F; 
+    // Retourne la moyenne actuelle
+    return (battery_current_moving_avg_sum + 32) >> 6; // divide by 64; add 32 for better rounding
+}
+
+
 inline uint32_t filtering_function(uint32_t ui32_temp_15b , uint32_t ui32_filtered_15b , uint32_t alpha){
     uint32_t ui32_temp_new = ui32_temp_15b * (16U - alpha);
     uint32_t ui32_temp_old =  ui32_filtered_15b * alpha;
@@ -235,10 +266,10 @@ void VADC0_G0_0_IRQHandler() {  // VADC is configured to compare the total curre
     motor_disable_pwm();
 }
 
-
+#if (USE_IRQ_FOR_HALL == (1))
 // this irq callback occurs when posif detects a new pattern 
-//__RAM_FUNC void POSIF0_0_IRQHandler(){
-void POSIF0_0_IRQHandler(){
+__RAM_FUNC void POSIF0_0_IRQHandler(){
+//void POSIF0_0_IRQHandler(){
         // Capture time stamp 
     ticks_hall_pattern_irq_last = XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW);
     // capture hall pattern
@@ -246,16 +277,18 @@ void POSIF0_0_IRQHandler(){
     current_hall_pattern_irq |=  XMC_GPIO_GetInput(IN_HALL1_PORT, IN_HALL1_PIN) << 1;
     current_hall_pattern_irq |=  XMC_GPIO_GetInput(IN_HALL2_PORT, IN_HALL2_PIN) << 2;
 }
+#endif
+
 
 
 // ************************************** begin of IRQ *************************
 // *************** irq 0 of ccu8
-//__RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting UP (= 1/4 of 19mhz cycles with 1680 ticks at 64mHz and centered aligned)
-void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting UP (= 1/4 of 19mhz cycles with 1680 ticks at 64mHz and centered aligned)
+__RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting UP (= 1/4 of 19mhz cycles with 1680 ticks at 64mHz and centered aligned)
+//void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting UP (= 1/4 of 19mhz cycles with 1680 ticks at 64mHz and centered aligned)
 
 //void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting UP (= 1/4 of 19mhz cycles with 1680 ticks at 64mHz and centered aligned)
 // here we just calculate the new compare values used for the 3 slices (0,1,2) that generates the 3 PWM
-
+#if (USE_IRQ_FOR_HALL == (1))
     uint32_t critical_section_value = XMC_EnterCriticalSection();
     // get the current ticks
     uint16_t current_speed_timer_ticks = (uint16_t) (XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW) );
@@ -264,6 +297,15 @@ void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting UP 
     // get the current hall pattern as saved duting the posif irq
     current_hall_pattern = current_hall_pattern_irq;
     XMC_ExitCriticalSection(critical_section_value);
+#else // irq0 when using a XMC_CCU4_SLICE_CAPTURE
+    // get the current ticks
+    //uint16_t current_speed_timer_ticks = (uint16_t) (XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW) );
+    uint16_t current_speed_timer_ticks = (uint16_t) HALL_SPEED_TIMER_HW->TIMER;
+    // get the capture register = last changed pattern = current pattern
+    uint16_t last_hall_pattern_change_ticks = (uint16_t) XMC_CCU4_SLICE_GetCaptureRegisterValue(HALL_SPEED_TIMER_HW , 1);
+    // get the current hall pattern
+    current_hall_pattern = XMC_POSIF_HSC_GetLastSampledPattern(HALL_POSIF_HW) ;
+#endif
     ui8_hall_sensors_state = current_hall_pattern; // duplicate just for easier maintenance of ebike_app.c for 860c (sent to display)
 
     // elapsed time between now and last pattern change (used for interpolation)
@@ -274,8 +316,24 @@ void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting UP 
 //    uint8_t new_hall_pattern = 0; // filled only when a new pattern is detected
 
     // to debug time in irq
-    uint16_t start_ticks = current_speed_timer_ticks; // save to calculate enlased time inside the irq // just for debug could be removed
-    
+    //uint16_t start_ticks = current_speed_timer_ticks; // save to calculate enlased time inside the irq // just for debug could be removed
+    #define DEBUG_IRQ0_INTERVALS (0) // 1 = calculate min and max intervals between 2 irq0
+    #if (DEBUG_IRQ0_INTERVALS == (1))
+    interval_ticks = current_speed_timer_ticks - prev_ticks;
+    if (first_ticks == 0){
+        if ( (interval_ticks <=13) || (interval_ticks >= 13)) {
+            error_ticks_counter++;
+            //error_ticks_value = current_speed_timer_ticks;
+            //error_ticks_prev = prev_ticks;
+            if (interval_ticks_min > interval_ticks) interval_ticks_min = interval_ticks;
+            if (interval_ticks_max < interval_ticks) interval_ticks_max = interval_ticks;
+             
+        }
+    } else {
+        first_ticks = 0; 
+    }
+    prev_ticks = current_speed_timer_ticks ;
+    #endif
 //the resistance/gain in TSDZ8 is 4X smaller than in TSDZ2; still ADC is 12 bits instead of 10; so ADC 12bits TSDZ8 = ADC 10 bits TSDZ2
         // in TSDZ2, we used only the 8 lowest bits of adc; 1 adc step = 0,16A
         // In tsdz8, the resistance is (I expect) 0.003 Ohm ; So 1A => 0,003V => 0,03V (gain aop is 10)*4096/5Vcc = 24,576 steps
@@ -293,10 +351,11 @@ void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting UP 
     //accumulate the current to calculate an average on one rotation (there are quite big variations inside each 60° sector)
     ui32_adc_battery_current_15b_accum += ui32_adc_battery_current_15b;
     ui32_adc_battery_current_15b_counter++;
-	
+	ui32_adc_battery_current_15b_moving_average = update_moving_average(ui32_adc_battery_current_15b);
+
     
     // to see on prove scope oscillo
-    I_t = ui32_adc_battery_current_15b >> 3; 
+    //I_t = ui32_adc_battery_current_15b >> 3; 
     // when pattern change
     if ( current_hall_pattern != previous_hall_pattern) {
         if (current_hall_pattern != expected_pattern_table[previous_hall_pattern]){ // new pattern is not the expected one
@@ -304,7 +363,7 @@ void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting UP 
             ui8_hall_360_ref_valid = 0;  // reset the indicator saying no error for a 360° electric rotation 
             ui32_angle_per_tick_X16shift = 0; // 0 means unvalid value
             hall_pattern_error_counter++; // for debuging
-            SEGGER_RTT_printf(0, "error %u\r\n", hall_pattern_error_counter);
+    //        SEGGER_RTT_printf(0, "error %u\r\n", hall_pattern_error_counter);
 //            ui32_ref_angle = 0 ; // reset the position at pattern 1
             
         } else {   // valid transition
@@ -343,8 +402,10 @@ void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting UP 
                     // in all cases, set the angle reference in 8 bits for next calculation 
 //                    ui8_motor_phase_absolute_angle_new = (uint8_t) (ui32_ref_angle >> 16) ; // reference for new algorithm
                     
-                    ui32_angle_per_tick_X16shift = ( 1 << 24) / ui16_hall_counter_total; // new value for interpolation and updating table with reference angle
+                    ui32_angle_per_tick_X16shift = ((uint32_t) ( 1 << 24)) / ui16_hall_counter_total; // new value for interpolation and updating table with reference angle
                     ui8_motor_commutation_type = SINEWAVE_INTERPOLATION_60_DEGREES; // 0x80 ; it says that we can interpolate because speed is known
+    
+
                 }
                 ui8_hall_360_ref_valid = 0x01;
                 previous_360_ref_ticks = last_hall_pattern_change_ticks ;    
@@ -392,9 +453,11 @@ void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting UP 
                 }
             } 
             */
+            /*
             if (current_hall_pattern == 1 ){
                 ui16_hall_counter_total_previous = ui16_hall_counter_total; // save previous counter (to check if erps is stable)
             }
+            */    
         }
         previous_hall_pattern = current_hall_pattern; // saved to detect future change and check for valid transition
         // set rotor angle based on best ref angles
@@ -415,6 +478,9 @@ void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting UP 
         } 
         previous_hall_pattern_change_ticks = last_hall_pattern_change_ticks;
         #endif
+    
+    
+
     } else { // no hall patern change
         // Verify if rotor stopped (< 10 ERPS)
         if (enlapsed_time > (HALL_COUNTER_FREQ/MOTOR_ROTOR_INTERPOLATION_MIN_ERPS/6)) { //  for TSDZ2: 250000/10 /6 = 4166 ; for TSDZ8 = 8332
@@ -426,14 +492,14 @@ void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting UP 
             // when we can not use accumulated value, use the latest on and reset accum
             ui32_adc_battery_current_1_rotation_15b = ui32_adc_battery_current_15b;
             ui32_adc_battery_current_15b_accum = 0;
-            ui32_adc_battery_current_15b_counter = 0;
-                    
+            ui32_adc_battery_current_15b_counter = 0; 
         }
     }
-    
+
     // mstrens : moved from irq1 to irq0 to use average current over 1 rotation for regulation
     ui8_adc_battery_current_filtered  = ui32_adc_battery_current_1_rotation_15b >> 5 ; // from 15 bits to 10 bits like TSDZ2 
-    
+    ui8_adc_battery_current_filtered = ui32_adc_battery_current_15b_moving_average  >> 5;
+
     /****************************************************************************/
     // - calculate interpolation angle and sine wave table index when speed is known
     uint8_t ui8_interpolation_angle = 0; // interpolation angle
@@ -441,10 +507,9 @@ void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting UP 
 //    uint8_t ui8_interpolation_angle_new = 0; // interpolation angle
 //    uint32_t compensated_enlapsed_time_new = 0; 
     
+
+
     if (ui8_motor_commutation_type != BLOCK_COMMUTATION) {  // as long as hall patern are OK and motor is running 
-        // ---------
-        // uint8_t ui16_temp = ((uint32_t)ui16_a << 8) / ui16_hall_counter_total; // ui16_hall_counter_total is the number of ticks for a full cycle
-        // temp is here related to 256 (because 256 represent 360°); So 36° is here 25
         compensated_enlapsed_time = enlapsed_time + ui8_fw_hall_counter_offset + ui8_hall_counter_offset;
         // convert time tick to angle (256 = 360°)
            //ui8_interpolation_angle = (((uint32_t) compensated_enlapsed_time) << 8) /  ui16_hall_counter_total; // <<8 = 256 = 360 electric angle
@@ -457,6 +522,8 @@ void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting UP 
 //        compensated_enlapsed_time_new = elapsed_ticks_since_pattern_1 + ui8_fw_hall_counter_offset + ui8_hall_counter_offset;
 //        ui8_interpolation_angle_new = (((uint32_t) compensated_enlapsed_time_new) *  ui32_angle_per_tick_X16shift_new) >> 16 ; 
     }
+
+
     // ------------ Calculate the rotor angle and use it as index in the table----------------- 
     // to compare the 2 algorithm
 //    if (new_hall_pattern == 5){ // calculate only for one to make it easier to compare.
@@ -498,14 +565,21 @@ void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting UP 
     } else {
         ui16_c = MIDDLE_SVM_TABLE - (((MIDDLE_SVM_TABLE - ui16_temp) * (uint16_t) ui8_g_duty_cycle)>>8);
     }
+
+    #define DEBUG_IRQO_TIME (0) // 1 = calculate the time spent in irq0
+    #if (DEBUG_IRQO_TIME == (1))
+    uint16_t temp  = XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW) ;
+    temp = temp - current_speed_timer_ticks;
+    if (irq0_min > temp) irq0_min = temp; // store the in enlapsed time in the irq
+    if (irq0_max < temp) irq0_max = temp; // store the max enlapsed time in the irq
+    #endif
+
+
     // get the voltage ; done in irq0 because it is used in irq1 and irq0 takes less time
-    //ui16_adc_voltage  = (XMC_VADC_GROUP_GetResult(vadc_0_group_1_HW , 4 ) & 0x0FFF) >> 2; // battery gr1 ch6 result 4
+        //ui16_adc_voltage  = (XMC_VADC_GROUP_GetResult(vadc_0_group_1_HW , 4 ) & 0x0FFF) >> 2; // battery gr1 ch6 result 4
     // changed to take care of infineon VADC init (result in reg 6)
     ui16_adc_voltage  = (XMC_VADC_GROUP_GetResult(vadc_0_group_1_HW , VADC_VDC_RESULT_REG ) & 0x0FFF) >> 2; // battery gr1 ch6 result 6
           
-    uint16_t temp  = XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW) ;
-    temp = temp - start_ticks;
-    if (temp > debug_time_ccu8_irq0) debug_time_ccu8_irq0 = temp; // store the max enlapsed time in the irq
     
     #if (uCPROBE_GUI_OSCILLOSCOPE == MY_ENABLED)
     I_u = XMC_VADC_GROUP_GetResult(VADC_I1_GROUP , VADC_I1_RESULT_REG ) & 0x0FFF;
@@ -517,10 +591,16 @@ void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting UP 
 
 } // end of CCU80_0_IRQHandler
 
+#define DEBUG_IRQ1_TIME (0) // 1 = calculate time spent in irq1
 // ************* irq handler 
-//__RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting DOWN (= 1/4 of 19mhz cycles)    
-void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting DOWN (= 1/4 of 19mhz cycles)    
-// fill the PWM parameters with the values calculated in the other CCU8 interrupt
+__RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting DOWN (= 1/4 of 19mhz cycles)    
+//void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting DOWN (= 1/4 of 19mhz cycles)    
+    #if (DEBUG_IRQ1_TIME == (1))
+    // to debug max time in this iSR
+    uint16_t start_ticks  =  XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW);
+    #endif
+
+    // fill the PWM parameters with the values calculated in the other CCU8 interrupt
     //XMC_CCU8_SLICE_SetTimerCompareMatch(PHASE_U_TIMER_HW, XMC_CCU8_SLICE_COMPARE_CHANNEL_1 , ui16_a);
     //XMC_CCU8_SLICE_SetTimerCompareMatch(PHASE_V_TIMER_HW, XMC_CCU8_SLICE_COMPARE_CHANNEL_1 , ui16_b);
     //XMC_CCU8_SLICE_SetTimerCompareMatch(PHASE_W_TIMER_HW, XMC_CCU8_SLICE_COMPARE_CHANNEL_1 , ui16_c);
@@ -534,10 +614,7 @@ void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting DOW
     ccu8_0_HW->GCSS = ((uint32_t)XMC_CCU8_SHADOW_TRANSFER_SLICE_0 |
 	                                            (uint32_t)XMC_CCU8_SHADOW_TRANSFER_SLICE_1 |
 	                                            (uint32_t)XMC_CCU8_SHADOW_TRANSFER_SLICE_2 );
-    // to debug max time in this iSR
-    //uint16_t start_ticks  =  XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW);
-    //temp1b = temp1b - start_ticks;
-    //if (temp1b > debug_time_ccu8_irq1b) debug_time_ccu8_irq1b = temp1b; // store the max enlapsed time in the irq
+    
     
     /****************************************************************************/
         // Read all ADC values (right aligned values).
@@ -555,7 +632,7 @@ void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting DOW
         if (ui8_g_duty_cycle > 0) {
             // calculate phase current.
             if (ui8_g_duty_cycle > 10) {
-                ui16_adc_motor_phase_current = (uint16_t)((uint16_t)((uint16_t)ui8_adc_battery_current_filtered << 8)) / ui8_g_duty_cycle;
+                ui16_adc_motor_phase_current = (uint16_t)((uint16_t)(((uint16_t)ui8_adc_battery_current_filtered) << 8)) / ui8_g_duty_cycle;
             } else {
                 ui16_adc_motor_phase_current = (uint16_t)ui8_adc_battery_current_filtered;
             }
@@ -617,7 +694,7 @@ void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting DOW
         // Furthermore,  when ebyke_app_controller start pwm, g_duty_cycle is first set on 30 (= 12%)
         if ((ui8_controller_duty_cycle_target < ui8_g_duty_cycle)                     // requested duty cycle is lower than actual
           || (ui8_controller_adc_battery_current_target < ui8_adc_battery_current_filtered)  // requested current is lower than actual
-//		  || (ui16_adc_motor_phase_current >  ui16_adc_motor_phase_current_max)               // motor phase is to high
+		  || (ui16_adc_motor_phase_current >  ui16_adc_motor_phase_current_max)               // motor phase is to high
 //          || (ui16_hall_counter_total < (HALL_COUNTER_FREQ / MOTOR_OVER_SPEED_ERPS))        // Erps is to high
           || (ui16_adc_voltage < ui16_adc_voltage_cut_off)                                  // voltage is to low
           || (ui8_brake_state)
@@ -790,10 +867,12 @@ void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting DOW
         // end cadence
 
         // original perform also a save of some parameters (battery consumption) // to do 
-    // to debug    
-    //uint16_t temp1  =  XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW);
-    //temp1 = temp1 - start_ticks;
-    //if (temp1 > debug_time_ccu8_irq1) debug_time_ccu8_irq1 = temp1; // store the max enlapsed time in the irq
+    #if (DEBUG_IRQ1_TIME == (1))
+    uint16_t temp1  =  XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW);
+    temp1 = temp1 - start_ticks;
+    if (irq1_min > temp1) irq1_min = temp1; // store the min enlapsed time in the irq
+    if (irq1_max < temp1) irq1_max = temp1; // store the min enlapsed time in the irq
+    #endif
 }  // end of CCU8_1_IRQ
 
 

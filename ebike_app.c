@@ -521,7 +521,9 @@ static void ebike_control_motor(void) // is called every 25ms by ebike_app_contr
 	
 	// for debug
 	// calculate an average in mA (to find parameters giving lowest current)
-	ui32_current_1_rotation_ma = (ui32_adc_battery_current_1_rotation_15b * 10 * BATTERY_CURRENT_PER_10_BIT_ADC_STEP_X100) >> 5;
+	//ui32_current_1_rotation_ma = (ui32_adc_battery_current_1_rotation_15b * 10 * BATTERY_CURRENT_PER_10_BIT_ADC_STEP_X100) >> 5;
+	ui32_current_1_rotation_ma = (ui8_adc_battery_current_filtered * 10 * BATTERY_CURRENT_PER_10_BIT_ADC_STEP_X100) ;
+	
 	ui32_battery_current_mA_acc += ui32_current_1_rotation_ma;
 	ui32_battery_current_mA_cnt--;
 	if (ui32_battery_current_mA_cnt == 0){ // so about 1.5 sec
@@ -1575,7 +1577,9 @@ static void get_pedal_torque(void)
 		else {
 			ui16_adc_pedal_torque_delta = ui16_adc_pedal_torque - ui16_adc_pedal_torque_offset;
 		}
-		ui16_adc_pedal_torque_delta = (ui16_adc_pedal_torque_delta + ui16_adc_pedal_torque_delta_temp) >> 1;
+		// changed by mstrens to increase filtering
+		//ui16_adc_pedal_torque_delta = (ui16_adc_pedal_torque_delta + ui16_adc_pedal_torque_delta_temp) >> 1;
+		ui16_adc_pedal_torque_delta = filter(ui16_adc_pedal_torque_delta, ui16_adc_pedal_torque_delta_temp, 8);
 	}
 	else {
 		ui16_adc_pedal_torque_delta = 0;
@@ -2262,6 +2266,7 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		// motor over temperature max value limit
 		ui8_motor_temperature_max_value_to_limit = ui8_rx_buffer[13];
 		
+
 		// motor acceleration adjustment
 		uint8_t ui8_motor_acceleration_adjustment = ui8_rx_buffer[14];
 	  
@@ -2347,6 +2352,8 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		
 		// coast brake threshold
 		ui8_coaster_brake_torque_threshold = ui8_rx_buffer[81];
+		// modified by mstrens to allow to change foc calculation
+		ui8_foc_angle_multiplicator = ui8_rx_buffer[81];
 			
 		//ui8_m_adc_lights_current_offset = (uint16_t) ui8_rx_buffer[82];
 		// lights configuration

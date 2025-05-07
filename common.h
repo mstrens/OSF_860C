@@ -61,5 +61,7 @@ void lights_set_state(uint8_t ui8_state) ; // moved by mstrens from another tsdz
 // added by mstrens
 extern volatile uint32_t system_ticks ;
 bool take_action(uint32_t index, uint32_t interval);
-void wait_ms(uint32_t time);
+bool take_action_250ms(uint32_t index, uint32_t interval);
+
+//void wait_ms(uint32_t time);
 #endif /* COMMON_COMMON_H_ */
