@@ -34,6 +34,12 @@ extern volatile uint16_t ui16_adc_voltage;
 extern volatile uint16_t ui16_adc_torque;
 extern volatile uint16_t ui16_adc_throttle;
 
+extern volatile uint16_t ui16_adc_torque_filtered  ; 
+extern volatile uint16_t ui16_adc_torque_actual_rotation ;
+extern volatile uint16_t ui16_adc_torque_previous_rotation ;
+extern volatile uint8_t ui8_adc_torque_rotation_reset ;
+
+
 // cadence sensor
 extern volatile uint16_t ui16_cadence_sensor_ticks;
 

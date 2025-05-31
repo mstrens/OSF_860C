@@ -12,7 +12,7 @@
 //#include "config.h"
 #include "common.h"
                                     // !!!!!!!!!!!!!!
-#define FIRMWARE_VERSION "0.1.15"      // is not used; just for reference) ; !!! this version is similar to 0.1.13 for vlcd5 !!!!!!!!!!
+#define FIRMWARE_VERSION "0.1.16"      //  !!! this version was derived from 0.1.13 for vlcd5 !!!!!!!!!!
 //#define MAIN_CONFIGURATOR_VERSION 2   // for configurator (must be the same as in xls sheet)
 //#define SUB_CONFIGURATOR_VERSION 1    // is not used (just for reference)
 
@@ -200,7 +200,7 @@ HALL_COUNTER_OFFSET_UP:    29 -> 44
 #define ADC_TORQUE_SENSOR_OFFSET_THRESHOLD		30
 
 // Torque sensor values
-#define ADC_TORQUE_SENSOR_OFFSET_DEFAULT		150 // from 860c
+#define ADC_TORQUE_SENSOR_OFFSET_DEFAULT		170 // from 860c // changed by mstrens for TSDZ8; it was 150 for TSDZ2
 // adc torque range parameters for remapping
 #define ADC_TORQUE_SENSOR_RANGE_TARGET	  		160 // from 860c
 #define ADC_TORQUE_SENSOR_RANGE_TARGET_MIN 		133 // from 860c

@@ -110,6 +110,7 @@ extern uint8_t ui8_wheel_speed_simulate ;  //added by mstrens to simulate a fixe
 
 extern uint8_t ui8_m_system_state;
 
+/*
 // debug manipulating each ref angle and see impact
 uint8_t ui8_best_ref_angles1 ;
 uint8_t ui8_best_ref_angles2 ;
@@ -117,6 +118,7 @@ uint8_t ui8_best_ref_angles3 ;
 uint8_t ui8_best_ref_angles4 ;
 uint8_t ui8_best_ref_angles5 ;
 uint8_t ui8_best_ref_angles6 ;
+*/
 
 //debug interval irq0
 extern uint16_t interval_ticks ;

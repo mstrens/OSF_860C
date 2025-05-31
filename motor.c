@@ -104,7 +104,12 @@ volatile uint16_t ui16_adc_motor_phase_current = 0; // mstrens: it was uint8 in 
 volatile uint16_t ui16_adc_voltage = 0;
 volatile uint16_t ui16_adc_torque = 0;
 volatile uint16_t ui16_adc_throttle = 0;
-
+//added by mstrens
+volatile uint16_t ui16_adc_torque_filtered = 0 ; // filtered adc torque
+volatile uint16_t ui16_adc_torque_actual_rotation = 0;
+volatile uint16_t ui16_adc_torque_previous_rotation = 0;
+volatile uint8_t ui8_adc_torque_rotation_reset = false;
+    
 // brakes
 volatile uint8_t ui8_brake_state = 0;
 
@@ -117,6 +122,8 @@ static uint16_t ui16_cadence_calc_counter = 0;
 static uint16_t ui16_cadence_stop_counter = 0;
 static uint8_t ui8_cadence_calc_ref_state = NO_PAS_REF;
 const static uint8_t ui8_pas_old_valid_state[4] = { 0x01, 0x03, 0x00, 0x02 };
+//added by mstrens
+uint8_t ui8_pas_counter = 0; // counter to detect a full pedal rotation (after 20 valid transitions)
 
 // wheel speed sensor
 volatile uint16_t ui16_wheel_speed_sensor_ticks = 0;
@@ -497,7 +504,7 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     }
 
     // mstrens : moved from irq1 to irq0 to use average current over 1 rotation for regulation
-    ui8_adc_battery_current_filtered  = ui32_adc_battery_current_1_rotation_15b >> 5 ; // from 15 bits to 10 bits like TSDZ2 
+    //ui8_adc_battery_current_filtered  = ui32_adc_battery_current_1_rotation_15b >> 5 ; // from 15 bits to 10 bits like TSDZ2 
     ui8_adc_battery_current_filtered = ui32_adc_battery_current_15b_moving_average  >> 5;
 
     /****************************************************************************/
@@ -639,7 +646,9 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
             if (ui8_foc_flag) { // is set on 1 when rotor is at 150° so once per electric rotation
 				uint16_t ui16_adc_foc_angle_current = ((uint16_t)(ui8_adc_battery_current_filtered ) + (ui16_adc_motor_phase_current )) >> 1;
                 // mstrens : added 128 for better rounding
-                ui8_foc_flag = ((ui16_adc_foc_angle_current * ui8_foc_angle_multiplicator) + 128) >> 8 ; // multiplier = 39 for 48V tsdz2, 
+                //ui8_foc_flag = ((ui16_adc_foc_angle_current * ui8_foc_angle_multiplicator) + 128) >> 8 ; // multiplier = 39 for 48V tsdz2, 
+                ui8_foc_flag = (((uint16_t) ui8_adc_battery_current_filtered * (uint16_t) ui8_foc_angle_multiplicator) + 128) >> 8 ; // multiplier = 39 for 48V tsdz2, 
+                
                 if (ui8_foc_flag > 13)
                     ui8_foc_flag = 13;
                 // removed by mstrens because current is already based on an average on 1 rotation
@@ -809,6 +818,21 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
         }
         //end wheel speed
 
+        // added by mstrens
+        // get raw adc torque sensor (in 10 bits) 
+        ui16_adc_torque   = (XMC_VADC_GROUP_GetResult(vadc_0_group_0_HW , VADC_TORQUE_RESULT_REG ) & 0xFFF) >> 2; // torque gr0 ch7 result 7 in bg p2.2
+        //filter it (3 X previous + 1 X new)
+        uint16_t ui16_adc_torque_new_filtered = ( ui16_adc_torque + (ui16_adc_torque_filtered<<1) + ui16_adc_torque_filtered) >> 2;
+        if (ui16_adc_torque_new_filtered == ui16_adc_torque_filtered){ // code to ensure it reaches the limits
+            if ( ui16_adc_torque_new_filtered < ui16_adc_torque) 
+                ui16_adc_torque_new_filtered++; 
+            else if (ui16_adc_torque_new_filtered > ui16_adc_torque) 
+                ui16_adc_torque_new_filtered--;
+        }
+        ui16_adc_torque_filtered = ui16_adc_torque_new_filtered;
+
+        
+
         /****************************************************************************/
         /*
          * - New pedal start/stop detection Algorithm (by MSpider65) -
@@ -844,10 +868,12 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
                 ui16_cadence_calc_counter = 0;
                 // software based Schmitt trigger to stop motor jitter when at resolution limits
                 ui16_cadence_sensor_ticks_counter_min += CADENCE_SENSOR_STANDARD_MODE_SCHMITT_TRIGGER_THRESHOLD; // 427 at 19 khz
+                ui8_pas_counter++; // mstrens : increment the counter when the transition is valid
             } else if (ui8_cadence_calc_ref_state == NO_PAS_REF) {  // 5
                 // this is the new reference state for cadence calculation
                 ui8_cadence_calc_ref_state = ui8_temp_cadence;
                 ui16_cadence_calc_counter = 0;
+                ui8_pas_counter = 0; // mstrens :  reset the counter for full rotation
             } else if (ui16_cadence_sensor_ticks == 0) {
                 // Waiting the second reference transition: set the cadence to 7 RPM for immediate start
                 ui16_cadence_sensor_ticks = CADENCE_TICKS_STARTUP; // 7619
@@ -860,6 +886,7 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
             ui16_cadence_sensor_ticks = 0;
             ui16_cadence_stop_counter = 0;
             ui8_cadence_calc_ref_state = NO_PAS_REF;
+            ui8_pas_counter = 0; // mstrens :  reset the counter for full rotation
         } else if (ui8_cadence_calc_ref_state != NO_PAS_REF) { // 5
             // increment cadence tick counter
             ++ui16_cadence_calc_counter;
@@ -873,6 +900,34 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     if (irq1_min > temp1) irq1_min = temp1; // store the min enlapsed time in the irq
     if (irq1_max < temp1) irq1_max = temp1; // store the min enlapsed time in the irq
     #endif
+    
+    // added by mstrens to calculate torque sensor without cyclic effect
+    // we have several data
+    // ui16_adc_torque_filtered is the actual filtered ADC torque
+    // ui16_adc_torque_actual_rotation is the max during current rotation
+    // ui16_adc_torque_previous_rotation is the max during previous rotation
+    
+    // first reset the values per rotation when requested by ebike_app.c
+    if (ui8_adc_torque_rotation_reset) {
+        ui8_adc_torque_rotation_reset = 0; //reset the flag
+        ui16_adc_torque_actual_rotation = 0;  
+        ui16_adc_torque_previous_rotation = 0;
+    }
+    if (ui16_cadence_sensor_ticks > 0) { // when we have a cadence, we update data over rotation
+        // actual_rotation is the max
+        if (ui16_adc_torque_actual_rotation < ui16_adc_torque_filtered) ui16_adc_torque_actual_rotation = ui16_adc_torque_filtered;
+        if (ui8_pas_counter >= 20) { // if we have had a full rotation
+            ui8_pas_counter = 0; // reset the counter
+            ui16_adc_torque_previous_rotation = ui16_adc_torque_actual_rotation;  // save the actual rotation value
+            ui16_adc_torque_actual_rotation =  0; // reset the actual rotation
+        }
+    } else {
+        ui8_pas_counter = 0 ;
+        ui16_adc_torque_previous_rotation = 0;
+        ui16_adc_torque_actual_rotation = 0;
+    }
+
+
 }  // end of CCU8_1_IRQ
 
 

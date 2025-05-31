@@ -87,13 +87,14 @@ extern uint8_t hall_reference_angle ;
 
 void fillRxBuffer();
 
+/*
 extern uint8_t ui8_best_ref_angles1 ;
 extern uint8_t ui8_best_ref_angles2 ;
 extern uint8_t ui8_best_ref_angles3 ;
 extern uint8_t ui8_best_ref_angles4 ;
 extern uint8_t ui8_best_ref_angles5 ;
 extern uint8_t ui8_best_ref_angles6 ;
-
+*/
 void ebike_app_controller(void);
 //struct_configuration_variables* get_configuration_variables(void);
 

@@ -102,12 +102,12 @@ uint16_t ui16_cadence_ticks_count_min_speed_adj = CADENCE_SENSOR_CALC_COUNTER_MI
 static uint8_t ui8_pedal_cadence_RPM = 0;
 
 // torque sensor
-static uint16_t ui16_adc_pedal_torque_offset = ADC_TORQUE_SENSOR_OFFSET_DEFAULT;
-static uint16_t ui16_adc_pedal_torque_offset_init = ADC_TORQUE_SENSOR_OFFSET_DEFAULT;
-static uint16_t ui16_adc_pedal_torque_offset_cal = ADC_TORQUE_SENSOR_OFFSET_DEFAULT;
-static uint16_t ui16_adc_pedal_torque_offset_set = ADC_TORQUE_SENSOR_OFFSET_DEFAULT;
-static uint16_t ui16_adc_pedal_torque_offset_min = ADC_TORQUE_SENSOR_OFFSET_DEFAULT - ADC_TORQUE_SENSOR_OFFSET_THRESHOLD;
-static uint16_t ui16_adc_pedal_torque_offset_max = ADC_TORQUE_SENSOR_OFFSET_DEFAULT + ADC_TORQUE_SENSOR_OFFSET_THRESHOLD;
+static uint16_t ui16_adc_pedal_torque_offset = ADC_TORQUE_SENSOR_OFFSET_DEFAULT; //150
+static uint16_t ui16_adc_pedal_torque_offset_init = ADC_TORQUE_SENSOR_OFFSET_DEFAULT; // 150
+//static uint16_t ui16_adc_pedal_torque_offset_cal = ADC_TORQUE_SENSOR_OFFSET_DEFAULT; // 150
+static uint16_t ui16_adc_pedal_torque_offset_set = ADC_TORQUE_SENSOR_OFFSET_DEFAULT; // 150 for TSDZ2, 170 for TSDZ8
+static uint16_t ui16_adc_pedal_torque_offset_min = ADC_TORQUE_SENSOR_OFFSET_DEFAULT - ADC_TORQUE_SENSOR_OFFSET_THRESHOLD; // 120
+static uint16_t ui16_adc_pedal_torque_offset_max = ADC_TORQUE_SENSOR_OFFSET_DEFAULT + ADC_TORQUE_SENSOR_OFFSET_THRESHOLD; // 180
 static uint8_t ui8_adc_pedal_torque_offset_error = 0;
 static uint8_t ui8_adc_torque_calibration_offset = 0;
 static uint8_t ui8_adc_torque_middle_offset_adj = 0;
@@ -222,9 +222,9 @@ uint16_t debug9 =0;
 // added by mstrens to optimise hall positions
 extern volatile uint8_t ui8_best_ref_angles[8];
 
+uint16_t ui16_adc_pedal_torque_delta_to_remap = 0;
 
 
-		
 // system functions
 static void get_battery_voltage(void);
 static void get_pedal_torque(void);
@@ -319,6 +319,7 @@ void ebike_app_controller(void) // is called every 25ms by main()
 			break;
 		case 3:
 			check_system();
+			/*
 			// added by mstrens
 			ui8_best_ref_angles[1] = ui8_best_ref_angles1;
 			ui8_best_ref_angles[2] = ui8_best_ref_angles2;
@@ -326,7 +327,7 @@ void ebike_app_controller(void) // is called every 25ms by main()
 			ui8_best_ref_angles[4] = ui8_best_ref_angles4;
 			ui8_best_ref_angles[5] = ui8_best_ref_angles5;
 			ui8_best_ref_angles[6] = ui8_best_ref_angles6; 			break;
-
+			*/
 			break;
 	}
 	
@@ -711,6 +712,7 @@ static void apply_smooth_start(void)
 
 static void apply_power_assist(void)
 {
+	//here current is based on adc_pedal_torque_delta * cadence * assist_factor * some ratio
 	uint8_t ui8_power_assist_multiplier_x50 = ui8_riding_mode_parameter;
 	
 	// check for assist without pedal rotation when there is no pedal rotation
@@ -791,6 +793,7 @@ static void apply_power_assist(void)
 
 static void apply_torque_assist(void)
 {
+	// here current is based on torque * assist_factor
 	// smooth start
 	if (ui8_smooth_start_enabled) {
 		apply_smooth_start();
@@ -852,7 +855,8 @@ static void apply_torque_assist(void)
 
 static void apply_cadence_assist(void)
 {
-    if (ui8_pedal_cadence_RPM) {
+    // here we simulate a torque based on cadence * assist_factor
+	if (ui8_pedal_cadence_RPM) {
 		// simulated pedal torque delta
 		ui16_adc_pedal_torque_delta = ((uint16_t)ui8_riding_mode_parameter + (uint16_t)ui8_pedal_cadence_RPM) >> 2;
 		
@@ -970,6 +974,8 @@ static void apply_emtb_assist(void)
 
 static void apply_hybrid_assist(void)
 {
+
+	// here current is max of current calculated based on power and on torque assist mode.
 	uint16_t ui16_adc_battery_current_target_power_assist;
 	uint16_t ui16_adc_battery_current_target_torque_assist;
 	uint16_t ui16_adc_battery_current_target;
@@ -1499,24 +1505,89 @@ void get_battery_voltage(void)
     ui16_battery_voltage_filtered_x1000 = ui16_adc_battery_voltage_filtered * BATTERY_VOLTAGE_PER_10_BIT_ADC_STEP_X1000;
 }
 
+//expo : f(x) = (k*x*x*x/(1024*1024) + x*(256-k) + 128) / 256 ; k is between 0 and 256, x is between 0 and 1024
+// return is in range 0/1024
+//#define EXTENDED_EXPO 1
+// calculate expo only for positive number with positive ratio
+unsigned int expou(unsigned int x, unsigned int k)
+{
+#if defined(EXTENDED_EXPO)
+  bool extended;
+  if (k > 204) {  // it was 80 when k was in range 0/100 ; so 80* 256 /100 = 204
+    extended=true;
+  }
+  else {
+    k += (k>>2);  // use bigger values before extend, because the effect is anyway very very low
+    extended=false;
+  }
+#endif
+
+  //k = calc100to256(k);  // was activated when k was in range 0/100
+
+  uint32_t value = (uint32_t) x*x;
+  value *= (uint32_t)k;
+  value >>= 8;
+  value *= (uint32_t)x;
+
+#if defined(EXTENDED_EXPO)
+  if (extended) {  // for higher values do more multiplications to get a stronger expo curve
+    value >>= 16;
+    value *= (uint32_t)x;
+    value >>= 4;
+    value *= (uint32_t)x;
+  }
+#endif
+
+  value >>= 12;
+  value += (uint32_t)(256-k) * x + 128;
+
+  return value >> 8;
+}
+
+#define RESXu 1024u
+// calculate expo for positive or negative parameters
+int expo(int x, int k)
+{
+  if (k == 0) {
+    return x;
+  }
+
+  int y;
+  bool neg = (x < 0);
+
+  if (neg) {
+    x = -x;
+  }
+  if (x > (int)RESXu) {
+    x = RESXu;
+  }
+  if (k < 0) {
+    y = RESXu - expou(RESXu-x, -k);
+  }
+  else {
+    y = expou(x, k);
+  }
+  return neg ? -y : y;
+}
+
 
 #define TOFFSET_CYCLES 120 // 3sec (25ms*120)
 static uint8_t toffset_cycle_counter = 0;
 
 static void get_pedal_torque(void)
 {
-	uint16_t ui16_temp = 0;
+	//uint16_t ui16_temp = 0;
 	// this has been moved from motor.c to here in order to save time in the irq; >>2 is to go from ADC 12 bits to 10 bits like TSDZ2
 	//ui16_adc_torque   = (XMC_VADC_GROUP_GetResult(vadc_0_group_0_HW , 2 ) & 0xFFF) >> 2; // torque gr0 ch7 result 2 in bg p2.2
     // change by mstrens to take care of infineon init
-	ui16_adc_torque   = (XMC_VADC_GROUP_GetResult(vadc_0_group_0_HW , VADC_TORQUE_RESULT_REG ) & 0xFFF) >> 2; // torque gr0 ch7 result 7 in bg p2.2
-    
+	//ui16_adc_torque   = (XMC_VADC_GROUP_GetResult(vadc_0_group_0_HW , VADC_TORQUE_RESULT_REG ) & 0xFFF) >> 2; // torque gr0 ch7 result 7 in bg p2.2
+    /*
 	if (toffset_cycle_counter < TOFFSET_CYCLES) {
         uint16_t ui16_tmp = ui16_adc_torque;
         ui16_adc_pedal_torque_offset_init = filter(ui16_tmp, ui16_adc_pedal_torque_offset_init, 2);
         toffset_cycle_counter++;
 		
-		// check the offset calibration
+		// check the offset calibration at the end of the 3 sec delay
 		if ((toffset_cycle_counter == TOFFSET_CYCLES)&&(ui8_torque_sensor_calibration_enabled)) {
 			if ((ui16_adc_pedal_torque_offset_init > ui16_adc_pedal_torque_offset_min)&& 
 			  (ui16_adc_pedal_torque_offset_init < ui16_adc_pedal_torque_offset_max)) {
@@ -1530,7 +1601,7 @@ static void get_pedal_torque(void)
         ui16_adc_pedal_torque = ui16_adc_pedal_torque_offset_init;
 		ui16_adc_pedal_torque_offset_cal = ui16_adc_pedal_torque_offset_init + ui8_adc_torque_calibration_offset;
 	}
-	else {
+	else { 
 		// torque sensor offset adjustment
 		ui16_adc_pedal_torque_offset = ui16_adc_pedal_torque_offset_cal;
 		if (ui8_pedal_cadence_RPM) {
@@ -1549,9 +1620,96 @@ static void get_pedal_torque(void)
         // get adc pedal torque
         ui16_adc_pedal_torque = ui16_adc_torque;
     }
+	*/
+	if (toffset_cycle_counter < TOFFSET_CYCLES) {  // less than 3 sec
+        // filter again the adc_torque_filtered value
+		ui16_adc_pedal_torque_offset_init = filter(ui16_adc_torque_filtered, ui16_adc_pedal_torque_offset_init , 4) ; // get filtered torque captured in motor.c irq1
+        toffset_cycle_counter++;
+		
+		// check the offset calibration at the end of the 3 sec delay with
+		// the value min and max calculated based on the offset (no load) value sent by 860c and some tolerances
+		if ((toffset_cycle_counter == TOFFSET_CYCLES)&&(ui8_torque_sensor_calibration_enabled)) {
+			if ((ui16_adc_pedal_torque_offset_init > ui16_adc_pedal_torque_offset_min)&& 
+			  (ui16_adc_pedal_torque_offset_init < ui16_adc_pedal_torque_offset_max)) {
+				ui8_adc_pedal_torque_offset_error = 0;
+			}
+			else {
+				ui8_adc_pedal_torque_offset_error = 1;
+			}
+		}
+		ui16_adc_pedal_torque = ui16_adc_pedal_torque_offset_init;
+		// we also have to setup an offset.
+		// experience shows that ADC value with no load depends on the position of the pedal and so the init value is not valid for further handling
+		// best is to use the value provided by usetr in 860C as reference and to add a margin.
+		// in TSDZ2 the margin depends on range, calibration offset, calibration enabled.
+		// this is complex.
+		// to make it easier, for TSDZ8, it is based only on 
+		// - the offset at no load  : ui16_adc_pedal_torque_offset_set (in rx buffer 76/77)
+		// - a margin : ui8_adc_pedal_torque_offset_adj (in rx buffer 50)
+		// still we have to take care that when when calibration is enabled, the transmitter by 860C takes also into account the ratio range/range target
+		// so to avoid misunderstanding, best is to ask the user to always set calibration on disabled
+		// best value to be used as margin has to be experiment. 
+        // note:
+		// 860C transmit also a calibration offset but this is not usefull.
+		// it can't be change manually by the user. The received value depends on calibration enabled or not (6 in this case)
+		// When calibration is enabled, it depends also on range
+		// so it is easier to use only ui8_adc_pedal_torque_offset_adj that can be manually filled in 860c even when calibrated id OFF
+		ui16_adc_pedal_torque_offset = ui16_adc_pedal_torque_offset_set + ui8_adc_pedal_torque_offset_adj;	
+	} else { // after 3 sec
+		// we recalculate the offset because changing some value on the display did not updated the offset without a reset
+		ui16_adc_pedal_torque_offset = ui16_adc_pedal_torque_offset_set + ui8_adc_pedal_torque_offset_adj;
+		// commented by mstrens 
+		/*
+		if (ui8_pedal_cadence_RPM) {
+			ui16_adc_pedal_torque_offset -= ui8_adc_torque_middle_offset_adj; // take care of the ratio range/target (160)
+			ui16_adc_pedal_torque_offset += ui8_adc_pedal_torque_offset_adj; // take care of the ratio range/target (160)
+		}
+		
+		if ((ui8_coaster_brake_enabled)&&(ui16_adc_pedal_torque_offset > ui8_coaster_brake_torque_threshold)) {
+			//ui16_adc_coaster_brake_threshold = ui16_adc_pedal_torque_offset - ui8_coaster_brake_torque_threshold;
+			ui16_adc_coaster_brake_threshold = ui16_adc_pedal_torque_offset_cal - ui8_coaster_brake_torque_threshold;
+		}
+		else {
+			ui16_adc_coaster_brake_threshold = 0;
+		}
+		*/
+
+        // get adc pedal torque
+		// when cadence is high enough, we use the max between actual value, actual rotation and previous rotation
+		// when cadence is 0 (or low - to test), we use the actual value of the ADC torque sensor
+		if (ui8_pedal_cadence_RPM > 0) { // perhaps better check regarding a theresehold 
+			if ( ui16_adc_torque_actual_rotation > ui16_adc_torque_previous_rotation) {
+				ui16_adc_pedal_torque = ui16_adc_torque_actual_rotation ;
+			} else {
+				ui16_adc_pedal_torque = ui16_adc_torque_previous_rotation ;
+			}
+			if ( ui16_adc_pedal_torque < ui16_adc_torque_filtered ) {
+				ui16_adc_pedal_torque = ui16_adc_torque_filtered ;
+			}
+		} else {
+        	ui16_adc_pedal_torque = ui16_adc_torque_filtered;
+		}
+
+    }
 	
+	// here we know the ui16_adc_pedal_torque but we still have to take care of 
+	// - offset
+	// - remap in order to have a max range of 160 (value used by TSDZ2
+	// - some kind of exponential
     // calculate the delta value from calibration
-    if (ui16_adc_pedal_torque > ui16_adc_pedal_torque_offset) {
+
+			// parameters being filled by user are
+			// adc_pedal_torque_offset_adj (range 0/34 in 860C param, default 20);
+			//                            value transmitted is display * range/160 when calib is enabled, display value when disabled 
+			// adc_pedal_torque_range_adj (range 0/40, default 20)
+			// adc_pedal_torque_angle_adj (range 160/16 based on an index being filled by the user); so can't be used here
+			// ui16_adc_pedal_torque_offset_set = ADC whith no load as defined in 860C
+			// ui16_adc_pedal_torque_range =  range calculated in 860c basec on torque_sensor_ADC_offset and torque_sensor_ADC_max filled in 860C
+
+	// calculate ui16_adc_pedal_torque_delta to remap 	
+	if (ui16_adc_pedal_torque > ui16_adc_pedal_torque_offset ) {
+		
+		/*
 		// adc pedal torque delta remapping
 		if (ui8_torque_sensor_calibration_enabled) {
 			// adc pedal torque delta adjustment
@@ -1577,13 +1735,28 @@ static void get_pedal_torque(void)
 		else {
 			ui16_adc_pedal_torque_delta = ui16_adc_pedal_torque - ui16_adc_pedal_torque_offset;
 		}
-		// changed by mstrens to increase filtering
-		//ui16_adc_pedal_torque_delta = (ui16_adc_pedal_torque_delta + ui16_adc_pedal_torque_delta_temp) >> 1;
-		ui16_adc_pedal_torque_delta = filter(ui16_adc_pedal_torque_delta, ui16_adc_pedal_torque_delta_temp, 8);
+		*/	
+		ui16_adc_pedal_torque_delta_to_remap = ui16_adc_pedal_torque - ui16_adc_pedal_torque_offset;
+		// calculate filtered delta (used when it is largerly lower than the rotation values so to detect faster pressure release )
+		uint16_t ui16_adc_torque_filtered_delta = 0;
+		if ( ui16_adc_torque_filtered >= ui16_adc_pedal_torque_offset) {
+			ui16_adc_torque_filtered_delta = ui16_adc_torque_filtered - ui16_adc_pedal_torque_offset;
+		}
+		// when (ui16_adc_torque_filtered_delta) is lower than the ui16_adc_pedal_torque/2
+		// we prefer to use the filtered value (faster reaction to reducing torque) and we force a reset of rotation values
+		//if ( ui16_adc_torque_filtered_delta < (ui16_adc_pedal_torque_delta_to_remap << 1 )) {
+		//	ui16_adc_pedal_torque_delta_to_remap = ui16_adc_torque_filtered_delta;
+		//	ui8_adc_torque_rotation_reset = 1; // this wil force a reset of the 2 values per rotations in motor.c irq1
+		//}
+		// here ui16_adc_pedal_torque_delta_to_remap is the value to remap
+		// change the value so that the max would be about 160.
+		ui16_adc_pedal_torque_delta = ui16_adc_pedal_torque_delta_to_remap * ADC_TORQUE_SENSOR_RANGE_TARGET / 
+									(ui16_adc_pedal_torque_range- ui8_adc_pedal_torque_offset_adj) ; 
 	}
-	else {
+	else { // when torque is lower than offset, set it to 0
 		ui16_adc_pedal_torque_delta = 0;
     }
+	// here ui16_adc_pedal_torque_delta is known
 	ui16_adc_pedal_torque_delta_temp = ui16_adc_pedal_torque_delta;
 	
 	// for cadence sensor check
@@ -1637,8 +1810,7 @@ static void check_system(void)
 		  ||(ui16_adc_pedal_torque > 500)
 		  ||(ui8_adc_pedal_torque_offset_error)) {
 			// set error code
-			// commented by mstrens during the first test ; to remove
-			//ui8_m_system_state |= ERROR_TORQUE_SENSOR;
+			ui8_m_system_state |= ERROR_TORQUE_SENSOR;
 		}
 	}
 	
