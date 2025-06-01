@@ -108,7 +108,7 @@ volatile uint16_t ui16_adc_throttle = 0;
 volatile uint16_t ui16_adc_torque_filtered = 0 ; // filtered adc torque
 volatile uint16_t ui16_adc_torque_actual_rotation = 0;
 volatile uint16_t ui16_adc_torque_previous_rotation = 0;
-volatile uint8_t ui8_adc_torque_rotation_reset = false;
+volatile uint8_t ui8_adc_torque_rotation_reset = 0;
     
 // brakes
 volatile uint8_t ui8_brake_state = 0;
@@ -912,6 +912,7 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
         ui8_adc_torque_rotation_reset = 0; //reset the flag
         ui16_adc_torque_actual_rotation = 0;  
         ui16_adc_torque_previous_rotation = 0;
+        ui8_pas_counter = 0; // reset the counter also
     }
     if (ui16_cadence_sensor_ticks > 0) { // when we have a cadence, we update data over rotation
         // actual_rotation is the max

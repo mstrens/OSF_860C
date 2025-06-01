@@ -100,6 +100,9 @@ uint16_t ui16_motor_speed_erps = 0;
 // cadence sensor
 uint16_t ui16_cadence_ticks_count_min_speed_adj = CADENCE_SENSOR_CALC_COUNTER_MIN;
 static uint8_t ui8_pedal_cadence_RPM = 0;
+// added by mstrens to allow faster torque decrease 
+ui8_pedal_cadence_RPM_previous = 0;
+i16_pedal_cadence_RPM_decrease_ratio = 0 ;
 
 // torque sensor
 static uint16_t ui16_adc_pedal_torque_offset = ADC_TORQUE_SENSOR_OFFSET_DEFAULT; //150
@@ -221,9 +224,9 @@ uint16_t debug9 =0;
 
 // added by mstrens to optimise hall positions
 extern volatile uint8_t ui8_best_ref_angles[8];
-
 uint16_t ui16_adc_pedal_torque_delta_to_remap = 0;
-
+uint16_t ui16_adc_pedal_torque_delta_remapped = 0;
+uint16_t ui16_adc_pedal_torque_delta_expo = 0;
 
 // system functions
 static void get_battery_voltage(void);
@@ -1480,6 +1483,16 @@ static void calc_cadence(void)
      (2) Cadence in RPM = (PWM_CYCLES_SECOND * 3) / ticks
 
      -------------------------------------------------------------------------------------------------*/
+	 // added by mstrens
+	 // we also calculate the ratio of decrease of cadence in order to allow faster reaction of assistance when pedal pressure reduce
+	 i16_pedal_cadence_RPM_decrease_ratio = 0;
+	 if ( ui8_pedal_cadence_RPM > 0){
+		int16_t i16_pedal_cadence_RPM_difference = (int16_t) ui8_pedal_cadence_RPM_previous - (int16_t) ui8_pedal_cadence_RPM;
+		if (i16_pedal_cadence_RPM_difference > 0) {
+			i16_pedal_cadence_RPM_decrease_ratio = (i16_pedal_cadence_RPM_difference << 8) / ui8_pedal_cadence_RPM;
+		} 
+	} 
+	 ui8_pedal_cadence_RPM_previous = ui8_pedal_cadence_RPM;
 }
 
 
@@ -1673,23 +1686,30 @@ static void get_pedal_torque(void)
 			ui16_adc_coaster_brake_threshold = 0;
 		}
 		*/
+		
+		// When cadence decrease ratio exceed some value, we reset the current and previous Max rotation value
+		// max cadence is 120; so max cadence decrease ratio is (120-1)*256/(120+1) = 256
+		// (2-1)*256/1 = 256
+		// (110-90)*256/100 = 25
+ 		#define CADENCE_DECREASE_RATIO 25
+		if (i16_pedal_cadence_RPM_decrease_ratio > CADENCE_DECREASE_RATIO) {
+			ui16_adc_torque_actual_rotation = 0;
+			ui16_adc_torque_previous_rotation = 0 ;
+			ui8_adc_torque_rotation_reset = 1 ; // will force also a reset in the motor.c irq to be safe and reset rpm counter
+		}
 
         // get adc pedal torque
 		// when cadence is high enough, we use the max between actual value, actual rotation and previous rotation
 		// when cadence is 0 (or low - to test), we use the actual value of the ADC torque sensor
-		if (ui8_pedal_cadence_RPM > 0) { // perhaps better check regarding a theresehold 
-			if ( ui16_adc_torque_actual_rotation > ui16_adc_torque_previous_rotation) {
-				ui16_adc_pedal_torque = ui16_adc_torque_actual_rotation ;
-			} else {
-				ui16_adc_pedal_torque = ui16_adc_torque_previous_rotation ;
-			}
-			if ( ui16_adc_pedal_torque < ui16_adc_torque_filtered ) {
-				ui16_adc_pedal_torque = ui16_adc_torque_filtered ;
-			}
+		
+		ui16_adc_pedal_torque = ui16_adc_torque_filtered;
+		#define PEDAL_CADENCE_MIN_FOR_USING_ROTATION 30
+		if (ui8_pedal_cadence_RPM > PEDAL_CADENCE_MIN_FOR_USING_ROTATION) { // perhaps better check regarding a theresehold 
+			if ( ui16_adc_pedal_torque < ui16_adc_torque_actual_rotation) ui16_adc_pedal_torque = ui16_adc_torque_actual_rotation ;
+			if ( ui16_adc_pedal_torque < ui16_adc_torque_previous_rotation) ui16_adc_pedal_torque = ui16_adc_torque_previous_rotation ;
 		} else {
-        	ui16_adc_pedal_torque = ui16_adc_torque_filtered;
+			ui8_adc_torque_rotation_reset = 1 ; // will force also a reset of torque rotation in the motor.c irq 
 		}
-
     }
 	
 	// here we know the ui16_adc_pedal_torque but we still have to take care of 
@@ -1738,10 +1758,10 @@ static void get_pedal_torque(void)
 		*/	
 		ui16_adc_pedal_torque_delta_to_remap = ui16_adc_pedal_torque - ui16_adc_pedal_torque_offset;
 		// calculate filtered delta (used when it is largerly lower than the rotation values so to detect faster pressure release )
-		uint16_t ui16_adc_torque_filtered_delta = 0;
-		if ( ui16_adc_torque_filtered >= ui16_adc_pedal_torque_offset) {
-			ui16_adc_torque_filtered_delta = ui16_adc_torque_filtered - ui16_adc_pedal_torque_offset;
-		}
+		//uint16_t ui16_adc_torque_filtered_delta = 0;
+		//if ( ui16_adc_torque_filtered >= ui16_adc_pedal_torque_offset) {
+		//	ui16_adc_torque_filtered_delta = ui16_adc_torque_filtered - ui16_adc_pedal_torque_offset;
+		//}
 		// when (ui16_adc_torque_filtered_delta) is lower than the ui16_adc_pedal_torque/2
 		// we prefer to use the filtered value (faster reaction to reducing torque) and we force a reset of rotation values
 		//if ( ui16_adc_torque_filtered_delta < (ui16_adc_pedal_torque_delta_to_remap << 1 )) {
@@ -1750,12 +1770,18 @@ static void get_pedal_torque(void)
 		//}
 		// here ui16_adc_pedal_torque_delta_to_remap is the value to remap
 		// change the value so that the max would be about 160.
-		ui16_adc_pedal_torque_delta = ui16_adc_pedal_torque_delta_to_remap * ADC_TORQUE_SENSOR_RANGE_TARGET / 
+		ui16_adc_pedal_torque_delta_remapped = ui16_adc_pedal_torque_delta_to_remap * ADC_TORQUE_SENSOR_RANGE_TARGET / 
 									(ui16_adc_pedal_torque_range- ui8_adc_pedal_torque_offset_adj) ; 
+		// now we can apply exponential; expo() expect a value in range-256/256 while range_adj is in range 0/40
+		// so we have to substract 20 and multiply by 12.
+		ui16_adc_pedal_torque_delta_expo = (uint16_t) expo((int) ui16_adc_pedal_torque_delta_remapped, ((int) ui8_adc_pedal_torque_range_adj - 20) * 12 );
+		ui16_adc_pedal_torque_delta = ui16_adc_pedal_torque_delta_expo;
+
 	}
 	else { // when torque is lower than offset, set it to 0
 		ui16_adc_pedal_torque_delta = 0;
     }
+	
 	// here ui16_adc_pedal_torque_delta is known
 	ui16_adc_pedal_torque_delta_temp = ui16_adc_pedal_torque_delta;
 	
