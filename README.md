@@ -20,7 +20,7 @@ For more information on the TSDZ2 OSF version, you can:
 * look at Endless Sphere forum reference thread: [endless-sphere.com.](https://endless-sphere.com/forums/viewtopic.php?f=30&t=110682).
 * see the [wiki](https://github.com/emmebrusa/TSDZ2-Smart-EBike-860C/wiki) from mbrusa
 
-IMPORTANT : at this stage, this is just a beta version. It has NOT been tested on a bike and there are probably some bugs.
+IMPORTANT : at this stage, this is just a beta version. There are probably some bugs.
 Try it at your own risk!!!!
 
 
@@ -29,7 +29,8 @@ To use this firmware, you will have to:
 * Donwload this firmware
 * Use a Segger Jlink device and a cable (this device replace the Stlink used for TSDZ2)
 * Flash the compiled firmware on the TSDZ8 controller
-* Update the firmware running on the 860C display and fill your parameters on the display
+* Update the firmware running on the 860C display
+* Fill your parameters using the display
 
 If you have questions on this Tsdz8 project, you can ask on this forum:
 https://endless-sphere.com/sphere/threads/new-tsdz8-pswpower.120798/page-12
@@ -53,10 +54,25 @@ Note: I tested with a chinese jlink clone V9 from aliexpress and it worked too.
 
 For the cable, you can also make your own cable with a speed sensor extension cord for TSDZ2 like this:https://fr.aliexpress.com/item/1005007479961045.html?spm=a2g0o.order_list.order_list_main.120.21ef5e5bFWfkqS&gatewayAdapt=glo2fra
 
-I cut the cable and connect it based on the diagram given in "DOC" folder in "Diagram-TS 32-bit Mid Drive Motor Controller Programming Cable (EN).pdf". It is safe to check that the extension cable you get uses the same colors.
+I cut the cable and connect it based on the diagram given here https://www.facebook.com/photo?fbid=7877850202251083&set=pcb.430249463263185. It is safe to check that the extension cable you get uses the same colors for the same pins on the connector because some cables could use different colors/pin out.
 
-Note: After cutting the extension cord in 2 parts, I used the one with the female connector and connected it directly to the motor.
-I expect (not tested yet) that it is also possible to use the part with the male connector. The advantage is that you can keep the speed sensor cable connected to the motor when you flash. You connect then the Jlink device cable to the second yellow connector present on the speed sensor cable (instead of the cable foreseen for the lights).  
+Tip: After cutting the extension cord in 2 parts, I used the one with the female connector to connect to the motor (and to Jlink).
+I also reconnected the wires from the part with the male connector. The advantage is that I can also connect the male connector to the speed sensor.  This avoid having to connect/disconnect the cable each time you flash the controller during the setup phase.
+
+
+IMPORTANT POINT : 
+If the controller is powered by the battery AND simultaneously by the Jlink device, there is a huge risk that it would be DAMAGED and unusable. Torque sensor driver could be destroyed. You would have to replace a mosfet transistor named Q7 on the controller board. Sill replacing it is not easy and require some skill.
+
+
+By default Chinese clone Jlink (as the one provided by ebikestuff) usualy provides 3.3V on the Vref pin.
+So take care to never power the motor with the battery when Jlink is connected.
+
+For safety, I would recommend to avoid that Jlink provides the 3.3V. This can be achieved in 2 ways:
+- if you make your own cable, just do not connect Vref from jlink to the cable
+- if you use a cable where Vref is connected, you can (as far I tested) open the case of chinese Jlink device and remove a jumper. Then check with a voltmeter that the device does not provide anymore the 3.3V
+
+Note : original Segger jlink devices does not provide 3.3V on Vref pin by default. Still it can provide the 3.3V if you send some command (see Segger doc if you want to enable it).
+
 
 # 3.Flash the firmware
 
@@ -66,12 +82,31 @@ https://ebikestuff.eu/en/content/18-tsdz8-firmware-update-using-j-link-jlink-v9-
 The HEX file to upload is the one you downloaded from this github site at step 1.
 It is named OSF_TSDZ8_860C_Vxx_xx_xx.hex where xx_xx_xx is a version number.
 
-Note: while flashing, the motor should not be powered by the battery. Disconnect it or at least power it OFF. In principe, the Jkink will provide power to the controller (at least if it is a Jlink clone device).
-It seems possible to keep the motor connected the display but do not press any button on the display.
+IMPORTANT NOTE: as said before, for flashing, the motor should not be powered by the battery AND simulterneously by the jlink device.
+So you must OR disconnect the battery (or at least power it OFF) OR take care that your Jkink does not provide power on Vref pin to the controller.
 
-# 4.Update the firmware running on the 860C display and fill your parameters on the display
+
+# 4.Update the firmware running on the 860C display 
 
 See the instructions on the mbrusa site (see links above)
+
+# 5.Fill your parameters on the display
+
+See the instructions on the mbrusa site (see links above).
+Still there are a few differences:
+* Coast brake ADC : This concept is not used in OSF TSDZ8. Still this field has been "reused" in order to let the user specify the "FOC multiplier" that is used to calculate "FOC angle" that plays a role in motor efficiency and stability when current is high. So enter here a value for "FOC multiplier". It seems that a value in the range 24/28 is good. Feel free to experiment but be careful with values that would be very different and could create unstability and let the motor become too hot.
+* calibration MUST be disabled. If you enable it, 860C transmit some false data to the controller.
+* Torque ADC step must be correct in order to get a correct value of the human power (see mbrusa instructions)
+* Torque ADC step adv is not used (as calibration should be disabled)
+* Torque offset adj is used (even with calibration disabled). The value in 860C is transmitted to the controller and is added to the Torque ADC offset (see below) to calculate a "total" offset. The logic is that there is no assistance when torque sensor value is less than ( Torque ADC offset + Torque offset adv). Please note that if calibration is enabled, the value transmitted to the controller is not the value on screen. That is one of the reason why calibration MUST be disabled. You can try with a value of 6. When you increase this value, it means that you will have to press more on the pedal before you get some assistance. Avoid a to low value because this increase the risk that you get assistance even with no load on the pedal.
+* Torque range adj is used to increase/decrease sensitivity for low pressure on the pedal. Sorry if the name if confusing but it was the only field from 860C that I could reuse for this. This parameter does not change the maximum assistance provided for any selected level when pressure on pedal is maximum but it allows to increase (or decrease) the assistance when pressure on pedal is quite low.
+This parameter can vary between 1 and 40. When this parameter is set on 20, the assistance is calculated based on the value of the torque sensor.
+The more the parameter is higher than 20 (up to 40) the less assistance you will get for small pressure on the pedal (but so the more you get for highier pressure - still never exceeding the max value defined for the selected level). In other words, the ratio assistance per kg pressure is lower for lowest pressure and higher for highest pressure compared to parameter set on 20.
+Reversely, the more the parameter is lower than 20 (up to 1), the more assistance you will get for small pressure on the pedal. In other words, the ratio assistance per kg pressure is higher for lowest pressure and lower for highest pressure compare to parameter set on 20.
+* Torque angle adj is not used (860c value is discarded)
+* Torque ADC offset is very important. In TSDZ2 or in previous versions, the firmware read the torque sensor during the first 3 seconds and consider this value as the reference when no load is applied. This was done in order to get an automatic recalibration at each power on. This process is not good for TSDZ8 because, for some TSDZ8 the value varies significantly with the position of the pedal. So in this version of OSF, there is no autocalibration of the torque sensor with no load at power on. Instead, the user has to fill in "Torque ADC offset" the value that will become the reference. To find the value to encode, you must use the menu "Technical" and look at the field "ADC torque sensor". When no load is applied on the pedal, turn manually the pedal and look at the values in "ADC torque sensor". Note the MAXIMUM and enter it in "Torque ADC offset" (in "Torque sensor menu"). For TSDZ8, I expect that value should be between 150 and 190 depending on your motor.
+* Torque ADC max has to be filled : to find the value, go to technical menu, look at field ADC torque sensor when you apply the max pressure on the pedal (about 80 kg = full human weight) while holding the brakes. It seems that the value should be around 450 for TSDZ8.
+
 
 # IMPORTANT NOTES
 * Installing this firmware will void your warranty of the TSDZ8 mid drive.
@@ -79,7 +114,6 @@ See the instructions on the mbrusa site (see links above)
 * There is no guarantee of safety using this firmware, please use it at your own risk.
 * We advise you to consult the laws of your country and tailor the motor configuration accordingly.
 * Please be aware of your surroundings and maintain a safe riding style.
-
 
 
 # Developper
