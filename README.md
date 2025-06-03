@@ -54,7 +54,17 @@ Note: I tested with a chinese jlink clone V9 from aliexpress and it worked too.
 
 For the cable, you can also make your own cable with a speed sensor extension cord for TSDZ2 like this:https://fr.aliexpress.com/item/1005007479961045.html?spm=a2g0o.order_list.order_list_main.120.21ef5e5bFWfkqS&gatewayAdapt=glo2fra
 
-I cut the cable and connect it based on the diagram given here https://www.facebook.com/photo?fbid=7877850202251083&set=pcb.430249463263185. It is safe to check that the extension cable you get uses the same colors for the same pins on the connector because some cables could use different colors/pin out.
+I cut the extension cable and connect it directly to the Jlink flat cable based on:
+- the diagram of Jlink connector : https://www.segger.com/products/debug-probes/j-link/technology/interface-description/
+- the picture of speed cable connector : https://empoweredpeople.co.uk/2020/05/28/tongsheng-tsdz2-what-firmware-options-are-there/
+In my case (be careful the colors may be different)
+- red = SWDIO = TMS = pin 7 of Jlink
+- black = SWCLK = TCK = pin 9 of Jlink
+- brown = Vcc = VTRef = pin 1 of Jlink
+- orange = Grnd = e.g. pin 4 of Jlink
+
+It can also be useful to look at this link:  https://www.facebook.com/photo?fbid=7877850202251083&set=pcb.430249463263185.
+It is safe to check that the extension cable you get uses the same colors for the same pins on the connector because some cables could use different colors/pin out.
 
 Tip: After cutting the extension cord in 2 parts, I used the one with the female connector to connect to the motor (and to Jlink).
 I also reconnected the wires from the part with the male connector. The advantage is that I can also connect the male connector to the speed sensor.  This avoid having to connect/disconnect the cable each time you flash the controller during the setup phase.
@@ -98,13 +108,13 @@ Still there are a few differences:
 * calibration MUST be disabled. If you enable it, 860C transmit some false data to the controller.
 * Torque ADC step must be correct in order to get a correct value of the human power (see mbrusa instructions)
 * Torque ADC step adv is not used (as calibration should be disabled)
-* Torque offset adj is used (even with calibration disabled). The value in 860C is transmitted to the controller and is added to the Torque ADC offset (see below) to calculate a "total" offset. The logic is that there is no assistance when torque sensor value is less than ( Torque ADC offset + Torque offset adv). Please note that if calibration is enabled, the value transmitted to the controller is not the value on screen. That is one of the reason why calibration MUST be disabled. You can try with a value of 6. When you increase this value, it means that you will have to press more on the pedal before you get some assistance. Avoid a to low value because this increase the risk that you get assistance even with no load on the pedal.
+* Torque offset adj is not used.
 * Torque range adj is used to increase/decrease sensitivity for low pressure on the pedal. Sorry if the name if confusing but it was the only field from 860C that I could reuse for this. This parameter does not change the maximum assistance provided for any selected level when pressure on pedal is maximum but it allows to increase (or decrease) the assistance when pressure on pedal is quite low.
 This parameter can vary between 1 and 40. When this parameter is set on 20, the assistance is calculated based on the value of the torque sensor.
 The more the parameter is higher than 20 (up to 40) the less assistance you will get for small pressure on the pedal (but so the more you get for highier pressure - still never exceeding the max value defined for the selected level). In other words, the ratio assistance per kg pressure is lower for lowest pressure and higher for highest pressure compared to parameter set on 20.
 Reversely, the more the parameter is lower than 20 (up to 1), the more assistance you will get for small pressure on the pedal. In other words, the ratio assistance per kg pressure is higher for lowest pressure and lower for highest pressure compare to parameter set on 20.
 * Torque angle adj is not used (860c value is discarded)
-* Torque ADC offset is very important. In TSDZ2 or in previous versions, the firmware read the torque sensor during the first 3 seconds and consider this value as the reference when no load is applied. This was done in order to get an automatic recalibration at each power on. This process is not good for TSDZ8 because, for some TSDZ8 the value varies significantly with the position of the pedal. So in this version of OSF, there is no autocalibration of the torque sensor with no load at power on. Instead, the user has to fill in "Torque ADC offset" the value that will become the reference. To find the value to encode, you must use the menu "Technical" and look at the field "ADC torque sensor". When no load is applied on the pedal, turn manually the pedal and look at the values in "ADC torque sensor". Note the MAXIMUM and enter it in "Torque ADC offset" (in "Torque sensor menu"). For TSDZ8, I expect that value should be between 150 and 190 depending on your motor.
+* Torque ADC offset is very important. In TSDZ2 or in previous versions, the firmware read the torque sensor during the first 3 seconds and considers this value as the reference when no load is applied. This was done in order to get an automatic recalibration at each power on. This process is not good for TSDZ8 because, for some TSDZ8, the value varies significantly with the position of the pedal. So in this version of OSF, there is no autocalibration of the torque sensor with no load at power on. Instead, the user has to fill in "Torque ADC offset" the value that will become the reference. To find the value to encode, you must use the menu "Technical" and look at the field "ADC torque sensor". When no load is applied on the pedal, turn manually the pedal and look at the values in "ADC torque sensor". Note the MAXIMUM. I expect that value should be between 150 and 190 depending on your motor. Then add some margin (e.g 10) to avoid assistance with very low pressure and enter the value in "Torque ADC offset" (in "Torque sensor menu"). You can adapt the "margin" value to your preference (a higher value will require more pressure on the pedal before getting assistance but will reduce consumption).
 * Torque ADC max has to be filled : to find the value, go to technical menu, look at field ADC torque sensor when you apply the max pressure on the pedal (about 80 kg = full human weight) while holding the brakes. It seems that the value should be around 450 for TSDZ8.
 
 

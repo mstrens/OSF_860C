@@ -197,14 +197,14 @@ HALL_COUNTER_OFFSET_UP:    29 -> 44
 //#define FOC_ANGLE_MULTIPLIER_48V				39 // 48 volt motor Mstrens not used for TSDZ8
 
 // adc torque offset gap value for error
-#define ADC_TORQUE_SENSOR_OFFSET_THRESHOLD		30
+#define ADC_TORQUE_SENSOR_OFFSET_THRESHOLD		60 // was 30 for TSDZ2; changed to 60 for TSDZ8 because some motors have lot of difference depending on pedal position
 
 // Torque sensor values
 #define ADC_TORQUE_SENSOR_OFFSET_DEFAULT		170 // from 860c // changed by mstrens for TSDZ8; it was 150 for TSDZ2
 // adc torque range parameters for remapping
 #define ADC_TORQUE_SENSOR_RANGE_TARGET	  		160 // from 860c
-#define ADC_TORQUE_SENSOR_RANGE_TARGET_MIN 		133 // from 860c
-#
+//#define ADC_TORQUE_SENSOR_RANGE_TARGET_MIN 		133 // from 860c
+
 #define ADC_TORQUE_SENSOR_ANGLE_COEFF			11
 #define ADC_TORQUE_SENSOR_ANGLE_COEFF_X10		(uint16_t)(ADC_TORQUE_SENSOR_ANGLE_COEFF * 10)
 
