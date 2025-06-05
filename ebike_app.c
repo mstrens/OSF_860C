@@ -1755,7 +1755,7 @@ static void check_system(void)
     if (ui8_riding_torque_mode) {
 		if ((ui16_adc_pedal_torque_offset > 300)
 		  ||(ui16_adc_pedal_torque_offset < 10)
-		  ||(ui16_adc_pedal_torque > 500)
+		  ||(ui16_adc_pedal_torque > 650)
 		  ||(ui8_adc_pedal_torque_offset_error)) {
 			// set error code
 			ui8_m_system_state |= ERROR_TORQUE_SENSOR;
