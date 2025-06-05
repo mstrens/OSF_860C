@@ -24,6 +24,9 @@ IMPORTANT : at this stage, this is just a beta version. There are probably some 
 Try it at your own risk!!!!
 
 
+[![](https://www.paypalobjects.com/en_US/i/btn/btn_donateCC_LG.gif)](https://www.paypal.com/donate/?hosted_button_id=AD6HTLE53YDXW)
+
+
 To use this firmware, you will have to:
 
 * Donwload this firmware
