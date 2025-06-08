@@ -1697,7 +1697,17 @@ static void get_pedal_torque(void) {
 				ui16_adc_pedal_torque_delta = ui16_TSum / ((uint8_t)20); // overwrite with avg
 			}
 		}
-	}	
+	}
+		
+	// here ui16_adc_pedal_torque_delta is known
+	ui16_adc_pedal_torque_delta_temp = ui16_adc_pedal_torque_delta;
+	
+	// for cadence sensor check
+	ui16_adc_pedal_torque_delta_no_boost = ui16_adc_pedal_torque_delta;
+	
+    // calculate torque on pedals
+    ui16_pedal_torque_x100 = ui16_adc_pedal_torque_delta * ui8_pedal_torque_per_10_bit_ADC_step_x100;
+	
 }
 #else 
 
