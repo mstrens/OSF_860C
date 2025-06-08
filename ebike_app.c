@@ -1584,9 +1584,125 @@ int expo(int x, int k)
   return neg ? -y : y;
 }
 
-
+// here the code for get_pedal_torque()
 #define TOFFSET_CYCLES 120 // 3sec (25ms*120)
 static uint8_t toffset_cycle_counter = 0;
+
+
+#if (USE_SPIDER_LOGIC == (1))
+static uint8_t ui8_TSamples[21];
+static uint8_t ui8_TSamplesNum = 0;
+static uint8_t ui8_TSamplesPos = 0;
+static uint16_t ui16_TSum = 0;
+//static uint8_t ui8_TorqueSmoothCnt = 0;
+//static uint8_t ui8_TorqueMin_tmp = 0;
+//static uint8_t ui8_TorqueMax_tmp = 0;
+//static uint8_t ui8_TorqueAVG = 0;
+//static uint8_t ui8_TorqueMin = 0;
+//static uint8_t ui8_TorqueMax = 0;
+static uint8_t ui8_adc_pedal_torque_delta = 0;  // added by mstrens to save the remap torque in uint8_t
+
+// PWM IRQ set ui8_pas_new_transition when a new PAS signal transition is detected.
+// 80 transtions/revolution (one every 4.5 deg)
+// @120 rmp: 160 transitions/sec 1 every 6,25 ms
+// on exit, ui16_TSum contains the sum of 20 values (if ui8_TSampleNum = 20 = buffer is full)
+void new_torque_sample() {
+
+    //uint16_t ui8_TorqueDeltaADC;
+    uint8_t  ui8_TorqueDeltaADC;
+
+    if (ui8_pas_new_transition & 0x80) {
+    	// Pedal stop or backward rotation -> reset all
+        ui8_pas_new_transition = 0;
+        ui8_TSamplesNum = 0;
+        ui16_TSum = 0;
+        ui8_TSamplesPos = 0;
+        //ui8_TorqueMin = 0;
+        //ui8_TorqueMax = 0;
+        //ui8_TorqueAVG = 0;
+        return;
+    }
+
+    ui8_pas_new_transition = 0;
+
+    ui8_TorqueDeltaADC = ui8_adc_pedal_torque_delta;
+
+    if (ui8_TorqueDeltaADC == 0) {
+    	// torque adc value less than 0 torque reference ADC -> reset all
+        ui8_TSamplesNum = 0;
+        ui16_TSum = 0;
+        ui8_TSamplesPos = 0;
+        return;
+    }
+    ui8_TSamples[ui8_TSamplesPos++] = ui8_TorqueDeltaADC; // store the new value
+    // Add to the average the new sample
+    ui16_TSum += (uint16_t) ui8_TorqueDeltaADC;
+    if (ui8_TSamplesPos > 20) {
+        ui8_TSamplesPos = 0;
+    }
+    // Now ui8_TSamples[ui8_TSamplesPos] contains the torque delta ADC of the same pedal position at the previous pedal stroke
+    if (ui8_TSamplesNum == 20) {
+        // Remove from the average the sample at the same pedal position of the previous pedal stroke
+        ui16_TSum -= (uint16_t) ui8_TSamples[ui8_TSamplesPos];
+    } else {
+        ui8_TSamplesNum++;
+    }
+}
+#define TORQUE_SENSOR_ADC_REMAP_DIFF_MAX 10 
+static void get_pedal_torque(void) {
+	if (toffset_cycle_counter < TOFFSET_CYCLES) {  // less than 3 sec
+		ui16_adc_pedal_torque_offset_init = filter(ui16_adc_torque_filtered, ui16_adc_pedal_torque_offset_init , 4) ; // get filtered torque captured in motor.c irq1
+        toffset_cycle_counter++;
+		if ((toffset_cycle_counter == TOFFSET_CYCLES)&&(ui8_torque_sensor_calibration_enabled)) {
+			if ((ui16_adc_pedal_torque_offset_init > ui16_adc_pedal_torque_offset_min)&& 
+			  (ui16_adc_pedal_torque_offset_init < ui16_adc_pedal_torque_offset_max)) {
+				ui8_adc_pedal_torque_offset_error = 0;
+			}
+			else {
+				ui8_adc_pedal_torque_offset_error = 1;
+			}
+		}
+		ui16_adc_pedal_torque = ui16_adc_pedal_torque_offset_init;	
+	} else { // after 3 sec
+		ui16_adc_pedal_torque = ui16_adc_torque_filtered;
+	}
+	ui16_adc_pedal_torque_offset = ui16_adc_pedal_torque_offset_set ;
+
+	if (ui16_adc_pedal_torque > ui16_adc_pedal_torque_offset ) {
+		ui16_adc_pedal_torque_delta_to_remap = ui16_adc_pedal_torque - ui16_adc_pedal_torque_offset; // value to expo and remap
+		i32_adc_pedal_torque_delta_expo =  expo(
+				(((int) ui16_adc_pedal_torque_delta_to_remap) << 10) /  (ui16_adc_pedal_torque_range) ,
+				 ((int) ui8_adc_pedal_torque_range_adj - 20) * 12 ); // apply expo
+		ui16_adc_pedal_torque_delta = (i32_adc_pedal_torque_delta_expo * ADC_TORQUE_SENSOR_RANGE_TARGET) >> 10 ; // remap to max 160
+	}
+	else { // when torque is lower than offset, set it to 0
+		ui16_adc_pedal_torque_delta = 0;
+	}
+	if (ui16_adc_pedal_torque_delta > 255) ui8_adc_pedal_torque_delta = 255;
+	else ui8_adc_pedal_torque_delta = (uint8_t) ui16_adc_pedal_torque_delta ; 
+	// Here we have ui16_adc_pedal_torque_delta and ui8_adc_pedal_torque_delta
+	if (ui8_pas_new_transition){ // when we have a new pas transition we fill the buffer with ui8_adc_pedal_torque_delta_and the sum
+        new_torque_sample();
+	}
+    
+	if (ui16_adc_pedal_torque_delta > 0) { // update ui16_adc_pedal_torque_delta when the value is quite close to the one of previous rotation
+		uint8_t ui8_tmp = ui8_adc_pedal_torque_delta;
+		if (ui8_TSamplesNum == 20)  {
+			if (ui8_tmp > ui8_TSamples[ui8_TSamplesPos]) {
+				ui8_tmp =  ui8_tmp - ui8_TSamples[ui8_TSamplesPos];
+			} else {
+				ui8_tmp = ui8_TSamples[ui8_TSamplesPos] - ui8_tmp;
+			}
+			if (ui8_tmp < TORQUE_SENSOR_ADC_REMAP_DIFF_MAX) {
+				ui16_adc_pedal_torque_delta = ui16_TSum / ((uint8_t)20); // overwrite with avg
+			}
+		}
+	}	
+}
+#else 
+
+
+
 
 static void get_pedal_torque(void)
 {
@@ -1726,6 +1842,8 @@ static void get_pedal_torque(void)
     
 	------------------------------------------------------------------------*/
 }
+#endif // get_pedal_torque
+
 
 static void check_system(void)
 {

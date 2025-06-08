@@ -243,6 +243,12 @@ int battery_current_moving_avg_index = 0;
 int battery_current_moving_avg_sum = 0;
 int battery_current_moving_avg_buffer[64] = {0};
 
+
+// to manage torque sensor using the logic of mspider in https://github.com/TSDZ2-ESP32/TSDZ2-Smart-EBike
+// 1 = PAS state value changed
+// 0x80  = PAS state invalid -> reset
+volatile uint8_t ui8_pas_new_transition = 0;
+
 inline uint32_t update_moving_average(uint32_t new_value){
     battery_current_moving_avg_sum -= battery_current_moving_avg_buffer[battery_current_moving_avg_index];
     battery_current_moving_avg_buffer[battery_current_moving_avg_index] = new_value;
@@ -859,9 +865,11 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
                 // wrong state sequence: backward rotation
                 ui16_cadence_sensor_ticks = 0;
                 ui8_cadence_calc_ref_state = NO_PAS_REF; // 5
+                ui8_pas_new_transition = 0x80; // used in mspider logic for torque sensor
                 goto skip_cadence;
             }
 			ui16_cadence_sensor_ticks_counter_min = ui16_cadence_ticks_count_min_speed_adj; // 4270 at 4km/h ... 341 at 40 km/h
+            ui8_pas_new_transition = 1; // mspider logic for torque sensor
             if (ui8_temp_cadence == ui8_cadence_calc_ref_state) { // pattern is valid and represent 1 tour
                 // ui16_cadence_calc_counter is valid for cadence calculation
                 ui16_cadence_sensor_ticks = ui16_cadence_calc_counter; // use the counter as cadence for ebike_app.c
@@ -886,6 +894,7 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
             ui16_cadence_sensor_ticks = 0;
             ui16_cadence_stop_counter = 0;
             ui8_cadence_calc_ref_state = NO_PAS_REF;
+            ui8_pas_new_transition = 0x80; // for mspider logic for torque sensor
             ui8_pas_counter = 0; // mstrens :  reset the counter for full rotation
         } else if (ui8_cadence_calc_ref_state != NO_PAS_REF) { // 5
             // increment cadence tick counter

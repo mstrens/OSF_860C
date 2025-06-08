@@ -85,6 +85,7 @@ extern uint8_t ui8_test_mode_flag ;
 extern volatile uint32_t ui32_adc_battery_current_1_rotation_15b; // value in 12 +2 +1 = 15 bits (ADC + IIR + average)
 extern uint8_t hall_reference_angle ;
 
+void new_torque_sample();
 void fillRxBuffer();
 
 /*

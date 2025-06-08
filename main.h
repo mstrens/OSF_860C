@@ -12,7 +12,7 @@
 //#include "config.h"
 #include "common.h"
                                     // !!!!!!!!!!!!!!
-#define FIRMWARE_VERSION "0.1.20"      //  !!! this version was derived from 0.1.13 for vlcd5 !!!!!!!!!!
+#define FIRMWARE_VERSION "0.1.21"      //  !!! this version was derived from 0.1.13 for vlcd5 !!!!!!!!!!
 //#define MAIN_CONFIGURATOR_VERSION 2   // for configurator (must be the same as in xls sheet)
 //#define SUB_CONFIGURATOR_VERSION 1    // is not used (just for reference)
 
@@ -51,6 +51,8 @@
 #define uCPROBE_GUI_OSCILLOSCOPE MY_DISABLED // MY_ENABLED
 
 #define USE_IRQ_FOR_HALL (0) // 1 = use irq; 0 = use capture
+
+#define USE_SPIDER_LOGIC (1) // (1) = use Spider logic with a buffer of 20 value over one rotation.
 
 
 
