@@ -837,7 +837,6 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
         }
         ui16_adc_torque_filtered = ui16_adc_torque_new_filtered;
 
-        
 
         /****************************************************************************/
         /*
@@ -869,8 +868,9 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
                 goto skip_cadence;
             }
 			ui16_cadence_sensor_ticks_counter_min = ui16_cadence_ticks_count_min_speed_adj; // 4270 at 4km/h ... 341 at 40 km/h
-            ui8_pas_new_transition = 1; // mspider logic for torque sensor
             if (ui8_temp_cadence == ui8_cadence_calc_ref_state) { // pattern is valid and represent 1 tour
+                ui8_pas_new_transition = 1; // mspider logic for torque sensor;mark for one of the 20 transitions per rotation
+            
                 // ui16_cadence_calc_counter is valid for cadence calculation
                 ui16_cadence_sensor_ticks = ui16_cadence_calc_counter; // use the counter as cadence for ebike_app.c
                 ui16_cadence_calc_counter = 0;

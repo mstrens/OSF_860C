@@ -377,8 +377,11 @@ int main(void)
        
         // avoid a reset
         XMC_WDT_Service(); // reset if we do not run here within the 0,5 sec
-        
-        
+        #if (USE_SPIDER_LOGIC_FOR_TORQUE == (01))
+        if (ui8_pas_new_transition) {
+            new_torque_sample();
+        }
+        #endif
         // Here we should call a funtion every 25 msec (based on systick or on an interrupt based on a CCU4 timer)
         uint16_t temp_ticks = XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW);
         if (temp_ticks < last_system_ticks) { // once every 65536 * 4 usec = about 0,25 sec
