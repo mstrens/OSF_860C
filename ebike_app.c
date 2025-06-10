@@ -1692,8 +1692,11 @@ static void get_pedal_torque(void) {
 	
 }
 #else 
-
-
+#define KATANA_BUFFER_LEN 40
+uint16_t katana_buffer[KATANA_BUFFER_LEN] ;
+uint8_t katana_index = 0;
+uint8_t katana_count = 0;
+uint16_t katana_sum = 0; 	
 
 
 static void get_pedal_torque(void)
@@ -1774,11 +1777,12 @@ static void get_pedal_torque(void)
 			ui16_adc_torque_previous_rotation = 0 ;
 			ui8_adc_torque_rotation_reset = 1 ; // will force also a reset in the motor.c irq to be safe and reset rpm counter
 		}
-
+		
         // get adc pedal torque
 		// by default we use ui16_adc_torque_filtered (calculated in motor.c irq)
 		// when cadence is high enough, we use the max between actual value, actual rotation and previous rotation
 		ui16_adc_pedal_torque = ui16_adc_torque_filtered;
+		#if (USE_KATANA1234_LOGIC_FOR_TORQUE != (1))
 		#define PEDAL_CADENCE_MIN_FOR_USING_ROTATION 30
 		if (ui8_pedal_cadence_RPM > PEDAL_CADENCE_MIN_FOR_USING_ROTATION) { 
 			if ( ui16_adc_pedal_torque < ui16_adc_torque_actual_rotation) ui16_adc_pedal_torque = ui16_adc_torque_actual_rotation ;
@@ -1786,6 +1790,7 @@ static void get_pedal_torque(void)
 		} else {
 			ui8_adc_torque_rotation_reset = 1 ; // will force also a reset of torque rotation in the motor.c irq 
 		}
+		#endif
     }
 	
 	// here we know the ui16_adc_pedal_torque but we still have to take care of 
@@ -1793,7 +1798,7 @@ static void get_pedal_torque(void)
 	// - some kind of exponential
 	// - remap in order to have a max range of 160 (value used by TSDZ2
 	// calculate the delta value from calibration
-
+	uint16_t ui16_adc_pedal_torque_delta_160 = 0; // delta when lower than offset 
 	// calculate ui16_adc_pedal_torque_delta to remap 	
 	if (ui16_adc_pedal_torque > ui16_adc_pedal_torque_offset ) {
 		// calculate the raw delta value
@@ -1806,12 +1811,38 @@ static void get_pedal_torque(void)
 				 ((int) ui8_adc_pedal_torque_range_adj - 20) * 12 );
 		
 		// change the value so that the max would be about 160. So *160 and / 1024(>>10)
-		ui16_adc_pedal_torque_delta = (i32_adc_pedal_torque_delta_expo * ADC_TORQUE_SENSOR_RANGE_TARGET) >> 10 ;
+		ui16_adc_pedal_torque_delta_160 = (i32_adc_pedal_torque_delta_expo * ADC_TORQUE_SENSOR_RANGE_TARGET) >> 10 ;
 	}
-	else { // when torque is lower than offset, set it to 0
-		ui16_adc_pedal_torque_delta = 0;
-    }
 	
+	#if (USE_KATANA1234_LOGIC_FOR_TORQUE == (1))
+		// no cadence -> immediately clearing the buffer to have a quicker starting / stopping reaction
+		if (ui8_pedal_cadence_RPM == 0U) { 			
+			katana_sum = 0;
+			katana_count = 0;
+			katana_index = 0;
+		}
+		uint16_t katana_dif = 0;
+		uint8_t katana_factor = 16;
+		if (ui16_adc_pedal_torque_delta_160 > ui16_adc_pedal_torque_delta) katana_dif = ui16_adc_pedal_torque_delta_160 - ui16_adc_pedal_torque_delta;
+		else katana_dif = ui16_adc_pedal_torque_delta - ui16_adc_pedal_torque_delta_160;
+		if (katana_dif < 60) katana_factor = 1;
+		else if (katana_dif < 80) katana_factor = 2;
+		else if (katana_dif < 100) katana_factor = 4;
+		else if (katana_dif < 130) katana_factor = 8;
+		while ( katana_factor){
+			katana_sum += ui16_adc_pedal_torque_delta_160;
+			if (katana_count < KATANA_BUFFER_LEN) katana_count++;
+			else katana_sum -= katana_buffer[katana_index];
+			katana_buffer[katana_index] = ui16_adc_pedal_torque_delta_160 ;
+			katana_index++;
+			if (katana_index >= KATANA_BUFFER_LEN) katana_index = 0;
+			katana_factor--;
+		}
+		ui16_adc_pedal_torque_delta_160 = katana_sum / katana_count ;		
+	#endif
+
+
+	ui16_adc_pedal_torque_delta = ui16_adc_pedal_torque_delta_160 ; 
 	// here ui16_adc_pedal_torque_delta is known
 	ui16_adc_pedal_torque_delta_temp = ui16_adc_pedal_torque_delta;
 	
