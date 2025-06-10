@@ -169,6 +169,7 @@ void jlink_print_system_state();
 //********************************************************************************
 
 int main(void)
+
 {
     cy_rslt_t result;
 
@@ -377,7 +378,7 @@ int main(void)
        
         // avoid a reset
         XMC_WDT_Service(); // reset if we do not run here within the 0,5 sec
-        #if (USE_SPIDER_LOGIC_FOR_TORQUE == (01))
+        #if (USE_SPIDER_LOGIC_FOR_TORQUE == (1))
         if (ui8_pas_new_transition) {
             new_torque_sample();
         }

@@ -1594,12 +1594,6 @@ static uint16_t ui16_TSamples[21];
 static uint8_t ui8_TSamplesNum = 0;
 static uint8_t ui8_TSamplesPos = 0;
 static uint16_t ui16_TSum = 0;
-//static uint8_t ui8_TorqueSmoothCnt = 0;
-//static uint8_t ui8_TorqueMin_tmp = 0;
-//static uint8_t ui8_TorqueMax_tmp = 0;
-//static uint8_t ui8_TorqueAVG = 0;
-//static uint8_t ui8_TorqueMin = 0;
-//static uint8_t ui8_TorqueMax = 0;
 static uint8_t ui8_adc_pedal_torque_delta = 0;  // added by mstrens to save the remap torque in uint8_t
 
 // PWM IRQ set ui8_pas_new_transition when a new PAS signal transition is detected.
@@ -1630,6 +1624,7 @@ void new_torque_sample() {
         ui8_TSamplesPos = 0;
         return;
     }
+	uint16_t ui16_TSampleOld =  ui16_TSamples[ui8_TSamplesPos] ;
     ui16_TSamples[ui8_TSamplesPos++] = ui16_TorqueDeltaADC_1024; // store the new delta value value
     // Add to the average the new sample
     ui16_TSum += ui16_TorqueDeltaADC_1024;
@@ -1639,12 +1634,13 @@ void new_torque_sample() {
     // Now ui8_TSamples[ui8_TSamplesPos] contains the torque delta ADC of the same pedal position at the previous pedal stroke
     if (ui8_TSamplesNum == 20) {
         // Remove from the average the sample at the same pedal position of the previous pedal stroke
-        ui16_TSum -= (uint16_t) ui16_TSamples[ui8_TSamplesPos];
+        ui16_TSum -= ui16_TSampleOld;
     } else {
         ui8_TSamplesNum++;
     }
 }
-#define TORQUE_SENSOR_ADC_REMAP_1024_DIFF_MAX 200 // max value is 1024
+
+#define TORQUE_SENSOR_ADC_REMAP_1024_DIFF_MAX 2000 // max value is 1024
 static void get_pedal_torque(void) {
 	if (toffset_cycle_counter < TOFFSET_CYCLES) {  // less than 3 sec
 		ui16_adc_pedal_torque_offset_init = filter(ui16_adc_torque_filtered, ui16_adc_pedal_torque_offset_init , 4) ; // get filtered torque captured in motor.c irq1
