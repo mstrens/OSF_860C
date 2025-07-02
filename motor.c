@@ -836,8 +836,7 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
                 ui16_adc_torque_new_filtered--;
         }
         ui16_adc_torque_filtered = ui16_adc_torque_new_filtered;
-
-
+        
         /****************************************************************************/
         /*
          * - New pedal start/stop detection Algorithm (by MSpider65) -
@@ -910,13 +909,14 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     if (irq1_max < temp1) irq1_max = temp1; // store the min enlapsed time in the irq
     #endif
     
-    // added by mstrens to calculate torque sensor without cyclic effect
+    // added by mstrens to calculate torque sensor without cyclic effect using the max per current and previous rotation
     // we have several data
     // ui16_adc_torque_filtered is the actual filtered ADC torque
     // ui16_adc_torque_actual_rotation is the max during current rotation
     // ui16_adc_torque_previous_rotation is the max during previous rotation
-    
-    // first reset the values per rotation when requested by ebike_app.c
+    // ui8_pas_counter count the number of transition to detect a 360° pedal rotation
+
+    // first reset the values per rotation when requested by ebike_app.c (because cadence is lower than a threshold)
     if (ui8_adc_torque_rotation_reset) {
         ui8_adc_torque_rotation_reset = 0; //reset the flag
         ui16_adc_torque_actual_rotation = 0;  

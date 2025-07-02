@@ -12,7 +12,7 @@
 //#include "config.h"
 #include "common.h"
                                     // !!!!!!!!!!!!!!
-#define FIRMWARE_VERSION "0.1.26"      //  !!! this version was derived from 0.1.13 for vlcd5 !!!!!!!!!!
+#define FIRMWARE_VERSION "0.1.30"      //  !!! this version was derived from 0.1.13 for vlcd5 !!!!!!!!!!
 //#define MAIN_CONFIGURATOR_VERSION 2   // for configurator (must be the same as in xls sheet)
 //#define SUB_CONFIGURATOR_VERSION 1    // is not used (just for reference)
 
@@ -53,9 +53,10 @@
 #define USE_IRQ_FOR_HALL (0) // 1 = use irq; 0 = use capture
 
 #define USE_SPIDER_LOGIC_FOR_TORQUE (0) // (1) = use Spider logic with a buffer of 20 value over one rotation.
-#define USE_KATANA1234_LOGIC_FOR_TORQUE (1) // (1) = use katana with an average of n last value; big changes getting more priority 
-
-
+                                        // (2) = mstrens variant using "expected" concept + smoothing
+#define USE_KATANA1234_LOGIC_FOR_TORQUE (2) // (1) = use katana with an average of n last value; big changes getting more priority 
+                                            // (0) = use a logic based on max of current torque, max current rotation, max previous rotation
+                                            // (2) use katana logic with progressive resize depending on cadence
 //#define APPLY_ENHANCED_POSITIONING (0) // 0 = do not apply; 1 = apply enhanced
 // enhanced means that we use only pattern 1 as reference +
 // that speed for angle extrapolation on next electric rotation includes a correction based on actual error
@@ -127,7 +128,7 @@
 // It seems TSDZ8 motor has an inductance of 180 uH and 4 poles
 // So, TSDZ2 uses a multiplier = 39, TSDZ8 should use 39 * 180 / 135 * 4 / 8 = 26  (foc is based on erps*L*I/V) 
 // I reduce it because erps should be 2X lower due to the reduced number of poles
-#define FOC_ANGLE_MULTIPLIER					30
+#define FOC_ANGLE_MULTIPLIER					26
 
 
 // cadence
@@ -258,7 +259,7 @@ HALL_COUNTER_OFFSET_UP:    29 -> 44
 */
 
 // scale the torque assist target current
-#define TORQUE_ASSIST_FACTOR_DENOMINATOR		120
+#define TORQUE_ASSIST_FACTOR_DENOMINATOR		60 // in tSDZ2, it is 120, reducing the value, increase the current for the same level
 
 // smooth start ramp
 #define SMOOTH_START_RAMP_DEFAULT					165 // 35% (255=0% long ramp)

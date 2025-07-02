@@ -117,7 +117,7 @@ static uint8_t ui8_adc_torque_middle_offset_adj = 0;
 static uint8_t ui8_adc_pedal_torque_offset_adj = 0;
 static uint8_t ui8_adc_pedal_torque_delta_adj = 0;
 static uint8_t ui8_adc_pedal_torque_range_adj = 0;
-static uint16_t ui16_adc_pedal_torque_range = 0;
+static uint16_t ui16_adc_pedal_torque_range = 160;
 static uint16_t ui16_adc_pedal_torque_range_ingrease_x100 = 0;
 static uint8_t ui8_adc_pedal_torque_angle_adj = 0;
 //static uint16_t ui16_adc_pedal_torque_range_target_max = 0; // mstrens not used anymore 
@@ -738,7 +738,7 @@ static void apply_power_assist(void)
 	
 		// calculate power assist by multiplying human power with the power assist multiplier
 		uint32_t ui32_power_assist_x100 = (((uint32_t)(ui8_pedal_cadence_RPM * ui8_power_assist_multiplier_x50))
-            * ui32_pedal_torque_x100) >> 9; // see note below
+            * ui32_pedal_torque_x100) >> 8; // see note below ; IN tsdz2, it is 9; with 8 we can double the current for the same level
 
 		/*------------------------------------------------------------------------
 
@@ -1020,7 +1020,7 @@ static void apply_hybrid_assist(void)
 
 		// calculate power assist by multiplying human power with the power assist multiplier
 		uint32_t ui32_power_assist_x100 = (((uint32_t)(ui8_pedal_cadence_RPM * ui8_power_assist_multiplier_x50))
-				* ui16_pedal_torque_x100) >> 9; // see note below
+				* ui16_pedal_torque_x100) >> 8; // see note below
 	
 		// calculate power assist target current x100
 		uint32_t ui32_battery_current_target_x100 = (ui32_power_assist_x100 * 1000) / ui16_battery_voltage_filtered_x1000;
@@ -1519,8 +1519,10 @@ void get_battery_voltage(void)
     ui16_battery_voltage_filtered_x1000 = ui16_adc_battery_voltage_filtered * BATTERY_VOLTAGE_PER_10_BIT_ADC_STEP_X1000;
 }
 
-//expo : f(x) = (k*x*x*x/(1024*1024) + x*(256-k) + 128) / 256 ; k is between 0 and 256, x is between 0 and 1024
-// return is in range 0/1024
+//in openTX expo : f(x) = (k*x*x*x/(1024*1024) + x*(256-k) + 128) / 256 ; k is between 0 and 256, x is between 0 and 1024
+//expo : f(x) = (k*x*x*x/(256*256) + x*(256-k) + 128) / 256 ; k is between 0 and 256, x is between 0 and 256
+
+// return is in range 0/255
 //#define EXTENDED_EXPO 1
 // calculate expo only for positive number with positive ratio
 unsigned int expou(unsigned int x, unsigned int k)
@@ -1540,7 +1542,6 @@ unsigned int expou(unsigned int x, unsigned int k)
 
   uint32_t value = (uint32_t) x*x;
   value *= (uint32_t)k;
-  value >>= 8;
   value *= (uint32_t)x;
 
 #if defined(EXTENDED_EXPO)
@@ -1552,13 +1553,14 @@ unsigned int expou(unsigned int x, unsigned int k)
   }
 #endif
 
-  value >>= 12;
+  value >>= 16;
   value += (uint32_t)(256-k) * x + 128;
 
   return value >> 8;
 }
 
-#define RESXu 1024u
+//#define RESXu 1024u for openTX
+#define RESXu 256u
 // calculate expo for positive or negative parameters
 int expo(int x, int k)
 {
@@ -1587,15 +1589,18 @@ int expo(int x, int k)
 // here the code for get_pedal_torque()
 #define TOFFSET_CYCLES 120 // 3sec (25ms*120)
 static uint8_t toffset_cycle_counter = 0;
+// get_pedal_torque has been totally rewrittent for TSDZ8 (do not update based on TSDZ2)
 
-
-#if (USE_SPIDER_LOGIC_FOR_TORQUE == (1))
+#if ( (USE_SPIDER_LOGIC_FOR_TORQUE == (1)) || (USE_SPIDER_LOGIC_FOR_TORQUE == (2)) )
 static uint16_t ui16_TSamples[21];
 static uint8_t ui8_TSamplesNum = 0;
 static uint8_t ui8_TSamplesPos = 0;
 static uint16_t ui16_TSum = 0;
-static uint8_t ui8_adc_pedal_torque_delta = 0;  // added by mstrens to save the remap torque in uint8_t
-
+//static uint8_t ui8_adc_pedal_torque_delta = 0;  // added by mstrens to save the remap torque in uint8_t
+static uint16_t ui16_TExpected[21];  // expected torque value based on expected in previous rotation and difference in TSamples
+static uint16_t ui16_TExpectedNew ;
+static uint16_t ui16_adc_pedal_torque_filtered_noExpo ;
+uint16_t ui16_TSampleOld;
 // PWM IRQ set ui8_pas_new_transition when a new PAS signal transition is detected.
 // 20 transtions/revolution (one every 18 deg)
 // @120 rmp: 40 transitions/sec 1 every 25 ms
@@ -1611,36 +1616,61 @@ void new_torque_sample() {
         return;
     }
 
-    ui8_pas_new_transition = 0;
-	uint16_t ui16_TorqueDeltaADC_1024 = 0;
-	if ( ui16_adc_torque_filtered > ui16_adc_pedal_torque_offset) {
-    	// map the delta value to max 1024.
-		ui16_TorqueDeltaADC_1024 = ((uint32_t)(ui16_adc_torque_filtered - ui16_adc_pedal_torque_offset) << 10) /ui16_adc_pedal_torque_range ;
+    ui8_pas_new_transition = 0; // reset the flag saying there is a PAS transition
+	uint16_t ui16_TorqueDeltaADC_norm = 0; // will contain the raw remap delta value
+	uint16_t ui16_adc_torque = ui16_adc_torque_filtered; // save the value being calculated in motor.c because it can change in irq
+	if ( ui16_adc_torque > ui16_adc_pedal_torque_offset) {
+    	// map the delta value to max 160.
+		ui16_TorqueDeltaADC_norm = ((uint32_t)(ui16_adc_torque - ui16_adc_pedal_torque_offset) * ADC_TORQUE_SENSOR_RANGE_TARGET) /ui16_adc_pedal_torque_range ;
+		if (ui16_TorqueDeltaADC_norm > ADC_TORQUE_SENSOR_RANGE_TARGET) { // for safety
+			ui16_TorqueDeltaADC_norm = ADC_TORQUE_SENSOR_RANGE_TARGET;
+		}
 	}
-    if (ui16_TorqueDeltaADC_1024 == 0) {
+    if (ui16_TorqueDeltaADC_norm == 0) {   // perhaps this could be omitted
     	// torque adc value less than 0 torque reference ADC -> reset all
         ui8_TSamplesNum = 0;
         ui16_TSum = 0;
         ui8_TSamplesPos = 0;
         return;
     }
-	uint16_t ui16_TSampleOld =  ui16_TSamples[ui8_TSamplesPos] ;
-    ui16_TSamples[ui8_TSamplesPos++] = ui16_TorqueDeltaADC_1024; // store the new delta value value
-    // Add to the average the new sample
-    ui16_TSum += ui16_TorqueDeltaADC_1024;
-    if (ui8_TSamplesPos >= 20) {
+	ui16_TSampleOld = ui16_TSamples[ui8_TSamplesPos] ; // latest value that will be lost (valid only if buffer is full = TSamplesNum == 20)
+    ui16_TSamples[ui8_TSamplesPos] = ui16_TorqueDeltaADC_norm; // store the new delta value value
+    ui16_TSum += ui16_TorqueDeltaADC_norm; // Add to the average the new sample
+    if (ui8_TSamplesNum == 20) { // when buffer is already full
+        // Remove from the sum the sample at the same pedal position of the previous pedal stroke (saved in old)
+        if (ui16_TSum > ui16_TSampleOld) { 
+			ui16_TSum -= ui16_TSampleOld;
+		} else {              // this should not happen because the value should already be part of the sum; added for safety
+			ui16_TSum = 0; 
+		}
+		// calculate new expected = old Expected(in the same pedal position) + new torque - old torque (only if result is posiif, else 0)
+		ui16_TExpectedNew = ui16_TExpected[ui8_TSamplesPos] + ui16_TorqueDeltaADC_norm;
+		if (ui16_TExpectedNew > ui16_TSampleOld) {
+			ui16_TExpectedNew -= ui16_TSampleOld;
+		} else {
+			ui16_TExpectedNew = 0; 
+		}
+		// save the expected torque; to be used in get_pedal_torque;
+		ui16_TExpected[ui8_TSamplesPos] = ui16_TExpectedNew;
+    } else {
+		ui8_TSamplesNum++;
+		if (ui8_TSamplesNum == 20){ 
+        	// fill expected array with the average
+			ui16_TExpectedNew = ui16_TSum / 20;
+			for (uint8_t i=0;i<20;i++){
+				ui16_TExpected[i] = ui16_TExpectedNew;
+			}
+		}
+	}
+	ui8_TSamplesPos++;  // increase the pos
+	if (ui8_TSamplesPos >= 20) {
         ui8_TSamplesPos = 0;
     }
-    // Now ui8_TSamples[ui8_TSamplesPos] contains the torque delta ADC of the same pedal position at the previous pedal stroke
-    if (ui8_TSamplesNum == 20) {
-        // Remove from the average the sample at the same pedal position of the previous pedal stroke
-        ui16_TSum -= ui16_TSampleOld;
-    } else {
-        ui8_TSamplesNum++;
-    }
+    
 }
 
-#define TORQUE_SENSOR_ADC_REMAP_1024_DIFF_MAX 2000 // max value is 1024
+//( (USE_SPIDER_LOGIC_FOR_TORQUE == (1)) || (USE_SPIDER_LOGIC_FOR_TORQUE == (2)) )
+#define TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MAX 100 // max value is 160
 static void get_pedal_torque(void) {
 	if (toffset_cycle_counter < TOFFSET_CYCLES) {  // less than 3 sec
 		ui16_adc_pedal_torque_offset_init = filter(ui16_adc_torque_filtered, ui16_adc_pedal_torque_offset_init , 4) ; // get filtered torque captured in motor.c irq1
@@ -1654,33 +1684,58 @@ static void get_pedal_torque(void) {
 				ui8_adc_pedal_torque_offset_error = 1;
 			}
 		}
-		ui16_adc_pedal_torque = ui16_adc_pedal_torque_offset_init;	
+		ui16_adc_pedal_torque = ui16_adc_pedal_torque_offset_init;
 	} else { // after 3 sec
 		ui16_adc_pedal_torque = ui16_adc_torque_filtered; // ui16_adc_torque_filtered is the value calculated in irq
 	}
 	ui16_adc_pedal_torque_offset = ui16_adc_pedal_torque_offset_set ; // this value is received from the config (in 860C)
 	ui16_adc_pedal_torque_delta = 0; // this is the final value to retun 
-	int i32_adc_pedal_torque_delta_raw = (int)ui16_adc_pedal_torque - (int) ui16_adc_pedal_torque_offset;
-	if (i32_adc_pedal_torque_delta_raw > 0) {
-		uint16_t ui16_adc_pedal_torque_delta_1024 = ( i32_adc_pedal_torque_delta_raw << 10) /  ui16_adc_pedal_torque_range; // map to 1024
-		uint16_t ui16_tmp ;
-		if (ui8_TSamplesNum == 20)  { // replace by an average when difference is low
-			if (ui16_adc_pedal_torque_delta_1024 > ui16_TSamples[ui8_TSamplesPos]) {
-				ui16_tmp =  ui16_adc_pedal_torque_delta_1024 - ui16_TSamples[ui8_TSamplesPos];
-			} else {
-				ui16_tmp = ui16_TSamples[ui8_TSamplesPos] - ui16_adc_pedal_torque_delta_1024;
-			}
-			if (ui16_tmp < TORQUE_SENSOR_ADC_REMAP_1024_DIFF_MAX  ) {
-				ui16_adc_pedal_torque_delta_1024 = ui16_TSum / ((uint8_t)20); // overwrite with avg when difference with previous rotation is low
-			}
+	uint16_t ui16_TorqueDeltaADC_norm = 0;
+	uint16_t ui16_adc_torque = ui16_adc_torque_filtered; // save the value being calculated in motor.c because it can change in irq
+	if ( ui16_adc_torque > ui16_adc_pedal_torque_offset) {
+		// map the delta value to max 160.
+		ui16_TorqueDeltaADC_norm = ((uint32_t)(ui16_adc_torque - ui16_adc_pedal_torque_offset) * ADC_TORQUE_SENSOR_RANGE_TARGET) /ui16_adc_pedal_torque_range ;
+		if (ui16_TorqueDeltaADC_norm > ADC_TORQUE_SENSOR_RANGE_TARGET) { // for safety
+			ui16_TorqueDeltaADC_norm = ADC_TORQUE_SENSOR_RANGE_TARGET;
+		}	
+	} else {
+		ui16_adc_pedal_torque_filtered_noExpo = 0 ;  // reset filtered no expo when torque is 0
+	}	
+#if (USE_SPIDER_LOGIC_FOR_TORQUE == (1))
+	// when TSampleNum == 20,
+	//                     if difference with previous at the same position,is low, use the average (no filter because already average over one rotation)
+	//                     else ; use new value but with filtering
+	// else use the new value after some filtering
+	if (ui8_TSamplesNum == 20)  { // replace by an average when difference is low
+		uint16_t ui16_tmp ;  // difference with previous position
+		if (ui16_TorqueDeltaADC_norm > ui16_TSampleOld) {
+			ui16_tmp =  ui16_TorqueDeltaADC_norm - ui16_TSampleOld;
+		} else {
+			ui16_tmp = ui16_TSampleOld - ui16_TorqueDeltaADC_norm;
 		}
-		// apply expo	
-		i32_adc_pedal_torque_delta_expo =  expo(
-				(int) ui16_adc_pedal_torque_delta_1024  ,
-				 ((int) ui8_adc_pedal_torque_range_adj - 20) * 12 ); // apply expo ; *12 because expo expect a value in range -256/+256
-		ui16_adc_pedal_torque_delta = (i32_adc_pedal_torque_delta_expo * ADC_TORQUE_SENSOR_RANGE_TARGET) >> 10 ; // remap from max 1024 to max 160
+
+		if (ui16_tmp < TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MAX  ) {
+			ui16_adc_pedal_torque_filtered_noExpo = ui16_TSum / ((uint8_t)20); // overwrite with avg when difference with previous rotation is low
+		} else {      // when difference is big, apply a filter
+			ui16_adc_pedal_torque_filtered_noExpo = filter( ui16_TorqueDeltaADC_norm , ui16_adc_pedal_torque_filtered_noExpo , 5);
+		}
+	} else {   // when buffer is not full
+		ui16_adc_pedal_torque_filtered_noExpo = filter( ui16_TorqueDeltaADC_norm , ui16_adc_pedal_torque_filtered_noExpo , 5); 
 	}
-		
+
+#else  // (USE_SPIDER_LOGIC_FOR_TORQUE == (2))
+	// when ui8_TSamplesNum == 20, we can compare with previous sample and we use Texpected that has been calculated
+	// else, we use current value (remapped to 160) and filtered
+	if (ui8_TSamplesNum == 20){
+		ui16_adc_pedal_torque_filtered_noExpo = filter( ui16_TExpectedNew, ui16_adc_pedal_torque_filtered_noExpo, 4);
+	} else {  // TSampleNum =0/19;
+		ui16_adc_pedal_torque_filtered_noExpo = filter( ui16_TorqueDeltaADC_norm , ui16_adc_pedal_torque_filtered_noExpo , 5); 
+	}
+#endif	
+	ui16_adc_pedal_torque_delta =  expo(
+				(int) ui16_adc_pedal_torque_filtered_noExpo  ,
+					((int) ui8_adc_pedal_torque_range_adj - 20) * 12 ); // apply expo ; *12 because expo expect a value in range -256/+256
+			
 	// here ui16_adc_pedal_torque_delta is known
 	ui16_adc_pedal_torque_delta_temp = ui16_adc_pedal_torque_delta;
 	
@@ -1691,13 +1746,30 @@ static void get_pedal_torque(void) {
     ui16_pedal_torque_x100 = ui16_adc_pedal_torque_delta * ui8_pedal_torque_per_10_bit_ADC_step_x100;
 	
 }
-#else 
+#else // NOT ( (USE_SPIDER_LOGIC_FOR_TORQUE == (1)) || (USE_SPIDER_LOGIC_FOR_TORQUE == (2)) )
+      //       so with KATANA logic or Max logic
+#if (USE_KATANA1234_LOGIC_FOR_TORQUE == (1))
 #define KATANA_BUFFER_LEN 40
-uint16_t katana_buffer[KATANA_BUFFER_LEN] ;
+uint8_t katana_buffer[KATANA_BUFFER_LEN] ;
 uint8_t katana_index = 0;
 uint8_t katana_count = 0;
 uint16_t katana_sum = 0; 	
+#endif
+#if (USE_KATANA1234_LOGIC_FOR_TORQUE == (2))
+#define KATANA_BUFFER_LEN_MAX (50)
+#define KATANA_BUFFER_LEN_MIN (30)
+#define KATANA_2_POWER (6)                    // for a size of 64
+#define KATANA_MODULO ((1<<KATANA_2_POWER)-1)
+uint8_t katana_buffer[1<<KATANA_2_POWER] ; // using a power of 2 allow faster modulo: 64 = 2^6
 
+uint8_t katana_buffer_len = KATANA_BUFFER_LEN_MAX; 
+uint8_t katana_next_read = 0;
+uint8_t katana_next_write = 0;
+uint8_t katana_count = 0;
+uint16_t katana_sum = 0; 	
+#endif
+
+static uint16_t ui16_adc_pedal_torque_noExpo;
 
 static void get_pedal_torque(void)
 {
@@ -1781,41 +1853,30 @@ static void get_pedal_torque(void)
         // get adc pedal torque
 		// by default we use ui16_adc_torque_filtered (calculated in motor.c irq)
 		// when cadence is high enough, we use the max between actual value, actual rotation and previous rotation
-		ui16_adc_pedal_torque = ui16_adc_torque_filtered;
-		#if (USE_KATANA1234_LOGIC_FOR_TORQUE != (1))
+		ui16_adc_pedal_torque = ui16_adc_torque_filtered; // copy the value from irq because it can change
+		#if (USE_KATANA1234_LOGIC_FOR_TORQUE == (0)) // when we use the logic based on the max of current, max of current rotation, max of previous rotation
 		#define PEDAL_CADENCE_MIN_FOR_USING_ROTATION 30
 		if (ui8_pedal_cadence_RPM > PEDAL_CADENCE_MIN_FOR_USING_ROTATION) { 
 			if ( ui16_adc_pedal_torque < ui16_adc_torque_actual_rotation) ui16_adc_pedal_torque = ui16_adc_torque_actual_rotation ;
 			if ( ui16_adc_pedal_torque < ui16_adc_torque_previous_rotation) ui16_adc_pedal_torque = ui16_adc_torque_previous_rotation ;
 		} else {
-			ui8_adc_torque_rotation_reset = 1 ; // will force also a reset of torque rotation in the motor.c irq 
+			ui8_adc_torque_rotation_reset = 1 ; // will force also a reset of torque rotation in the motor.c irq and so we use the actual value 
 		}
 		#endif
     }
 	
 	// here we know the ui16_adc_pedal_torque but we still have to take care of 
 	// - offset
-	// - some kind of exponential
-	// - remap in order to have a max range of 160 (value used by TSDZ2
-	// calculate the delta value from calibration
-	uint16_t ui16_adc_pedal_torque_delta_160 = 0; // delta when lower than offset 
-	// calculate ui16_adc_pedal_torque_delta to remap 	
+	// - remap in order to have a max range of 160 (value used by TSDZ2 
+	uint16_t ui16_adc_pedal_torque_delta_160 = 0; // first set delat = 0 (= delta when lower than offset)
 	if (ui16_adc_pedal_torque > ui16_adc_pedal_torque_offset ) {
-		// calculate the raw delta value
-		ui16_adc_pedal_torque_delta_to_remap = ui16_adc_pedal_torque - ui16_adc_pedal_torque_offset;
-		// apply expo : value to remap must be scaled 1024 (so <<10) and 
-		//              coeff expect a value in range-256/256 while range_adj is in range 0/40
-		//                      so we have to substract 20 and multiply by 12.
-		i32_adc_pedal_torque_delta_expo =  expo(
-				(((int) ui16_adc_pedal_torque_delta_to_remap) << 10) /  (ui16_adc_pedal_torque_range) ,
-				 ((int) ui8_adc_pedal_torque_range_adj - 20) * 12 );
-		
-		// change the value so that the max would be about 160. So *160 and / 1024(>>10)
-		ui16_adc_pedal_torque_delta_160 = (i32_adc_pedal_torque_delta_expo * ADC_TORQUE_SENSOR_RANGE_TARGET) >> 10 ;
+		ui16_adc_pedal_torque_delta_160 = ((ui16_adc_pedal_torque - ui16_adc_pedal_torque_offset) * ADC_TORQUE_SENSOR_RANGE_TARGET) / ui16_adc_pedal_torque_range ;
+		if (ui16_adc_pedal_torque_delta_160 > ADC_TORQUE_SENSOR_RANGE_TARGET) ui16_adc_pedal_torque_delta_160 = ADC_TORQUE_SENSOR_RANGE_TARGET;
 	}
 	
 	#if (USE_KATANA1234_LOGIC_FOR_TORQUE == (1))
-		// no cadence -> immediately clearing the buffer to have a quicker starting / stopping reaction
+		// no cadence -> immediately clear the buffer to have a quicker starting / stopping reaction
+		// fill the value one or several times in the buffer and calculate average
 		if (ui8_pedal_cadence_RPM == 0U) { 			
 			katana_sum = 0;
 			katana_count = 0;
@@ -1823,13 +1884,13 @@ static void get_pedal_torque(void)
 		}
 		uint16_t katana_dif = 0;
 		uint8_t katana_factor = 16;
-		if (ui16_adc_pedal_torque_delta_160 > ui16_adc_pedal_torque_delta) katana_dif = ui16_adc_pedal_torque_delta_160 - ui16_adc_pedal_torque_delta;
-		else katana_dif = ui16_adc_pedal_torque_delta - ui16_adc_pedal_torque_delta_160;
+		if (ui16_adc_pedal_torque_delta_160 > ui16_adc_pedal_torque_noExpo) katana_dif = ui16_adc_pedal_torque_delta_160 - ui16_adc_pedal_torque_noExpo;
+		else katana_dif = ui16_adc_pedal_torque_noExpo - ui16_adc_pedal_torque_delta_160;
 		if (katana_dif < 60) katana_factor = 1;
 		else if (katana_dif < 80) katana_factor = 2;
 		else if (katana_dif < 100) katana_factor = 4;
 		else if (katana_dif < 130) katana_factor = 8;
-		while ( katana_factor){
+		while ( katana_factor){  // fill buffer one or several times
 			katana_sum += ui16_adc_pedal_torque_delta_160;
 			if (katana_count < KATANA_BUFFER_LEN) katana_count++;
 			else katana_sum -= katana_buffer[katana_index];
@@ -1840,9 +1901,70 @@ static void get_pedal_torque(void)
 		}
 		ui16_adc_pedal_torque_delta_160 = katana_sum / katana_count ;		
 	#endif
+	#if (USE_KATANA1234_LOGIC_FOR_TORQUE == (2))
+		// no cadence -> immediately clear the buffer to have a quicker starting / stopping reaction
+		// fill the value one or several times in the buffer and calculate average
+		if (ui8_pedal_cadence_RPM == 0U) { 			
+			katana_sum = 0;
+			katana_count = 0;
+			katana_next_read = 0;
+			katana_next_write = 0;
+			katana_buffer_len = KATANA_BUFFER_LEN_MAX;
+		} else {
+			// increase or decrease logical buffer length based on the cadence if required
+			// cadence is in RPM; this function is called 60sec* 40call/sec = 2400 per min.
+			// we try that buffer len == number of call per rotation.
+			// still we respect some min/max limit and we increase/decrease the length only only by 1 at each call if needed
+			// reduce execution time and smooth changes.
+			uint16_t katana_len_max_cadence = 2400/ ui8_pedal_cadence_RPM;
+			if (( katana_len_max_cadence > katana_buffer_len ) && (katana_buffer_len < KATANA_BUFFER_LEN_MAX )) {
+				katana_buffer_len++;
+			} else if (( katana_len_max_cadence < katana_buffer_len ) && (katana_buffer_len > KATANA_BUFFER_LEN_MIN ))
+				if (katana_count > 0) {
+					katana_sum -= katana_buffer[katana_next_read];
+					katana_count--;
+					katana_next_read++;
+					katana_next_read &= KATANA_MODULO; // reset to 0 when reach 64
+				}	
+		}
+		// number of values added depends on the (absolute) difference between current value and new one	
+		uint16_t katana_dif = 0;
+		uint8_t katana_factor = 16;
+		if (ui16_adc_pedal_torque_delta_160 > ui16_adc_pedal_torque_noExpo) katana_dif = ui16_adc_pedal_torque_delta_160 - ui16_adc_pedal_torque_noExpo;
+		else katana_dif = ui16_adc_pedal_torque_noExpo - ui16_adc_pedal_torque_delta_160;
+		if (katana_dif < 60) katana_factor = 1;
+		else if (katana_dif < 80) katana_factor = 2;
+		else if (katana_dif < 100) katana_factor = 4;
+		else if (katana_dif < 130) katana_factor = 8;
+		while ( katana_factor){  // fill buffer one or several times
+			if ( katana_count == katana_buffer_len){ // when buffer is totally used, first remove oldiest value (but do not increase count)
+				katana_sum -= katana_buffer[katana_next_read];
+				katana_next_read++;
+				katana_next_read &= KATANA_MODULO;
+			} else {                                // when there is place in the buffer, increase count
+				katana_count++;
+			}
+			// add new value to sum and in the buffer
+			katana_sum += ui16_adc_pedal_torque_delta_160;
+			katana_buffer[katana_next_write] = ui16_adc_pedal_torque_delta_160 ;
+			katana_next_write++;
+			katana_next_write &= KATANA_MODULO;
+			katana_factor--;
+		}
+		ui16_adc_pedal_torque_delta_160 = katana_sum / katana_count ; // calculate average as final result
+		// check maximum : should not happen but added for safety.
+		if 	(ui16_adc_pedal_torque_delta_160 > ADC_TORQUE_SENSOR_RANGE_TARGET) ui16_adc_pedal_torque_delta_160 = ADC_TORQUE_SENSOR_RANGE_TARGET;
+	#endif
+	// save the value before applying expo in order to calculate variation in katana1234 logic on next loop (here above)
+	ui16_adc_pedal_torque_noExpo = ui16_adc_pedal_torque_delta_160 ; 
+	
+	// apply expo : value is in range 0/256 and so does not need to be remaped 
+	//              coeff expect a value in range-256/256 while range_adj is in range 0/40
+	//                      so we have to substract 20 and multiply by 12.
+	ui16_adc_pedal_torque_delta =  expo(
+		(int) ui16_adc_pedal_torque_noExpo  ,
+			((int) ui8_adc_pedal_torque_range_adj - 20) * 12 ); // apply expo ; *12 because expo expect a value in range -256/+256
 
-
-	ui16_adc_pedal_torque_delta = ui16_adc_pedal_torque_delta_160 ; 
 	// here ui16_adc_pedal_torque_delta is known
 	ui16_adc_pedal_torque_delta_temp = ui16_adc_pedal_torque_delta;
 	
@@ -2518,8 +2640,11 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		ui8_startup_boost_cadence_step = ui8_rx_buffer[11];
 
 		for (ui8_i = 1; ui8_i < 120; ui8_i++) {
-			ui16_temp = (ui16_startup_boost_factor_array[ui8_i - 1] * (uint16_t)ui8_startup_boost_cadence_step) >> 8;
-			ui16_startup_boost_factor_array[ui8_i] = ui16_startup_boost_factor_array[ui8_i - 1] - ui16_temp;	
+			//ui16_temp = (ui16_startup_boost_factor_array[ui8_i - 1] * (uint16_t)ui8_startup_boost_cadence_step) >> 8;
+			//ui16_startup_boost_factor_array[ui8_i] = ui16_startup_boost_factor_array[ui8_i - 1] - ui16_temp;	
+			uint32_t ui32_temp = (((uint32_t) ui16_startup_boost_factor_array[ui8_i - 1]) << 8)
+				- ((uint32_t)(ui16_startup_boost_factor_array[ui8_i - 1]) * (uint32_t)ui8_startup_boost_cadence_step);
+			ui16_startup_boost_factor_array[ui8_i] = ui32_temp >> 8;
 		}
 
 		// motor over temperature min value limit

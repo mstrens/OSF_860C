@@ -379,7 +379,7 @@ int main(void)
        
         // avoid a reset
         XMC_WDT_Service(); // reset if we do not run here within the 0,5 sec
-        #if (USE_SPIDER_LOGIC_FOR_TORQUE == (1))
+        #if ( (USE_SPIDER_LOGIC_FOR_TORQUE == (1)) || (USE_SPIDER_LOGIC_FOR_TORQUE == (2)) )
         if (ui8_pas_new_transition) {
             new_torque_sample();
         }
