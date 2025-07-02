@@ -108,18 +108,36 @@ See the instructions on the mbrusa site (see links above)
 See the instructions on the mbrusa site (see links above).
 Still there are a few differences:
 * Coast brake ADC : This concept is not used in OSF TSDZ8. Still this field has been "reused" in order to let the user specify the "FOC multiplier" that is used to calculate "FOC angle" that plays a role in motor efficiency and stability when current is high. So enter here a value for "FOC multiplier". It seems that a value in the range 24/28 is good. Feel free to experiment but be careful with values that would be very different and could create unstability and let the motor become too hot.
+
+
 * calibration MUST be disabled. If you enable it, 860C transmit some false data to the controller.
-* Torque ADC step must be correct in order to get a correct value of the human power (see mbrusa instructions)
+
+
 * Torque ADC step adv is not used (as calibration should be disabled)
+
+
 * Torque offset adj is not used.
+
+
 * Torque range adj is used to increase/decrease sensitivity for low pressure on the pedal. Sorry if the name if confusing but it was the only field from 860C that I could reuse for this. This parameter does not change the maximum assistance provided for any selected level when pressure on pedal is maximum but it allows to increase (or decrease) the assistance when pressure on pedal is quite low.
 This parameter can vary between 1 and 40. When this parameter is set on 20, the assistance is calculated based on the value of the torque sensor.
 The more the parameter is higher than 20 (up to 40) the less assistance you will get for small pressure on the pedal (but so the more you get for highier pressure - still never exceeding the max value defined for the selected level). In other words, the ratio assistance per kg pressure is lower for lowest pressure and higher for highest pressure compared to parameter set on 20.
 Reversely, the more the parameter is lower than 20 (up to 1), the more assistance you will get for small pressure on the pedal. In other words, the ratio assistance per kg pressure is higher for lowest pressure and lower for highest pressure compare to parameter set on 20.
+
+
 * Torque angle adj is not used (860c value is discarded)
+
+
 * Torque ADC offset is very important. In TSDZ2 or in previous versions, the firmware read the torque sensor during the first 3 seconds and considers this value as the reference when no load is applied. This was done in order to get an automatic recalibration at each power on. This process is not good for TSDZ8 because, for some TSDZ8, the value varies significantly with the position of the pedal. So in this version of OSF, there is no autocalibration of the torque sensor with no load at power on. Instead, the user has to fill in "Torque ADC offset" the value that will become the reference. To find the value to encode, you must use the menu "Technical" and look at the field "ADC torque sensor". When no load is applied on the pedal, turn manually the pedal and look at the values in "ADC torque sensor". Note the MAXIMUM. I expect that value should be between 150 and 190 depending on your motor. Then add some margin (e.g 10) to avoid assistance with very low pressure and enter the value in "Torque ADC offset" (in "Torque sensor menu"). You can adapt the "margin" value to your preference (a higher value will require more pressure on the pedal before getting assistance but will reduce consumption).
+
+
 * Torque ADC max has to be filled : to find the value, go to technical menu, look at field ADC torque sensor when you apply the max pressure on the pedal (about 80 kg = full human weight) while holding the brakes. It seems that the value should be around 450 for TSDZ8.
 
+
+* Torque ADC step is important because it is used to convert raw values provided by the torque sensor into the human torque and so also to calculate the human power and the requested motor power. Measures done on only one TSDZ8 motor shows that the raw values provided by the torque sensor are proportional to the weight on the pedal up to about 50Kg (above there is a saturation) and that the raw value at 50kg seems to be about 85 % of the total range (difference between max and offset). In TSDZ8 firmware, ADC values are normalised in order to have a range of 160 steps. So Torque ADC step could be estimated with : 50kg *167 / (85% * 160) = 61. Note: it could be that this value is defferent for your motor.
+
+
+* Values for the different assist levels/modes: The max value that can be filled with the 860C is usually 254. Still TSDZ8 can provide more power than TSDZ2. In order to get access to the full power even for lower weight on the pedal the ratio value/assitance has been changed for TSDZ8. You have to use a lower value (2 X lower) to get the same assistance for Power, Torque and Hybrid assist modes.
 
 # IMPORTANT NOTES
 * Installing this firmware will void your warranty of the TSDZ8 mid drive.
