@@ -1756,8 +1756,8 @@ uint8_t katana_count = 0;
 uint16_t katana_sum = 0; 	
 #endif
 #if (USE_KATANA1234_LOGIC_FOR_TORQUE == (2))
-#define KATANA_BUFFER_LEN_MAX (50)
-#define KATANA_BUFFER_LEN_MIN (30)
+#define KATANA_BUFFER_LEN_MAX (40)
+#define KATANA_BUFFER_LEN_MIN (40)
 #define KATANA_2_POWER (6)                    // for a size of 64
 #define KATANA_MODULO ((1<<KATANA_2_POWER)-1)
 uint8_t katana_buffer[1<<KATANA_2_POWER] ; // using a power of 2 allow faster modulo: 64 = 2^6
@@ -1919,13 +1919,15 @@ static void get_pedal_torque(void)
 			uint16_t katana_len_max_cadence = 2400/ ui8_pedal_cadence_RPM;
 			if (( katana_len_max_cadence > katana_buffer_len ) && (katana_buffer_len < KATANA_BUFFER_LEN_MAX )) {
 				katana_buffer_len++;
-			} else if (( katana_len_max_cadence < katana_buffer_len ) && (katana_buffer_len > KATANA_BUFFER_LEN_MIN ))
+			} else if (( katana_len_max_cadence < katana_buffer_len ) && (katana_buffer_len > KATANA_BUFFER_LEN_MIN )) {
+				katana_buffer_len--;
 				if (katana_count > 0) {
 					katana_sum -= katana_buffer[katana_next_read];
 					katana_count--;
 					katana_next_read++;
 					katana_next_read &= KATANA_MODULO; // reset to 0 when reach 64
-				}	
+				}
+			}		
 		}
 		// number of values added depends on the (absolute) difference between current value and new one	
 		uint16_t katana_dif = 0;
