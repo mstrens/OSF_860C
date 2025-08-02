@@ -1,10 +1,16 @@
 
-This repository is a fork of this "mbrusa" project https://github.com/emmebrusa/TSDZ2-Smart-EBike-860C that was developed for TSDZ2 Tongsheng motor when used with a 860C display.
+This repository is a fork of this "mbrusa" project https://github.com/emmebrusa/TSDZ2-Smart-EBike-860C that was developed for TSDZ2 Tongsheng motor when used with a 860C or SW102 display.
 
 The purpose here is to have a version that can be used on a TSDZ8 Tongsheng motor.
 
 
-Note: this version requires that the 860C display is reprogrammed with a special firmware. This firmware has also been developped by mbrusa for the TSDZ2. This TSDZ8 version uses exactly the same firmware on the 860C display. So, to know how to install and to use it, please look at the mbrusa project mentionned here above. 
+Note: this version requires that the 860C or SW102 display is reprogrammed with a special firmware. This firmware has also been developped by mbrusa for the TSDZ2. This TSDZ8 version uses exactly the same firmware as TSDZ2 on the 860C or SW102 display. So, to know how to install the firmware on 860c or SW102 and how to use it , please look at the mbrusa project mentionned here above. Please note that the firmware to upload on the 860C is different from the SW102.
+
+
+For SW102, the firmware to be used is here: https://github.com/emmebrusa/Color_LCD_860C/blob/master/releases/v20.1C.5-860C/sw102-otaupdate-20.1C.5.zip
+
+
+For 860C, the files to be used are here : https://github.com/emmebrusa/Color_LCD_860C/tree/master/releases/20.1C.5-1-860C
 
 
 Changes of the controller firmware were required because TSDZ8 uses a different microprocessor (XMC1302).

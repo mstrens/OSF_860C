@@ -1886,6 +1886,7 @@ static void get_pedal_torque(void)
 		uint8_t katana_factor = 16;
 		if (ui16_adc_pedal_torque_delta_160 > ui16_adc_pedal_torque_noExpo) katana_dif = ui16_adc_pedal_torque_delta_160 - ui16_adc_pedal_torque_noExpo;
 		else katana_dif = ui16_adc_pedal_torque_noExpo - ui16_adc_pedal_torque_delta_160;
+		
 		if (katana_dif < 60) katana_factor = 1;
 		else if (katana_dif < 80) katana_factor = 2;
 		else if (katana_dif < 100) katana_factor = 4;
@@ -1899,7 +1900,9 @@ static void get_pedal_torque(void)
 			if (katana_index >= KATANA_BUFFER_LEN) katana_index = 0;
 			katana_factor--;
 		}
-		ui16_adc_pedal_torque_delta_160 = katana_sum / katana_count ;		
+		if (katana_count > 0) {
+			ui16_adc_pedal_torque_delta_160 = katana_sum / katana_count ;
+		}					
 	#endif
 	#if (USE_KATANA1234_LOGIC_FOR_TORQUE == (2))
 		// no cadence -> immediately clear the buffer to have a quicker starting / stopping reaction
@@ -1953,8 +1956,10 @@ static void get_pedal_torque(void)
 			katana_next_write &= KATANA_MODULO;
 			katana_factor--;
 		}
-		ui16_adc_pedal_torque_delta_160 = katana_sum / katana_count ; // calculate average as final result
-		// check maximum : should not happen but added for safety.
+		if (katana_count > 0) {
+			ui16_adc_pedal_torque_delta_160 = katana_sum / katana_count ; // calculate average as final result
+		}
+			// check maximum : should not happen but added for safety.
 		if 	(ui16_adc_pedal_torque_delta_160 > ADC_TORQUE_SENSOR_RANGE_TARGET) ui16_adc_pedal_torque_delta_160 = ADC_TORQUE_SENSOR_RANGE_TARGET;
 	#endif
 	// save the value before applying expo in order to calculate variation in katana1234 logic on next loop (here above)
@@ -2392,7 +2397,7 @@ static void communications_controller(void)
 
 	// check for communications fail or display master fail
 	// can't fail more then 1000ms ??? 20 * 50ms
-	if (ui8_comm_error_counter > 20) {
+	if (ui8_comm_error_counter > 30) {
 		motor_disable_pwm();
 		ui8_motor_enabled = 0;
 		ui8_m_system_state |= ERROR_FATAL; // Comms failed
