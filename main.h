@@ -52,7 +52,7 @@
 
 #define USE_IRQ_FOR_HALL (0) // 1 = use irq; 0 = use capture
 
-#define USE_SPIDER_LOGIC_FOR_TORQUE (0) // (1) = use Spider logic with a buffer of 20 value over one rotation.
+#define USE_SPIDER_LOGIC_FOR_TORQUE (1) // (1) = use Spider logic with a buffer of 20 value over one rotation.
                                         // (2) = mstrens variant using "expected" concept + smoothing
 #define USE_KATANA1234_LOGIC_FOR_TORQUE (2) // (1) = use katana with an average of n last value; big changes getting more priority 
                                             // (0) = use a logic based on max of current torque, max current rotation, max previous rotation
