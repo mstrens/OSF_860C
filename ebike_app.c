@@ -1591,14 +1591,16 @@ int expo(int x, int k)
 static uint8_t toffset_cycle_counter = 0;
 // get_pedal_torque has been totally rewrittent for TSDZ8 (do not update based on TSDZ2)
 
-#if ( (USE_SPIDER_LOGIC_FOR_TORQUE == (1)) || (USE_SPIDER_LOGIC_FOR_TORQUE == (2)) )
+#if  (USE_SPIDER_LOGIC_FOR_TORQUE > (0)) 
 static uint16_t ui16_TSamples[21];
 static uint8_t ui8_TSamplesNum = 0;
 static uint8_t ui8_TSamplesPos = 0;
 static uint16_t ui16_TSum = 0;
 //static uint8_t ui8_adc_pedal_torque_delta = 0;  // added by mstrens to save the remap torque in uint8_t
+#if (USE_SPIDER_LOGIC_FOR_TORQUE == (2))
 static uint16_t ui16_TExpected[21];  // expected torque value based on expected in previous rotation and difference in TSamples
 static uint16_t ui16_TExpectedNew ;
+#endif
 static uint16_t ui16_adc_pedal_torque_filtered_noExpo ;
 uint16_t ui16_TSampleOld;
 // PWM IRQ set ui8_pas_new_transition when a new PAS signal transition is detected.
@@ -1626,13 +1628,16 @@ void new_torque_sample() {
 			ui16_TorqueDeltaADC_norm = ADC_TORQUE_SENSOR_RANGE_TARGET;
 		}
 	}
-    if (ui16_TorqueDeltaADC_norm == 0) {   // perhaps this could be omitted
+    #if ((USE_SPIDER_LOGIC_FOR_TORQUE == (1)) || (USE_SPIDER_LOGIC_FOR_TORQUE == (2)))
+	// when define == 3, we do not reset the buffer
+	if (ui16_TorqueDeltaADC_norm == 0) {   // perhaps this could be omitted
     	// torque adc value less than 0 torque reference ADC -> reset all
         ui8_TSamplesNum = 0;
         ui16_TSum = 0;
         ui8_TSamplesPos = 0;
         return;
     }
+	#endif
 	ui16_TSampleOld = ui16_TSamples[ui8_TSamplesPos] ; // latest value that will be lost (valid only if buffer is full = TSamplesNum == 20)
     ui16_TSamples[ui8_TSamplesPos] = ui16_TorqueDeltaADC_norm; // store the new delta value value
     ui16_TSum += ui16_TorqueDeltaADC_norm; // Add to the average the new sample
@@ -1643,6 +1648,7 @@ void new_torque_sample() {
 		} else {              // this should not happen because the value should already be part of the sum; added for safety
 			ui16_TSum = 0; 
 		}
+		#if (USE_SPIDER_LOGIC_FOR_TORQUE == (2))
 		// calculate new expected = old Expected(in the same pedal position) + new torque - old torque (only if result is posiif, else 0)
 		ui16_TExpectedNew = ui16_TExpected[ui8_TSamplesPos] + ui16_TorqueDeltaADC_norm;
 		if (ui16_TExpectedNew > ui16_TSampleOld) {
@@ -1652,8 +1658,10 @@ void new_torque_sample() {
 		}
 		// save the expected torque; to be used in get_pedal_torque;
 		ui16_TExpected[ui8_TSamplesPos] = ui16_TExpectedNew;
+		#endif
     } else {
 		ui8_TSamplesNum++;
+		#if (USE_SPIDER_LOGIC_FOR_TORQUE == (2))
 		if (ui8_TSamplesNum == 20){ 
         	// fill expected array with the average
 			ui16_TExpectedNew = ui16_TSum / 20;
@@ -1661,6 +1669,7 @@ void new_torque_sample() {
 				ui16_TExpected[i] = ui16_TExpectedNew;
 			}
 		}
+		#endif
 	}
 	ui8_TSamplesPos++;  // increase the pos
 	if (ui8_TSamplesPos >= 20) {
@@ -1669,7 +1678,7 @@ void new_torque_sample() {
     
 }
 
-//( (USE_SPIDER_LOGIC_FOR_TORQUE == (1)) || (USE_SPIDER_LOGIC_FOR_TORQUE == (2)) )
+//( (USE_SPIDER_LOGIC_FOR_TORQUE > 0 (so 1, 2, 3)
 #define TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MAX 100 // max value is 160
 static void get_pedal_torque(void) {
 	if (toffset_cycle_counter < TOFFSET_CYCLES) {  // less than 3 sec
@@ -1701,7 +1710,7 @@ static void get_pedal_torque(void) {
 	} else {
 		ui16_adc_pedal_torque_filtered_noExpo = 0 ;  // reset filtered no expo when torque is 0
 	}	
-#if (USE_SPIDER_LOGIC_FOR_TORQUE == (1))
+#if ((USE_SPIDER_LOGIC_FOR_TORQUE == (1)) || (USE_SPIDER_LOGIC_FOR_TORQUE == (3)) )
 	// when TSampleNum == 20,
 	//                     if difference with previous at the same position,is low, use the average (no filter because already average over one rotation)
 	//                     else ; use new value but with filtering
@@ -1720,7 +1729,13 @@ static void get_pedal_torque(void) {
 			ui16_adc_pedal_torque_filtered_noExpo = filter( ui16_TorqueDeltaADC_norm , ui16_adc_pedal_torque_filtered_noExpo , 5);
 		}
 	} else {   // when buffer is not full
+		#if (USE_SPIDER_LOGIC_FOR_TORQUE == (1)) 
 		ui16_adc_pedal_torque_filtered_noExpo = filter( ui16_TorqueDeltaADC_norm , ui16_adc_pedal_torque_filtered_noExpo , 5); 
+		#else // (USE_SPIDER_LOGIC_FOR_TORQUE == (3) we use the average
+		if (ui8_TSamplesNum > 0) {
+			ui16_adc_pedal_torque_filtered_noExpo = ui16_TSum / ui8_TSamplesNum; // overwrite with avg when less than 1 rotation
+		}	
+		#endif
 	}
 
 #else  // (USE_SPIDER_LOGIC_FOR_TORQUE == (2))
@@ -1746,7 +1761,7 @@ static void get_pedal_torque(void) {
     ui16_pedal_torque_x100 = ui16_adc_pedal_torque_delta * ui8_pedal_torque_per_10_bit_ADC_step_x100;
 	
 }
-#else // NOT ( (USE_SPIDER_LOGIC_FOR_TORQUE == (1)) || (USE_SPIDER_LOGIC_FOR_TORQUE == (2)) )
+#else // NORMAL or KATANA logic : (USE_SPIDER_LOGIC_FOR_TORQUE == (0)) 
       //       so with KATANA logic or Max logic
 #if (USE_KATANA1234_LOGIC_FOR_TORQUE == (1))
 #define KATANA_BUFFER_LEN 40
