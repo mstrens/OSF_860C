@@ -227,8 +227,8 @@ volatile uint8_t current_hall_pattern_irq = 0;
 //uint8_t ui8_svm_old = 0;
 //uint8_t ui8_svm_new = 0;
 
-uint16_t ui16_duty_cycle_count_down = 0;
-uint16_t ui16_duty_cycle_count_up = 0;
+//uint16_t ui16_duty_cycle_count_down = 0;
+//uint16_t ui16_duty_cycle_count_up = 0;
 
 // average current on 1 eletric rotation
 uint32_t ui32_adc_battery_current_15b = 0; // value from adc
@@ -725,7 +725,6 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
                 }
 				else if (ui8_g_duty_cycle > 0) {
                     ui8_g_duty_cycle--;
-                    ui16_duty_cycle_count_down++;
 				}
             }
         }
@@ -737,10 +736,14 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
             if (++ui8_counter_duty_cycle_ramp_up > ui8_controller_duty_cycle_ramp_up_inverse_step) {
                 ui8_counter_duty_cycle_ramp_up = 0;
                 // increment duty cycle
-                if (ui8_g_duty_cycle < PWM_DUTY_CYCLE_MAX) {
-                    ui8_g_duty_cycle++;
-                    ui16_duty_cycle_count_up++;
-                }
+                if (ui8_g_duty_cycle < PWM_DUTY_CYCLE_STARTUP) {
+                    ui8_g_duty_cycle = PWM_DUTY_CYCLE_STARTUP;
+                }	
+                else if (ui8_g_duty_cycle < PWM_DUTY_CYCLE_MAX) {
+                    if (ui8_g_duty_cycle < PWM_DUTY_CYCLE_MAX) {
+                        ui8_g_duty_cycle++;
+                    }
+                }    
             }
         }
 		else if ((ui8_field_weakening_enabled)

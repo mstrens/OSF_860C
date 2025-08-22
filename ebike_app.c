@@ -150,6 +150,9 @@ static uint8_t ui8_throttle_adc_in = 0;
 static uint8_t ui8_throttle_virtual = 0;
 static uint8_t ui8_throttle_legal = 0;
 static uint8_t ui8_throttle_feature_enabled = 0;
+// added by mstrens to allow to change the limit with the display
+static uint8_t ui8_throttle_min = ADC_THROTTLE_MIN_VALUE ;
+static uint8_t ui8_throttle_max = ADC_THROTTLE_MAX_VALUE ;
 
 // cruise control
 static uint8_t ui8_cruise_PID_initialize = 1;
@@ -594,22 +597,24 @@ static void ebike_control_motor(void) // is called every 25ms by ebike_app_contr
 	
     // check if the motor should be enabled or disabled
     if (ui8_motor_enabled
-		&& ((ui8_m_system_state & ERROR_MOTOR_BLOCKED)
+		&& ((ui8_brake_state)
+			|| (ui8_m_system_state & ERROR_MOTOR_BLOCKED)
 			|| (ui8_m_system_state & ERROR_BATTERY_OVERCURRENT)
 			|| (ui8_m_system_state & ERROR_THROTTLE)
 			|| (ui8_m_system_state & ERROR_FATAL)
-			|| ((ui16_motor_speed_erps == 0)
-				&& (!ui8_adc_battery_current_target)
-				&& (!ui8_g_duty_cycle)))) {
+			|| ((ui16_motor_speed_erps == 0u)
+				&& (ui8_adc_battery_current_target == 0u)
+				&& (ui8_g_duty_cycle == 0u)))) {
         ui8_motor_enabled = 0;
         motor_disable_pwm();
     }
 	else if (!ui8_motor_enabled
+			&& (!ui8_brake_state)
 			&& (ui16_motor_speed_erps < ERPS_SPEED_OF_MOTOR_REENABLING) // enable the motor only if it rotates slowly or is stopped
-			&& (ui8_adc_battery_current_target)
-			&& (!ui8_brake_state)) {
+			&& (ui8_adc_battery_current_target > 0U)) {
 		ui8_motor_enabled = 1;
-		ui8_g_duty_cycle = PWM_DUTY_CYCLE_STARTUP;
+		ui8_g_duty_cycle = 0;
+		//ui8_g_duty_cycle = PWM_DUTY_CYCLE_STARTUP;
 		//ui8_duty_cycle_ramp_up_inverse_step = PWM_DUTY_CYCLE_RAMP_UP_INVERSE_STEP_MIN;
 		//ui8_duty_cycle_ramp_down_inverse_step = PWM_DUTY_CYCLE_RAMP_DOWN_INVERSE_STEP_MIN;
 		ui8_fw_hall_counter_offset = 0;
@@ -1302,8 +1307,8 @@ static void apply_throttle(void)
     if (ui8_throttle_feature_enabled) {
 		// map adc value from 0 to 255
 		ui8_throttle_adc_in = map_ui8((uint8_t)(ui16_adc_throttle >> 2),
-            (uint8_t) ADC_THROTTLE_MIN_VALUE,
-            (uint8_t) ADC_THROTTLE_MAX_VALUE,
+            ui8_throttle_min,
+            ui8_throttle_max,
             (uint8_t) 0,
             (uint8_t) 255);
 			
@@ -2669,12 +2674,13 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 			ui16_startup_boost_factor_array[ui8_i] = ui32_temp >> 8;
 		}
 
-		// motor over temperature min value limit
+		// motor over temperature min value limit and throttle min
 		ui8_motor_temperature_min_value_to_limit = ui8_rx_buffer[12];
-		// motor over temperature max value limit
+		ui8_throttle_min = ui8_rx_buffer[12]; // added by mstrens
+		// motor over temperature max value limit and throttle max
 		ui8_motor_temperature_max_value_to_limit = ui8_rx_buffer[13];
+		ui8_throttle_max = ui8_rx_buffer[13]; // added by mstrens
 		
-
 		// motor acceleration adjustment
 		uint8_t ui8_motor_acceleration_adjustment = ui8_rx_buffer[14];
 	  
