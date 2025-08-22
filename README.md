@@ -145,6 +145,9 @@ Reversely, the more the parameter is lower than 20 (up to 1), the more assistanc
 
 * Values for the different assist levels/modes: The max value that can be filled with the 860C is usually 254. Still TSDZ8 can provide more power than TSDZ2. In order to get access to the full power even for lower weight on the pedal the ratio value/assitance has been changed for TSDZ8. You have to use a lower value (2 X lower) to get the same assistance for Power, Torque and Hybrid assist modes.
 
+
+* If you use throttle, you have to set up the limits (min and max) provided by your sensor. In menu "Motor temperature" you have to declare that sensor is used for throttle and you have to fill the min and max values. To know them you have to use menu "Technical" and look at ADC throttle field. Note the min and max values when pressing throttle. For min, it is safe to enter a value that is slightly higher that what you read (to avoid unexpected start of the motor)
+
 # IMPORTANT NOTES
 * Installing this firmware will void your warranty of the TSDZ8 mid drive.
 * We are not responsible for any personal injuries or accidents caused by use of this firmware.
