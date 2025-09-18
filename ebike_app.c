@@ -232,6 +232,8 @@ uint16_t ui16_adc_pedal_torque_delta_to_remap = 0;
 uint16_t ui16_adc_pedal_torque_delta_remapped = 0;
 int i32_adc_pedal_torque_delta_expo = 0;
 
+uint16_t ui16_adc_throttle;
+
 // system functions
 static void get_battery_voltage(void);
 static void get_pedal_torque(void);
@@ -497,10 +499,10 @@ static void ebike_control_motor(void) // is called every 25ms by ebike_app_contr
 	//uint8_t ui8_temp_adc_current = ((XMC_VADC_GROUP_GetResult(vadc_0_group_0_HW , 15 ) & 0xFFFF) +
 	//								(XMC_VADC_GROUP_GetResult(vadc_0_group_1_HW , 15 ) & 0xFFFF)) >>5  ;  // >>2 for IIR, >>2 for ADC12 to ADC10 , >>1 for averaging		
 	// changed by mstrens to take care of infineon init for vadc (result 12bits and in reg 1)
-	uint8_t ui8_temp_adc_current = (XMC_VADC_GROUP_GetResult(vadc_0_group_0_HW , VADC_I4_RESULT_REG ) & 0xFFFF) >> 2;// from 12 to 10bits 
-	if ( ui8_temp_adc_current > ui8_adc_battery_overcurrent){ // 112+50 in tsdz2 (*0,16A) => 26A
-		ui8_error_battery_overcurrent = ERROR_BATTERY_OVERCURRENT ;
-	}
+	uint16_t ui16_temp_adc_current = (XMC_VADC_GROUP_GetResult(vadc_0_group_0_HW , VADC_I4_RESULT_REG ) & 0xFFFF) >> 2;// from 12 to 10bits 
+	//if ( ui8_temp_adc_current > ui8_adc_battery_overcurrent){ // 112+50 in tsdz2 (*0,16A) => 26A
+	//	ui8_error_battery_overcurrent = ERROR_BATTERY_OVERCURRENT ;
+	//} 
 	  
     	/*
 		// Read in assembler to ensure data consistency (conversion overrun)
@@ -515,15 +517,16 @@ static void ebike_control_motor(void) // is called every 25ms by ebike_app_contr
 		__endasm;
 		#endif
 		*/
+	// modified by mstrens (a reset was missing)
 	if (ui8_battery_overcurrent_delay > 0) {  // OVERCURRENT_DELAY
-		if (ui8_error_battery_overcurrent) {
+		if ( ui16_temp_adc_current > (uint16_t) ui8_adc_battery_overcurrent){ // 112+50 in tsdz2 (*0,16A) => 26A
 			ui8_error_battery_overcurrent_counter++;
-		}
-		else {
+		} else {
 			ui8_error_battery_overcurrent_counter = 0;
 		}
 		if (ui8_error_battery_overcurrent_counter >= ui8_battery_overcurrent_delay) {
-			ui8_m_system_state |= ui8_error_battery_overcurrent;
+			//ui8_m_system_state |= ui8_error_battery_overcurrent;
+			ui8_m_system_state |= ERROR_BATTERY_OVERCURRENT ; 
 		}
 	}
 	

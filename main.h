@@ -12,7 +12,7 @@
 //#include "config.h"
 #include "common.h"
                                     // !!!!!!!!!!!!!!
-#define FIRMWARE_VERSION "0.1.33"      //  !!! this version was derived from 0.1.13 for vlcd5 !!!!!!!!!!
+#define FIRMWARE_VERSION "0.1.35"      //  !!! this version was derived from 0.1.13 for vlcd5 !!!!!!!!!!
 //#define MAIN_CONFIGURATOR_VERSION 2   // for configurator (must be the same as in xls sheet)
 //#define SUB_CONFIGURATOR_VERSION 1    // is not used (just for reference)
 
@@ -52,7 +52,8 @@
 
 #define USE_IRQ_FOR_HALL (0) // 1 = use irq; 0 = use capture
 
-#define USE_SPIDER_LOGIC_FOR_TORQUE (0) // (1) = use Spider logic with a buffer of 20 value over one rotation.
+// note when USE_SPIDER_LOGIC_FOR_TORQUE > 0, KATANA logic is not used; to use KATANA, USE_SPIDER must be 0
+#define USE_SPIDER_LOGIC_FOR_TORQUE (3) // (1) = use Spider logic with a buffer of 20 value over one rotation.
                                         // (2) = mstrens variant using "expected" concept + smoothing
                                         // (3) = Spider logic, no reset of buffer when torque = 0, avg when less than 20.
 #define USE_KATANA1234_LOGIC_FOR_TORQUE (2) // (1) = use katana with an average of n last value; big changes getting more priority 
@@ -209,8 +210,8 @@ HALL_COUNTER_OFFSET_UP:    29 -> 44
 #define ADC_TORQUE_SENSOR_RANGE_TARGET	  		160 // from 860c
 //#define ADC_TORQUE_SENSOR_RANGE_TARGET_MIN 		133 // from 860c
 
-#define ADC_TORQUE_SENSOR_ANGLE_COEFF			11
-#define ADC_TORQUE_SENSOR_ANGLE_COEFF_X10		(uint16_t)(ADC_TORQUE_SENSOR_ANGLE_COEFF * 10)
+//#define ADC_TORQUE_SENSOR_ANGLE_COEFF			11
+//#define ADC_TORQUE_SENSOR_ANGLE_COEFF_X10		(uint16_t)(ADC_TORQUE_SENSOR_ANGLE_COEFF * 10)
 
 
 
@@ -298,7 +299,7 @@ HALL_COUNTER_OFFSET_UP:    29 -> 44
  ---------------------------------------------------------*/
 
 // cadence sensor
-#define CADENCE_SENSOR_NUMBER_MAGNETS			20U  // is not used in the code (hardcoded 60 min / 20 = 3)
+//#define CADENCE_SENSOR_NUMBER_MAGNETS			20U  // is not used in the code (hardcoded 60 min / 20 = 3)
 
 /*---------------------------------------------------------------------------
  NOTE: regarding the cadence sensor
@@ -314,7 +315,7 @@ HALL_COUNTER_OFFSET_UP:    29 -> 44
 
 
 // default values
-#define DEFAULT_VALUE_BATTERY_CURRENT_MAX                         10  // 10 amps
+#define DEFAULT_VALUE_BATTERY_CURRENT_MAX  10  // 10 amps Used only in 860C version
 
 /*---------------------------------------------------------
 
@@ -409,7 +410,7 @@ HALL_COUNTER_OFFSET_UP:    29 -> 44
 #define ASSIST_PEDAL_LEVEL3				0x04
 #define ASSIST_PEDAL_LEVEL4				0x08
 
-#define ASSIST_PEDAL_LEVEL01_PERCENT			60
+//#define ASSIST_PEDAL_LEVEL01_PERCENT			60 // is not used in the code
 
 // assist mode
 #define OFFROAD_MODE				0
