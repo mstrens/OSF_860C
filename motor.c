@@ -66,9 +66,11 @@ static const uint16_t ui16_svm_table[SVM_TABLE_LEN] = {
 // motor variables
 uint8_t ui8_hall_360_ref_valid = 0; // fill with a hall pattern to check sequence is correct
 uint8_t ui8_motor_commutation_type = BLOCK_COMMUTATION;
-static uint8_t ui8_motor_phase_absolute_angle = 0;
+uint8_t ui8_motor_phase_absolute_angle = 0;
 volatile uint16_t ui16_hall_counter_total = 0xffff; // number of tim3 ticks between 2 rotations// inTSDZ2 it was a u16
 static uint16_t ui16_hall_counter_total_previous = 0;  // used to check if erps is stable
+uint8_t ui8_interpolation_angle = 0; // interpolation angle
+
 // power variables
 volatile uint8_t ui8_controller_duty_cycle_ramp_up_inverse_step = PWM_DUTY_CYCLE_RAMP_UP_INVERSE_STEP_DEFAULT; // 194
 volatile uint8_t ui8_controller_duty_cycle_ramp_down_inverse_step = PWM_DUTY_CYCLE_RAMP_DOWN_INVERSE_STEP_DEFAULT; // 73
@@ -187,6 +189,36 @@ uint32_t ui32_angle_per_tick_X16shift = 0 ; //
 // based on the regression tests, there should probably be a correction of about 2 depending it is a rising or a falling edge of hall pattern
 // still this should have only a small impact
 uint8_t ui8_hall_counter_offset = 14; 
+uint8_t ui8_angle_for_id;   // position without taking care of lead angle; updated at the end of ISR 0 
+
+
+#if (DYNAMIC_LEAD_ANGLE == (1) ) //1 dynamic based on Id and a PID + optimiser 
+// to calculate Id
+uint8_t ui8_angle_for_id_prev; // position; saved at begin of ISR 0 to match with current iu,Iv,iw measured at begin of ISR 1
+uint16_t ADC_Bias_Iu = 1 << 11; // ADC is 12 bits, 0 = mid point 
+uint16_t ADC_Bias_Iv = 1 << 11; // ADC is 12 bits, 0 = mid point 
+uint16_t ADC_Bias_Iw = 1 << 11; // ADC is 12 bits, 0 = mid point 
+int32_t i32_id_filtr = 0;       // Id filtered (calculated in calculate_id_part1 and 2 ; used to adapt Q31_lead_angle with a pid)
+volatile int32_t i32_id_pid_acc = 0 ;    // accumulate the Id value to be able to calculate the avg
+volatile int32_t i32_id_pid_cnt = 0 ;    // count the Id value in acc to be able to calculate the avg
+
+int32_t q31_lead_angle = 0 ; // lead angle in Q31
+int32_t foc_pid_I_term = 0;  // integral term of foc pid
+
+#define SQRT3                                       (1.732050807569F)       /* √3 */
+#define DIV_SQRT3                                   (591)                  /* ((int16_t)((1/SQRT3) * (1<<SCALE_SQRT3))) */
+#define DIV_SQRT3_Q14                               (9459U)
+#define SCALE_DIV_3                                 (14U)                   /* For 1/3 scaling. */
+#define DIV_3                                       (5461U)                 /* ((int16_t)((1/3) * (1<<SCALE_DIV_3))) */
+
+#define DEGREE_90                                   (4194304U << 8U)        /* 90° angle (0 ~ 2^23 represent electrical angle 0° ~ 180° in CORDIC) */
+#define DEGREE_X                                    (DEGREE_90 * 1U)        /* X = 0°, 90°, 180°, or 270° */
+#define DEGREE_SHIFT                                (652448U << 8U)         /* 14° angle shift */
+
+#define CORDIC_VECTORING_MODE                       (0x62)                  /* CORDIC: Circular Vectoring Mode (default). MPS: Divide by 2 (default).*/
+#define CORDIC_ROTATION_MODE                        (0x6A)                  /*  CORDIC: Circular Rotation Mode. MPS: Divide by 2 (default).*/
+#define CORDIC_SHIFT                                (14U)             /* 8 ~ 16. Shift for CORDIC input / output registers, whose [7:0] are 0x00. Normally no need change.*/
+#endif // DYNAMIC_LEAD_ANGLE == 1 dynamic based on Id and a PID + optimiser 
 
 // to debug
 int16_t I_u; // to check current in each phase
@@ -230,18 +262,19 @@ volatile uint8_t current_hall_pattern_irq = 0;
 //uint16_t ui16_duty_cycle_count_down = 0;
 //uint16_t ui16_duty_cycle_count_up = 0;
 
-// average current on 1 eletric rotation
+// for current calculation
 uint32_t ui32_adc_battery_current_15b = 0; // value from adc
-uint32_t ui32_adc_battery_current_15b_accum = 0; 
-uint32_t ui32_adc_battery_current_15b_counter = 0;
 
-
-// moving average
-Moving_average battery_current_avg_15b;
+#if (TYPE_OF_FILTER_FOR_CURRENT == (0)) // moving average
 uint32_t ui32_adc_battery_current_15b_moving_average = 0;
 int battery_current_moving_avg_index = 0;
 int battery_current_moving_avg_sum = 0;
 int battery_current_moving_avg_buffer[64] = {0};
+#else                                  // average current on 1 eletric rotation
+uint32_t ui32_adc_battery_current_15b_accum = 0; 
+uint32_t ui32_adc_battery_current_15b_counter = 0;
+#endif
+
 
 
 // to manage torque sensor using the logic of mspider in https://github.com/TSDZ2-ESP32/TSDZ2-Smart-EBike
@@ -249,6 +282,7 @@ int battery_current_moving_avg_buffer[64] = {0};
 // 0x80  = PAS state invalid -> reset
 volatile uint8_t ui8_pas_new_transition = 0;
 
+#if (TYPE_OF_FILTER_FOR_CURRENT == (0)) // when we calulate the average of last 64 values
 inline uint32_t update_moving_average(uint32_t new_value){
     battery_current_moving_avg_sum -= battery_current_moving_avg_buffer[battery_current_moving_avg_index];
     battery_current_moving_avg_buffer[battery_current_moving_avg_index] = new_value;
@@ -257,7 +291,7 @@ inline uint32_t update_moving_average(uint32_t new_value){
     // Retourne la moyenne actuelle
     return (battery_current_moving_avg_sum + 32) >> 6; // divide by 64; add 32 for better rounding
 }
-
+#endif
 
 inline uint32_t filtering_function(uint32_t ui32_temp_15b , uint32_t ui32_filtered_15b , uint32_t alpha){
     uint32_t ui32_temp_new = ui32_temp_15b * (16U - alpha);
@@ -271,6 +305,8 @@ inline uint32_t filtering_function(uint32_t ui32_temp_15b , uint32_t ui32_filter
     }
     return ui32_filtered_value ;                  
 }
+
+
 
 void VADC0_G0_0_IRQHandler() {  // VADC is configured to compare the total current (12bits) with "1000" and generate an irq
     ui8_m_system_state |= ERROR_BATTERY_OVERCURRENT; // set the error to avoid that motor starts again
@@ -292,7 +328,86 @@ __RAM_FUNC void POSIF0_0_IRQHandler(){
 }
 #endif
 
+#if (DYNAMIC_LEAD_ANGLE == (1)) // (1) dynamic based on Id and a PID + optimiser
+__RAM_FUNC static inline void calculate_id_part1(){  // to be called in begin of ISR 1 when rotor position has been updated and current are measured
+    // it measure actual currents but angle must be one one that was apply for PWM and so it is the angle from isr 0 before update.
+    //static inline void calculate_id_part1(){  // to be called in first ISR when rotor position has been updated  
+        // read the 3 ADC
+        // substact the ADC bias
+        // calculate i_alpha and i_beta (clark transform)
+        // fill cordic to get IQ ID (park transform)
+        int16_t i16_raw_Iu = XMC_VADC_GROUP_GetResult(VADC_I1_GROUP , VADC_I1_RESULT_REG ) & 0x0FFF;
+        int16_t i16_raw_Iw = XMC_VADC_GROUP_GetResult(VADC_I3_GROUP , VADC_I3_RESULT_REG ) & 0x0FFF;
+        int16_t i16_raw_Iv = XMC_VADC_GROUP_GetResult(VADC_I2_GROUP , VADC_I2_RESULT_REG ) & 0x0FFF;
+    
+        // note :  in infineon version the sign are reversed ; this is strange
+        int32_t i32_Iu = (i16_raw_Iu - ADC_Bias_Iu) << 3; // change from 12 bits to 15 bits to use Q15
+        int32_t i32_Iv = (i16_raw_Iv - ADC_Bias_Iv) << 3;
+        int32_t i32_Iw = (i16_raw_Iw - ADC_Bias_Iw) << 3;
+        
+        // calculate I alpha and I beta
+        /* I_Alpha = (2 * I_U - (I_V + I_W))/3 */  // ou Ialpha = (2/3) * (Ia - 0.5*Ib - 0.5*Ic)
+        //HandlePtr->I_Alpha_1Q31 = ((CurrentPhaseU << 1) - (CurrentPhaseV + CurrentPhaseW)) * (DIV_3 << (CORDIC_SHIFT-14));
+        int32_t I_Alpha_1Q31 = ((i32_Iu << 1) - (i32_Iv + i32_Iw)) * (DIV_3 << (CORDIC_SHIFT-14));
+    
+        /*  I_Beta = (I_V - I_W)/√3 in 1Q31 */
+        //HandlePtr->I_Beta_1Q31 = (CurrentPhaseV - CurrentPhaseW) * (DIV_SQRT3_Q14 << (CORDIC_SHIFT-14));
+        int32_t I_Beta_1Q31 = (i32_Iv - i32_Iw) * (DIV_SQRT3_Q14 << (CORDIC_SHIFT-14));
+    
+        // prepare parktransform with cordic
+            /* General control of CORDIC Control Register */
+        MATH->CON = CORDIC_ROTATION_MODE;
+    
+        /* Z = φ, Hall rotor angle, or estimated rotor angle of last PWM cycle from PLL */
+        //MATH->CORDZ = RotorAngleQ31;
+        // to convert an angle from ui8 to Q31, we must first do a cast of uint8 to int8 and then a shift left by 24 
+        MATH->CORDZ = ((int8_t) ui8_angle_for_id_prev) << 24; // we convert angle in 0/255 to Q31 
+    
+        /* Y = I_Alpha */
+        MATH->CORDY = I_Alpha_1Q31;
+    
+        /* X = I_Beta. Input CORDX data, and auto start of CORDIC calculation (~62 kernel clock cycles) */
+        MATH->CORDX = I_Beta_1Q31;
+    }
+    
+    
+    #define ALPHA_Q15   172     // ~0.005263 * 32768
+    #define Q15_SHIFT   15
+    
+    __RAM_FUNC inline void calculate_id_part2(){ // to be called at the end of ISR1 (so cordic has time to finish)
+        // get the result of cordic for id and iq
+        // apply a filter on id.
+    
+        /* Wait if CORDIC is still running calculation */
+        while (MATH->STATC & 0x01)
+        {
+            continue;
+        }
+        /* Read CORDIC results Iq and Id - 32-bit. CORDIC Result Register [7:0] are 0x00 */
+        int32_t i32_iq = MATH->CORRX;
+        i32_iq >>= CORDIC_SHIFT; // shift 14
+        i32_iq = (i32_iq * 311) >> 8;   // x MPS/K.;
+        
+        //Idem for Id
+        int32_t i32_id = MATH->CORRY;
+        i32_id >>= CORDIC_SHIFT;
+        i32_id = (i32_id * 311) >> 8;   // x MPS/K.;
+        // here id should be in the same units as original current (so as with ADC 15 bits because we used ADC12 << 3)
+        // 1 step ADC10 = 0,16A
+        // 1 step ADC15 = 0,16A / 32 = 0,005 A = 5 mA
+        // Current does not exceed 50A, so ADC 15 bit should not exceed 50000 / 5 = 10000 
 
+        // apply IIR on id
+        // IIR: Id_filt += (alpha * (Id_raw - Id_filt)) >> 15
+        //int32_t diff = i32_id - i32_id_filtr;
+        //i32_id_filtr += (diff * ALPHA_Q15) >> Q15_SHIFT;
+        
+        // save data to calculate AVG at 100hz (PID) : cnt max = 19000 /100= 190; 190*10000 fit in i32 (so OK)
+        i32_id_pid_acc += i32_id; // accumulate
+        i32_id_pid_cnt++;         // count
+        // update of foc angle occurs in 100 hz and not in ISR
+    }
+#endif // end (1) dynamic based on Id and a PID + optimiser    
 
 // ************************************** begin of IRQ *************************
 // *************** irq 0 of ccu8
@@ -322,7 +437,7 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     ui8_hall_sensors_state = current_hall_pattern; // duplicate just for easier maintenance of ebike_app.c for 860c (sent to display)
 
     // elapsed time between now and last pattern change (used for interpolation)
-    uint16_t enlapsed_time =  current_speed_timer_ticks - last_hall_pattern_change_ticks ; // ticks between now and last change
+    uint16_t enlapsed_time =  current_speed_timer_ticks - last_hall_pattern_change_ticks ; // ticks between now and last pattern change
     // elapse time since last pattern 1
 //    uint16_t elapsed_ticks_since_pattern_1 = current_speed_timer_ticks - previous_360_ref_ticks;
 
@@ -347,6 +462,11 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     }
     prev_ticks = current_speed_timer_ticks ;
     #endif
+    #if (DYNAMIC_LEAD_ANGLE == (1)) // 1 dynamic based on Id and a PID + optimiser 
+    // added by mstrens to calculate Id with position used for PWM beeing currently applied (so when timer reached 0 match)
+    ui8_angle_for_id_prev = ui8_angle_for_id;  // save angle to use it in ISR 1 (when current iu, iv, iw are measured for actual pwm)
+    #endif
+
 //the resistance/gain in TSDZ8 is 4X smaller than in TSDZ2; still ADC is 12 bits instead of 10; so ADC 12bits TSDZ8 = ADC 10 bits TSDZ2
         // in TSDZ2, we used only the 8 lowest bits of adc; 1 adc step = 0,16A
         // In tsdz8, the resistance is (I expect) 0.003 Ohm ; So 1A => 0,003V => 0,03V (gain aop is 10)*4096/5Vcc = 24,576 steps
@@ -361,11 +481,14 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     //                                (XMC_VADC_GROUP_GetResult(vadc_0_group_1_HW , 15 ) & 0xFFFF)) ;  // So here result is in 15 bits (averaging
     // changed when using infineon init for vadc (result in 12bits and in ch 1)
     ui32_adc_battery_current_15b = (XMC_VADC_GROUP_GetResult(vadc_0_group_0_HW , VADC_I4_RESULT_REG ) & 0xFFFF) <<3; // change from 12 to 15 digits 
-    //accumulate the current to calculate an average on one rotation (there are quite big variations inside each 60° sector)
+    #if (TYPE_OF_FILTER_FOR_CURRENT == (0)) // when using a moving average on 64 values    
+    ui32_adc_battery_current_15b_moving_average = update_moving_average(ui32_adc_battery_current_15b);
+    #else
+    //accumulate the current to calculate an average on 1 rotation (there are quite big variations inside each 60° sector)
     ui32_adc_battery_current_15b_accum += ui32_adc_battery_current_15b;
     ui32_adc_battery_current_15b_counter++;
-	ui32_adc_battery_current_15b_moving_average = update_moving_average(ui32_adc_battery_current_15b);
-
+    // the average is then calculated only once per rotation later on
+    #endif
     
     // to see on prove scope oscillo
     //I_t = ui32_adc_battery_current_15b >> 3; 
@@ -425,14 +548,16 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
             } else if (current_hall_pattern ==  0x03) {  // rotor at 150°)
                 // update ui8_g_foc_angle once every ERPS (used for g_foc_angle calculation) ;
                 // I do not know why this is done when hall pattern = 0X03 and not with 0X01 to avoid a test
-                            ui8_foc_flag = 1;
-                    // when we have had at least one full rotation
-                    if (ui8_motor_commutation_type == SINEWAVE_INTERPOLATION_60_DEGREES){
-                        // Calculate avg current per rotation once per rotation
-                        ui32_adc_battery_current_1_rotation_15b = ui32_adc_battery_current_15b_accum / ui32_adc_battery_current_15b_counter;
-                        ui32_adc_battery_current_15b_accum =0;
-                        ui32_adc_battery_current_15b_counter = 0;
-                    }        
+                ui8_foc_flag = 1;
+                #if (TYPE_OF_FILTER_FOR_CURRENT == (1)) // when we calculate once per rotation and not an a moving avg
+                // when we have had at least one full rotation
+                if (ui8_motor_commutation_type == SINEWAVE_INTERPOLATION_60_DEGREES){
+                    // Calculate avg current per rotation once per rotation
+                    ui32_adc_battery_current_1_rotation_15b = ui32_adc_battery_current_15b_accum / ui32_adc_battery_current_15b_counter;
+                    ui32_adc_battery_current_15b_accum =0;
+                    ui32_adc_battery_current_15b_counter = 0;
+                }
+                #endif     
             }    
 //            new_hall_pattern = current_hall_pattern;
             /*
@@ -502,27 +627,35 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
             ui8_hall_360_ref_valid = 0;
             ui32_angle_per_tick_X16shift = 0; // 0 means unvalid value
             ui16_hall_counter_total = 0xffff;
+            #if (TYPE_OF_FILTER_FOR_CURRENT == (1))
             // when we can not use accumulated value, use the latest on and reset accum
             ui32_adc_battery_current_1_rotation_15b = ui32_adc_battery_current_15b;
             ui32_adc_battery_current_15b_accum = 0;
             ui32_adc_battery_current_15b_counter = 0; 
+            #endif
         }
     }
 
     // mstrens : moved from irq1 to irq0 to use average current over 1 rotation for regulation
-    //ui8_adc_battery_current_filtered  = ui32_adc_battery_current_1_rotation_15b >> 5 ; // from 15 bits to 10 bits like TSDZ2 
+    #if (TYPE_OF_FILTER_FOR_CURRENT == (0))
+    if (ui32_adc_battery_current_15b_moving_average > (255 << 5)) { // clamp for safety
+        ui32_adc_battery_current_15b_moving_average = 255 << 5;
+    }    
     ui8_adc_battery_current_filtered = ui32_adc_battery_current_15b_moving_average  >> 5;
-
+    #else
+    ui8_adc_battery_current_filtered  = ui32_adc_battery_current_1_rotation_15b >> 5 ; // from 15 bits to 10 bits like TSDZ2 
+    #endif
     /****************************************************************************/
     // - calculate interpolation angle and sine wave table index when speed is known
-    uint8_t ui8_interpolation_angle = 0; // interpolation angle
+    ui8_interpolation_angle = 0; // interpolation angle
     uint32_t compensated_enlapsed_time = 0; 
 //    uint8_t ui8_interpolation_angle_new = 0; // interpolation angle
 //    uint32_t compensated_enlapsed_time_new = 0; 
     
 
 
-    if (ui8_motor_commutation_type != BLOCK_COMMUTATION) {  // as long as hall patern are OK and motor is running 
+    if (ui8_motor_commutation_type != BLOCK_COMMUTATION) {  // as long as hall patern are OK and motor is running
+                        // hall counter offset take care of the delay between entering this ISR and applying the new PWM and also the delay of the hall sensors      
         compensated_enlapsed_time = enlapsed_time + ui8_fw_hall_counter_offset + ui8_hall_counter_offset;
         // convert time tick to angle (256 = 360°)
            //ui8_interpolation_angle = (((uint32_t) compensated_enlapsed_time) << 8) /  ui16_hall_counter_total; // <<8 = 256 = 360 electric angle
@@ -545,9 +678,11 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
 //    }
 //    #if (APPLY_ENHANCED_POSITIONING == 0)
     // hall_reference_angle is the sum of the DEFAULT_HALL_REFERENCE_ANGLE and the fine tune with m_config.global_offset_angle
-    uint8_t ui8_svm_table_index = ui8_interpolation_angle + ui8_motor_phase_absolute_angle +
-             ui8_g_foc_angle + hall_reference_angle + FINE_TUNE_ANGLE_OFFSET;
-    // to test without foc_angle
+    // it is set on 66 based on tests with my motor. (note : 64 = 90°)
+    ui8_angle_for_id = ui8_interpolation_angle + ui8_motor_phase_absolute_angle + hall_reference_angle + FINE_TUNE_ANGLE_OFFSET ;
+    
+    uint8_t ui8_svm_table_index = ui8_angle_for_id + ui8_g_foc_angle; // add lead angle (that is updated by a PID at 100hz)
+    // just to test without foc_angle
     //uint8_t ui8_svm_table_index = ui8_interpolation_angle + ui8_motor_phase_absolute_angle + hall_reference_angle + FINE_TUNE_ANGLE_OFFSET;
     
     
@@ -595,12 +730,16 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
           
     
     #if (uCPROBE_GUI_OSCILLOSCOPE == MY_ENABLED)
-    I_u = XMC_VADC_GROUP_GetResult(VADC_I1_GROUP , VADC_I1_RESULT_REG ) & 0x0FFF;
-    I_w = XMC_VADC_GROUP_GetResult(VADC_I3_GROUP , VADC_I3_RESULT_REG ) & 0x0FFF;
-    I_v = XMC_VADC_GROUP_GetResult(VADC_I2_GROUP , VADC_I2_RESULT_REG ) & 0x0FFF;
+    //I_u = XMC_VADC_GROUP_GetResult(VADC_I1_GROUP , VADC_I1_RESULT_REG ) & 0x0FFF;
+    //I_w = XMC_VADC_GROUP_GetResult(VADC_I3_GROUP , VADC_I3_RESULT_REG ) & 0x0FFF;
+    //I_v = XMC_VADC_GROUP_GetResult(VADC_I2_GROUP , VADC_I2_RESULT_REG ) & 0x0FFF;
     
-    ProbeScope_Sampling(); // this should be moved e.g. in a interrupt that run faster
+    // ProbeScope_Sampling must be called to update data displayed on PC in graph
+    // if we do not require a high refresh rate, this could be set in another loop 
+    ProbeScope_Sampling(); // this is here in a interrupt that run fast
     #endif
+
+
 
 } // end of CCU80_0_IRQHandler
 
@@ -627,7 +766,7 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     ccu8_0_HW->GCSS = ((uint32_t)XMC_CCU8_SHADOW_TRANSFER_SLICE_0 |
 	                                            (uint32_t)XMC_CCU8_SHADOW_TRANSFER_SLICE_1 |
 	                                            (uint32_t)XMC_CCU8_SHADOW_TRANSFER_SLICE_2 );
-    
+    // update of PWM will occur later on when timer reach O match 
     
     /****************************************************************************/
         // Read all ADC values (right aligned values).
@@ -640,6 +779,11 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
         // next line has been moved to ebike_app.c to save time in this irq
         //ui16_adc_throttle = (XMC_VADC_GROUP_GetResult(vadc_0_group_1_HW , 5 ) & 0xFFF) >> 2; // throttle gr1 ch7 result 5  in bg  p2.5
         
+        #if (DYNAMIC_LEAD_ANGLE == (1))
+        // read current iu,iv,iw and start calculating Id with cordic (result will be get at the end of ISR 1 to avoid wait time)       
+        calculate_id_part1();
+        #endif
+
         // update foc_angle once per electric rotation (based on fog_flag
         // foc_angle is added to the position given by hall sensor + interpolation )
         if (ui8_g_duty_cycle > 0) {
@@ -923,6 +1067,8 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     #endif
     
     // added by mstrens to calculate torque sensor without cyclic effect using the max per current and previous rotation
+    // note this code is used only when we do not use SPIDER or katana(1or 2) logic.
+    // So, it could probably be removed as this logic does not seems the best one.
     // we have several data
     // ui16_adc_torque_filtered is the actual filtered ADC torque
     // ui16_adc_torque_actual_rotation is the max during current rotation
@@ -949,8 +1095,11 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
         ui16_adc_torque_previous_rotation = 0;
         ui16_adc_torque_actual_rotation = 0;
     }
-
-
+    
+    #if (DYNAMIC_LEAD_ANGLE == (1))
+    // update data to get an avg of Id
+    calculate_id_part2();
+    #endif
 }  // end of CCU8_1_IRQ
 
 
@@ -983,4 +1132,395 @@ void get_hall_pattern(){  // use to initialise at power on and in motor_enable()
     current_hall_pattern |=  XMC_GPIO_GetInput(IN_HALL2_PORT, IN_HALL2_PIN) << 2;
     XMC_ExitCriticalSection(critical_section_value);
 }
+
+#if (DYNAMIC_LEAD_ANGLE == (1))
+// +++++++++++++++++ from here the code to apply a pid+optimiser for lead angle using id +++++++++++++++++++++
+
+//int32_t apply_PID_on_lead_angle(int32_t Id_filt,int32_t q31_lead_angle);
+void apply_PID_on_lead_angle(); //prototype
+
+#define SHIFT_BIAS_LPF 3
+void update_foc_pid() { // this is called from main() every 10 msec, it supposes that Id is calculated and filtered in ISR
+    // when motor is blocked since some time, we update first the ADC bias for Iu, iv, iW
+    // when motor is not running (based on ui8_motor_enabled) we reset foc and foc PID
+    // when motor is running we use a PI based on ID (calculated and filtered in ISR) to update FOC angle
+    // in a second step we can calculate a value for foc angle based on rpm and current and apply pid as a correction.
+
+    // first when motor is not running, update adc bias
+    if (ui8_motor_enabled == 0) {
+        //	/* Init ADC bias */
+        // for THREE_SHUNT_SYNC_CONV)
+        uint16_t Iu;
+        uint16_t Iv;
+        uint16_t Iw;
+
+        Iu = XMC_VADC_GROUP_GetResult(VADC_I1_GROUP , VADC_I1_RESULT_REG ) & 0x0FFF;
+        Iw = XMC_VADC_GROUP_GetResult(VADC_I3_GROUP , VADC_I3_RESULT_REG ) & 0x0FFF;
+        Iv = XMC_VADC_GROUP_GetResult(VADC_I2_GROUP , VADC_I2_RESULT_REG ) & 0x0FFF;
+               /* Read Iu ADC bias */
+        ADC_Bias_Iu = (uint32_t) ((ADC_Bias_Iu * (((uint32_t) 1 << SHIFT_BIAS_LPF) - 1U)) + Iu) >> SHIFT_BIAS_LPF;
+        /* Read Iv ADC bias */
+        ADC_Bias_Iv = (uint32_t) ((ADC_Bias_Iv * (((uint32_t) 1 << SHIFT_BIAS_LPF) - 1U)) + Iv) >> SHIFT_BIAS_LPF;
+        /* Read Iw ADC bias */
+        ADC_Bias_Iw = (uint32_t) ((ADC_Bias_Iw * (((uint32_t) 1 << SHIFT_BIAS_LPF) - 1U)) + Iw) >> SHIFT_BIAS_LPF;
+
+        // reset lead angle to 0 and integral term of pid
+        q31_lead_angle = 0; 
+        foc_pid_I_term = 0;
+    }
+    else {
+        // apply PI on id
+        //q31_lead_angle = apply_PID_on_lead_angle(i32_id_filtr , q31_lead_angle);
+        //q31_lead_angle = apply_PID_on_lead_angle();
+        apply_PID_on_lead_angle();
+    }
+}    
+
+// ---------------------- CONFIG for PID and optimiser----------------------
+#define PWM_FREQ        19000      // Hz
+#define PID_FREQ        100        // Hz (10 ms)
+#define OPTIM_FREQ      5          // Hz (200 ms)
+
+#define SAMPLES_PER_PID (PWM_FREQ / PID_FREQ)  // ~190
+#define PID_PERIOD_MS   (1000 / PID_FREQ)      // 10 ms
+#define OPTIM_PERIOD_MS (1000 / OPTIM_FREQ)    // 200 ms
+// Q16 : 1 tour = 360° = 65536 unités
+// we use a convention Q16 -180°/180°, So 16 bits = 360° 
+#define Q16_ONE         (1 << 16)
+
+// bornes lead angle en Q16 (signé)
+#define LEAD_MIN_Q16   ( (-(15) * Q16_ONE) / 360 )    // -15°
+#define LEAD_MAX_Q16   ( ((30) * Q16_ONE) / 360 )     // +30°
+#define PID_MAX_Q16    ( ((5)  * Q16_ONE) / 360 )     // 5°
+#define LEAD_STEP_Q16  ( ((2)  * Q16_ONE) / 360 /10 )    // 0.2° = 2/3600 of full turn
+
+// buffer optimiser
+#define OPTIM_BUF_LEN 20                 // 20 échantillons = 200 ms
+
+// slew rate pour lead_angle_final
+#define MAX_FINAL_STEP_Q16  ( ((5) * Q16_ONE) / 3600 )  // 0.05° par step (~10ms)
+
+
+// ============================================================================
+// VARIABLES GLOBALES
+// ============================================================================
+
+// intégrateur PID (int64 pour éviter overflow)
+// unité : mA·s approximatif
+static int64_t pid_integrator = 0;
+
+// composantes lead angle (Q16 signé, -180°..+180° environ)
+static int32_t lead_angle_pid   = 0;
+static int32_t lead_angle_optim = 0;
+static int32_t lead_angle_final = 0;  // utilisé par la génération PWM
+static uint8_t lead_angle_LUT_256 = 0;     // to read a LUT of 256 items (0 360°)
+
+// optimiser
+static int optim_dir = 1;                // direction hill-climbing
+static int32_t last_Id_avg = 0;          // in mA
+static int32_t optim_buffer[OPTIM_BUF_LEN];
+static int optim_index = 0;
+static int optim_count = 0;
+
+// ============================================================================
+// CONSTANTES PID
+// ============================================================================
+// Kp choisi : 10 A → 5°
+// 5° = 5 * 65536 / 360 ≈ 910 units
+// real gain = 910 / 10000 = 0.091
+// KP_Q16 = 0.091 * 65536 ≈ 5964
+// => kp ≈ 0.091 → Q16 = 5964
+const int32_t KP_Q16 = 5964;
+
+// Ki ≈ Kp / 10
+const int32_t KI_Q16 = 600;
+
+// période d’échantillonnage en Q16
+#define DT_Q16  ((int32_t)((((int64_t)Q16_ONE) + (PID_FREQ/2)) / PID_FREQ))
+
+// limit for intégrator (in 64 bits)
+static const int64_t INTEGRATOR_MAX =
+    (((int64_t)PID_MAX_Q16 << 16) / (KI_Q16 > 0 ? KI_Q16 : 1));
+
+// ---------------------- UTILS ----------------------
+
+// clamp entier Q16
+static inline int32_t clamp_q16(int32_t x, int32_t xmin, int32_t xmax) {
+    if (x < xmin) return xmin;
+    if (x > xmax) return xmax;
+    return x;
+}
+
+// valeur absolue int32
+static inline int32_t abs32(int32_t x) { return x < 0 ? -x : x; }
+
+// ---------------------- PID UPDATE       (100 Hz)              ----------------------
+// Entrées externes (mises à jour à 19 kHz par ISR) :
+//   - i32_id_pid_acc (accumulateur Id ADC)
+//   - i32_id_pid_cnt (nb d’échantillons)
+
+// ++++++++ lead angle is supposed to be Q16 (0 1 for 0 - 360°)
+void apply_PID_on_lead_angle(void) { // return the new lead angle
+    
+    // Save state, disable irq
+    uint32_t prim = __get_PRIMASK();   // sauvegarde l'état des interruptions
+    __disable_irq();                   // bloque toutes les IRQ (PRIMASK = 1)
+
+    int32_t i32_acc = i32_id_pid_acc ;  // get accumulator and cnt
+    int32_t i32_cnt = i32_id_pid_cnt ; 
+    i32_id_pid_acc = 0; // Reset accumulator
+    i32_id_pid_cnt = 0;
+
+    // restaure irq
+    __set_PRIMASK(prim); 
+
+    // Moyenne bloc en Q15
+    // 1 step ADC10 = 0,16A
+    // 1 step ADC15 = 0,16A / 32 = 0,005 A = 5 mA
+    // to get in mA, we multiply by 5.
+    if (i32_cnt == 0) return;
+    // convert to mA :  1 LSB ADC15 = 5 mA
+    int32_t Id_avg = (int32_t)(((int64_t)i32_acc * 5) / i32_cnt);  //Id_avg in mA
+
+    // --- PID ---
+    int32_t error = -Id_avg;  // objectif Id=0mA
+    
+    // proportional (Q16)
+    int64_t P_tmp = (int64_t)KP_Q16 * (int64_t)error;
+    int32_t P_q16 = (int32_t)(P_tmp >> 16);
+
+// anti-windup optionnel : n'intégrer que si on n'est pas saturé dans le sens erreur
+    // anti-windup simple : si PID saturé et erreur renforce la saturation, skip integrate
+    int64_t tentative_full = (int64_t)P_q16 + (((int64_t)KI_Q16 * pid_integrator) >> 16);
+    if (!((tentative_full > PID_MAX_Q16 && error > 0) ||
+          (tentative_full < -PID_MAX_Q16 && error < 0))) {
+        // safe to integrate
+        pid_integrator += ((int64_t)error * (int64_t)DT_Q16) >> 16;
+    }
+
+    if (pid_integrator > INTEGRATOR_MAX)  pid_integrator = INTEGRATOR_MAX;
+    if (pid_integrator < -INTEGRATOR_MAX) pid_integrator = -INTEGRATOR_MAX;
+
+    // I term (Q16)
+    int64_t I_tmp = (int64_t)KI_Q16 * pid_integrator;
+    int32_t I_q16 = (int32_t)(I_tmp >> 16);
+    
+    // sum and saturation
+    int64_t out_tmp = (int64_t)P_q16 + (int64_t)I_q16;
+    if (out_tmp > PID_MAX_Q16)      lead_angle_pid = PID_MAX_Q16;
+    else if (out_tmp < -PID_MAX_Q16) lead_angle_pid = -PID_MAX_Q16;
+    else                             lead_angle_pid = (int32_t)out_tmp;
+    
+    // --- buffer optimiser---
+    optim_buffer[optim_index] = abs32(Id_avg);
+    optim_index = (optim_index + 1) % OPTIM_BUF_LEN;
+    if (optim_count < OPTIM_BUF_LEN) optim_count++;
+
+    // --- Lead angle final ---
+    int32_t tmp = lead_angle_pid + lead_angle_optim;
+    tmp = clamp_q16(tmp, LEAD_MIN_Q16, LEAD_MAX_Q16);
+
+    // ---------------------- SLEW RATE ----------------------
+    int32_t delta = tmp - lead_angle_final;
+    if (delta > MAX_FINAL_STEP_Q16) delta = MAX_FINAL_STEP_Q16;
+    else if (delta < -MAX_FINAL_STEP_Q16) delta = -MAX_FINAL_STEP_Q16;
+    lead_angle_final += delta;
+
+    uint16_t pwm_angle16;
+    if (lead_angle_final < 0) pwm_angle16 = (uint16_t)(lead_angle_final + Q16_ONE);
+    else                      pwm_angle16 = (uint16_t)lead_angle_final;
+
+    // Ré-échantillonner 65536->256 en conservant la correspondance angulaire (MSB)
+    lead_angle_LUT_256 = (uint8_t)(pwm_angle16 >> 8); // correct mapping 0..255
+    
+    return ; 
+}
+
+// ---------------------- OPTIMISER UPDATE (5 Hz) ----------------------
+static int32_t Id_filtered = 0;    // filtre low-pass pour Id_avg
+static int32_t sigma_filtered = 0;   // sigma filtré
+static int32_t step_filtered     = 0;      // step filtré pour lead_angle_optim
+#define LPF_ALPHA  4  // 1..255, plus grand = plus lent, valeur typique ~4
+void update_foc_optimiser(void) {
+    if (optim_count == 0) return;
+
+    // Calcul avg
+    int64_t sum = 0;
+    for (int i = 0; i < optim_count; i++) sum += optim_buffer[i];
+    int32_t avg = (int32_t)(sum / optim_count); // mA
+
+    // filtrage low-pass (exponentiel) : Id_filtered = α*prev + (1-α)*avg
+    // approximation entier : Id_filtered = (prev*(255-α) + avg*α)/255
+    Id_filtered = ( (Id_filtered*(255-LPF_ALPHA) + avg*LPF_ALPHA) ) / 255;
+
+    // variance (mA^2)
+    int64_t var_sum = 0;
+    for (int i = 0; i < optim_count; i++) {
+        int32_t diff = optim_buffer[i] - avg;
+        var_sum += ((int64_t)diff * diff) ;  // >>0 car déjà 64 bits
+    }
+    int32_t variance = (int32_t)(var_sum / optim_count); // in mA^2
+
+    // --- filtrage low-pass de sigma (écart type) ---
+    int32_t sigma = (int32_t)sqrt((double)variance);
+    sigma_filtered = (sigma_filtered*(255-LPF_ALPHA) + sigma*LPF_ALPHA)/255;
+
+    // --- seuils adaptatifs en fonction de sigma filtré ---
+    int32_t VAR_LOW  = (int32_t)(4 * sigma_filtered * sigma_filtered);   // 2*sigma
+    int32_t VAR_HIGH = (int32_t)(36 * sigma_filtered * sigma_filtered);  // 6*sigma
+
+    // Garder des bornes min/max pour éviter extrêmes
+    const int32_t VAR_LOW_MIN  = 25;    // équivalent σ≈2.5 mA -> VAR_LOW min
+    const int32_t VAR_HIGH_MIN = 400;   // équivalent σ≈20 mA
+    if (VAR_LOW < VAR_LOW_MIN) VAR_LOW = VAR_LOW_MIN;
+    if (VAR_HIGH < VAR_HIGH_MIN) VAR_HIGH = VAR_HIGH_MIN;
+
+    // Pas adaptatif selon variance
+    int32_t step = LEAD_STEP_Q16;
+        if (variance < VAR_LOW)       step = LEAD_STEP_Q16;
+    else if (variance < VAR_HIGH) step = LEAD_STEP_Q16 / 2;
+    else                          step = LEAD_STEP_Q16 / 4;
+
+    // Décision de direction
+    if (Id_filtered > last_Id_avg) optim_dir = -optim_dir;
+
+    // --- filtrage du step appliqué ---
+    step_filtered = (step_filtered*(255-LPF_ALPHA) + step*LPF_ALPHA)/255;
+
+    // update optimiser
+    int64_t new_opt = (int64_t)lead_angle_optim + (int64_t)optim_dir * step_filtered;
+    if (new_opt > LEAD_MAX_Q16) new_opt = LEAD_MAX_Q16;
+    if (new_opt < LEAD_MIN_Q16) new_opt = LEAD_MIN_Q16;
+    lead_angle_optim = (int32_t)new_opt;
+
+    last_Id_avg = Id_filtered;
+    // optional: debug logs (décommenter si tu as UART)
+    // printf("optim: avg=%d mA var=%d mA2 sigma=%.2f VAR_LOW=%d VAR_HIGH=%d step=%d\n",
+    //       avg, variance, sigma, VAR_LOW, VAR_HIGH, step);
+}
+
+
+/*
+Valeurs pour PID et optimiser pour adapter lead angle en fonction de Id
+This apply to C code here above.
+
+
+Terme / Variable           Plage réelle           Q16 Value / Calcul                  Commentaire
+--------------------------  --------------------  ---------------------------------  -------------------------------------------------
+Q16_ONE                     360°                  65536                                1 tour = 2^16 unités Q16
+LEAD_MIN_Q16                -15°                  (-15*65536)/360 = -2730             Limite basse lead angle
+LEAD_MAX_Q16                +30°                  (30*65536)/360 = 5461               Limite haute lead angle
+PID_MAX_Q16                 ±5°                   (5*65536)/360 = 910                  Saturation PID ±5°
+LEAD_STEP_Q16               0.2°                  ((2*65536)/360)/10 = 36             Pas optimiseur = 0.2°
+KP_Q16                      -                     5964                                  Gain proportionnel PID
+KI_Q16                      -                     600                                   Gain intégral PID
+DT_Q16                      10 ms                 ((65536 + PID_FREQ/2)/PID_FREQ) ≈ 656  Période d’échantillonnage Q16
+INTEGRATOR_MAX              ±910                  ((PID_MAX_Q16 << 16)/KI_Q16) ≈ 99277 Limite intégrateur 64 bits
+lead_angle_pid              ±5°                   ±910                                  Sortie PID seule
+lead_angle_optim            -15…+30°              -2730…+5461                           Valeur hill-climbing
+lead_angle_final            -15…+30°              -2730…+5461                           PID + optimiseur, borné
+lead_angle_LUT_256          0…255                 lead_angle_final >> 8                 Pour LUT 256 entrées
+i32_id_pid_acc               0…?                  -                                     Accumulateur ADC Id
+i32_id_pid_cnt               1…?                  -                                     Nombre d’échantillons ADC
+Id_avg                       0…20 A               0…20000                               Courant en mA
+error                        -20…+20 A            -20000…+20000                         Objectif Id=0
+P_q16                        -2.77…+2.77°         ±910                                  Terme proportionnel PID
+pid_integrator               ±5°                   ±99277                               Terme intégral PID
+I_q16                        ±5°                   ±910                                  Terme intégral PID appliqué
+out_tmp                       ±5°                   ±910                                  Somme P+I, saturée ±PID_MAX_Q16
+optim_buffer[]                0…20 A               0…20000                               Buffer pour optimiser Id_abs
+Id_filtered                   0…20 A               0…20000                               Low-pass sur Id_avg
+variance                       0…?                  0…?                                   Variance brute Id
+sigma                          0…?                  0…?                                   Ecart type Id
+sigma_filtered                 0…?                  0…?                                   Filtrage low-pass sigma
+step                           0…0.2°               0…36                                  Pas PID adaptatif
+step_filtered                  0…0.2°               0…36                                  Pas filtré appliqué
+optim_dir                      -1 / +1             -1 / +1                               Direction hill-climbing
+last_Id_avg                    0…20 A               0…20000                               Dernier Id filtré
+
+
+
+
+Signal / Terme            Plage réelle (° / A)       Q16 value    Commentaire
+-------------------------  -------------------------  ---------   -------------------------------------------------
+Id_avg                     0…20 A                     0…20000     Courant moyen en mA
+error (PID)                -20…+20 A                  -20000…+20000  -Id_avg
+P_q16                      -2.77…+2.77°               ±910        Gain proportionnel, saturé ±PID_MAX_Q16
+pid_integrator             ±5°                         ±99277      Borné par INTEGRATOR_MAX
+I_q16                      ±5°                         ±910        Terme intégral appliqué
+out_tmp                     ±5°                        ±910        P+I, saturé ±PID_MAX_Q16
+lead_angle_pid             ±5°                         ±910        Sortie PID uniquement
+lead_angle_optim           -15…+30°                    -2730…+5461  Optimiseur hill-climbing
+lead_angle_final           -15…+30°                    -2730…+5461  PID + optimiseur, borné LEAD_MIN…LEAD_MAX
+LEAD_STEP_Q16              0.2°                        36          Pas de l’optimiseur (0.2° = 2/3600 tour)
+Id_filtered                0…20 A                      0…20000     Low-pass sur Id_avg
+sigma_filtered             0…?                         0…?         Low-pass sur écart type de Id
+step_filtered              0…0.2°                       0…36       Low-pass sur step appliqué à lead_angle_optim
+lead_angle_LUT_256         0…255                        0…255      Conversion Q16 → 8 bits pour LUT
+
+
++-----------------------------------------+----------------+-----------------+-----------------+
+| Variable / Terme                         | Plage réelle   | Q16 Value       | Commentaire     |
++-----------------------------------------+----------------+-----------------+-----------------+
+| Courant Id                               | 0 … 20 A       | 0 … 20000 mA    | Mesure en mA    |
+| Erreur PID                               | -20 … +20 A    | -20000 … +20000 | Objectif Id=0   |
+| lead_angle_pid                           | -5° … +5°      | -910 … +910     | Terme proportionnel PID (saturé) |
+| pid_integrator                            | ±5°            | ±99277          | Limite intégrateur Q16 |
+| I_q16                                    | ±5°            | ±910            | Terme intégral PID appliqué |
+| out_tmp                                  | ±5°            | ±910            | Somme P+I, saturée ±PID_MAX_Q16 |
+| lead_angle_optim                          | -15° … +30°    | -2730 … +5461   | Valeur hill-climbing |
+| lead_angle_final                           | -15° … +30°    | -2730 … +5461   | PID + optimiseur, borné |
+| lead_angle_LUT_256                         | 0 … 360°       | 0 … 255         | Pour LUT 256 entrées (MSB Q16) |
+| LEAD_STEP_Q16                              | 0.2°           | 36              | Pas optimiseur |
+| Id_filtered                                | 0 … 20 A       | 0 … 20000       | Low-pass sur Id_avg |
+| variance                                   | 0 … ?          | 0 … ?           | Variance Id (mA^2) |
+| sigma                                      | 0 … ?          | 0 … ?           | Ecart-type Id (mA) |
+| sigma_filtered                             | 0 … ?          | 0 … ?           | Filtrage low-pass sigma |
+| step                                       | 0 … 0.2°       | 0 … 36          | Pas PID adaptatif |
+| step_filtered                              | 0 … 0.2°       | 0 … 36          | Pas filtré appliqué |
+| optim_dir                                  | -1 / +1       | -1 / +1         | Direction hill-climbing |
+| last_Id_avg                                | 0 … 20 A       | 0 … 20000       | Dernier Id filtré |
++-----------------------------------------+----------------+-----------------+-----------------+
+
+===========================================================================
+                        SCHÉMA DES PLAGES Q16
+===========================================================================
+
+Moteur : courant max 20A
+Unités : Q16 (1 tour = 65536 unités)
+
+--------------------------------------------------------------------------
+PID
+--------------------------------------------------------------------------
+KP_Q16         : 5964            // Kp ≈ 0.091 en Q16
+KI_Q16         : 600             // Ki ≈ Kp / 10
+PID_MAX_Q16    : 910             // 5° max ≈ 5*65536/360
+Integrateur    : ±INTEGRATOR_MAX
+DT_Q16         : 65536 / 100 ≈ 656
+
+lead_angle_pid : [-PID_MAX_Q16, +PID_MAX_Q16] ≈ [-910, +910]
+
+--------------------------------------------------------------------------
+Optimiseur
+--------------------------------------------------------------------------
+lead_angle_optim : [LEAD_MIN_Q16, LEAD_MAX_Q16]
+                  ≈ [-2731, +5461]   // -15° à +30° en Q16
+
+STEP adaptatif (LEAD_STEP_Q16) :
+    - Variance faible     : 2/3600 ≈ 364 (0.2°)
+    - Variance moyenne    : 0.1° (LEAD_STEP_Q16 /2)
+    - Variance élevée     : 0.05° (LEAD_STEP_Q16 /4)
+Direction : +1 / -1 selon Id_filtered
+
+--------------------------------------------------------------------------
+Lead angle final (avant PWM LUT)
+--------------------------------------------------------------------------
+lead_angle_final = lead_angle_pid + lead_angle_optim
+borne : [LEAD_MIN_Q16, LEAD_MAX_Q16] ≈ [-2731, +5461]
+
+Slew rate : MAX_F_
+
+
+*/
+#endif // #if (DYNAMIC_LEAD_ANGLE == (1))
 

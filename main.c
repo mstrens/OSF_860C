@@ -46,7 +46,9 @@ volatile uint32_t system_ticks = 0;
 uint32_t loop_25ms_ticks = 0;  
 uint32_t start = 0 ; // mainly for debugging ; allow to print some variable every e.g. 5 sec
 */
-uint16_t last_clock_ticks = 0;
+uint16_t last_clock_ticks = 0;  // used to call a function every 25 ms (ebbike controller at 40Hz)
+uint16_t last_foc_pid_ticks = 0;    // used to call a function every 10 msec (update foc pid angle at 100hz)
+uint16_t last_foc_optimiser_ticks = 0 ; // used to call a function every 200 msec (update of optimizer at 5 hz)
 uint16_t last_system_ticks = 0;
 volatile uint32_t system_ticks2 = 0;
 
@@ -204,7 +206,7 @@ int main(void)
     */
 
     #if(uCPROBE_GUI_OSCILLOSCOPE == MY_ENABLED)
-    ProbeScope_Init(19000);
+    ProbeScope_Init(19000); // freq of PWM
     #endif
 
     #if (DEBUG_ON_JLINK == 1)
@@ -390,13 +392,33 @@ int main(void)
             system_ticks2++; // add 1 every 0,25 sec (about)
             last_system_ticks = temp_ticks;
         }
-        uint16_t temp_interval = temp_ticks - last_clock_ticks;
+        
+        uint16_t temp_interval;
+        #if (DYNAMIC_LEAD_ANGLE == (1))
+        temp_interval = temp_ticks - last_foc_pid_ticks ; 
+        if ( temp_interval > 2500){ // 100hz : interval 10000 usec / 4usec = 2500 ticks
+            last_foc_pid_ticks = temp_ticks;
+            update_foc_pid();  // this calculate a new FOC angle based on a PI and on the Id current
+        }
+        #endif
+
+        temp_interval = temp_ticks - last_clock_ticks;
         //if ( (uint16_t) ((uint16_t) temp_ticks - (uint16_t) last_clock_ticks) > (uint16_t) 6250){ // 25000 usec / 4usec = 6250
         if ( temp_interval > 6250){ // 25000 usec / 4usec = 6250
             last_clock_ticks = temp_ticks;
             ebike_app_controller();  // this performs some checks and update some variable every 25 msec
         }
-   
+        
+        #if (DYNAMIC_LEAD_ANGLE == (1))
+        temp_interval = temp_ticks - last_foc_optimiser_ticks;
+        //if ( (uint16_t) ((uint16_t) temp_ticks - (uint16_t) last_clock_ticks) > (uint16_t) 6250){ // 25000 usec / 4usec = 6250
+        if ( temp_interval > 50000){ // 200000 usec / 4usec = 50000
+            last_foc_optimiser_ticks = temp_ticks;
+            update_foc_optimiser();  // this performs some checks and update some variable every 25 msec
+        }
+        #endif        
+
+        
         #if (uCPROBE_GUI_OSCILLOSCOPE == MY_ENABLED)
         //ProbeScope_Sampling(); // this should be moved e.g. in a interrupt that run faster
         #endif

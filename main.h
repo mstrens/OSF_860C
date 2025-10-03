@@ -12,7 +12,7 @@
 //#include "config.h"
 #include "common.h"
                                     // !!!!!!!!!!!!!!
-#define FIRMWARE_VERSION "0.1.35"      //  !!! this version was derived from 0.1.13 for vlcd5 !!!!!!!!!!
+#define FIRMWARE_VERSION "0.1.36"      //  !!! this version was derived from 0.1.13 for vlcd5 !!!!!!!!!!
 //#define MAIN_CONFIGURATOR_VERSION 2   // for configurator (must be the same as in xls sheet)
 //#define SUB_CONFIGURATOR_VERSION 1    // is not used (just for reference)
 
@@ -66,6 +66,12 @@
 // those rules apply only when rotor rotation speed is fast enough otherwise we use "normal positioning"
 // Normal positionning means that extrapolation is based on each pattern change and on speed on last 360°
 
+#define TYPE_OF_FILTER_FOR_CURRENT (0) // 0 = moving average over 64 values max (this is normally used)
+                                // 1 = moving average over a full rotation 
+
+#define DYNAMIC_LEAD_ANGLE      (0)   // (0) no dynamic
+                                      // (1) dynamic based on Id and a PID + optimiser 
+                                      // (2) dynamic based on Idc and a optimiser (= esc) 
 
 // *************** from here we have more general parameters 
 
@@ -88,7 +94,7 @@
 // wheel speed parameters
 #define OEM_WHEEL_SPEED_DIVISOR			384 // at 19 KHz
 
-#define PWM_CYCLES_SECOND			(64000000/(PWM_COUNTER_MAX*2)) // 55.5us (PWM period) 18 Khz // for TSDZ2, it was 16000000
+#define PWM_CYCLES_SECOND			(64000000/(PWM_COUNTER_MAX*2)) // 19000 = 55.5us (PWM period) 18 Khz // for TSDZ2, it was 16000000
 
 /*---------------------------------------------------------
  NOTE: regarding duty cycle (PWM) ramping

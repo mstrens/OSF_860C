@@ -2495,7 +2495,7 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 			ui8_adc_battery_current_max = ui8_min(ui8_adc_battery_current_max_temp_1, ui8_adc_battery_current_max_temp_2);
 			// set max motor phase current
 			ui16_temp = (uint16_t)(ui8_adc_battery_current_max * ADC_10_BIT_MOTOR_PHASE_CURRENT_MAX);
-			ui16_adc_motor_phase_current_max = (uint8_t)(ui16_temp / ADC_10_BIT_BATTERY_CURRENT_MAX);
+			ui16_adc_motor_phase_current_max = (ui16_temp / ADC_10_BIT_BATTERY_CURRENT_MAX);
 			// limit max motor phase current if higher than configured hardware limit (safety)
 			if (ui16_adc_motor_phase_current_max > ADC_10_BIT_MOTOR_PHASE_CURRENT_MAX) {
 			ui16_adc_motor_phase_current_max = ADC_10_BIT_MOTOR_PHASE_CURRENT_MAX;
