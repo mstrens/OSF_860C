@@ -226,7 +226,7 @@ uint16_t debug8 =0;
 uint16_t debug9 =0;
 
 // added by mstrens to optimise hall positions
-extern volatile uint8_t ui8_best_ref_angles[8];
+//extern volatile uint8_t ui8_best_ref_angles[8];
 
 uint16_t ui16_adc_pedal_torque_delta_to_remap = 0;
 uint16_t ui16_adc_pedal_torque_delta_remapped = 0;
@@ -292,6 +292,12 @@ void ebike_app_controller(void) // is called every 25ms by main()
         //ui16_motor_speed_erps = (uint16_t)(HALL_COUNTER_FREQ >> 2) / (uint16_t)(ui16_tmp >> 2); // 250000/nrOfTicks; so in sec
 		ui16_motor_speed_erps = ((uint32_t) HALL_COUNTER_FREQ) / ui16_hall_counter_total; // 250000/nrOfTicks; so rotation in sec
 	}
+	
+	#if (DYNAMIC_HALL_POSITION_UPDATE == (1))
+	// update Hall position lut dynamically
+	Update_LUT_periodic();
+	#endif
+
 	// calculate the wheel speed
 	calc_wheel_speed();
 	
@@ -352,11 +358,11 @@ void ebike_app_controller(void) // is called every 25ms by main()
 
      ------------------------------------------------------------------------*/
 	// for debugging
-	debug1 = ui8_best_ref_angles[2];
-	debug2 = ui8_best_ref_angles[3];
-	debug3 = ui8_best_ref_angles[4];
-	debug4 = ui8_best_ref_angles[5];
-	debug5 = ui8_best_ref_angles[6];
+	//debug1 = ui8_best_ref_angles[2];
+	//debug2 = ui8_best_ref_angles[3];
+	//debug3 = ui8_best_ref_angles[4];
+	//debug4 = ui8_best_ref_angles[5];
+	//debug5 = ui8_best_ref_angles[6];
 	
 	#if ( GENERATE_DATA_FOR_REGRESSION_ANGLES == (1) )
 	// allow to calculate the regressions for each interval; 
@@ -616,8 +622,8 @@ static void ebike_control_motor(void) // is called every 25ms by ebike_app_contr
 			&& (ui16_motor_speed_erps < ERPS_SPEED_OF_MOTOR_REENABLING) // enable the motor only if it rotates slowly or is stopped
 			&& (ui8_adc_battery_current_target > 0U)) {
 		ui8_motor_enabled = 1;
-		ui8_g_duty_cycle = 0;
-		//ui8_g_duty_cycle = PWM_DUTY_CYCLE_STARTUP;
+		ui8_g_duty_cycle = 0;  // thereis some code that force it to PWM_DUTY_CYCLE in motor.c 
+		//ui8_g_duty_cycle = PWM_DUTY_CYCLE_STARTUP; Commented by mbrusa in a fix when he add a check in motor.c
 		//ui8_duty_cycle_ramp_up_inverse_step = PWM_DUTY_CYCLE_RAMP_UP_INVERSE_STEP_MIN;
 		//ui8_duty_cycle_ramp_down_inverse_step = PWM_DUTY_CYCLE_RAMP_DOWN_INVERSE_STEP_MIN;
 		ui8_fw_hall_counter_offset = 0;
@@ -2578,9 +2584,14 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		ui8_tx_buffer[12] = (uint8_t) (ui16_adc_pedal_torque_delta_no_boost & 0xff);
 		ui8_tx_buffer[13] = (uint8_t) (ui16_adc_pedal_torque_delta_no_boost >> 8);
 		
+
 		// PAS cadence
 		ui8_tx_buffer[14] = ui8_pedal_cadence_RPM;
-		
+		#if (DYNAMIC_LEAD_ANGLE == (1))
+			ui8_tx_buffer[14] = ((uint16_t) i16_lead_angle_pid_Id_Q8_8) >> 8 ;
+		#elif (DYNAMIC_LEAD_ANGLE == (2)) 
+			ui8_tx_buffer[14] = ((uint16_t) i16_lead_final_esc_q_8_8 >> 8);
+		#endif
 		// PWM duty_cycle
 		// convert duty-cycle to 0 - 100 %
 		ui16_temp = (uint16_t) ui8_g_duty_cycle;

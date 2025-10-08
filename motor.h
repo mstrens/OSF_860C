@@ -9,7 +9,7 @@
 // copied from TSDZ2
 // motor states
 #define BLOCK_COMMUTATION 			            0
-#define SINEWAVE_INTERPOLATION_60_DEGREES 	    0x80
+#define PLL_COMMUTATION 	    0x80
 
 // power variables
 extern volatile uint8_t ui8_controller_duty_cycle_ramp_up_inverse_step;
@@ -61,6 +61,9 @@ extern uint8_t ui8_foc_angle_multiplicator;
 // added by mstrens because defined in ebike_app.c and used in motor.c
 extern uint8_t ui8_adc_battery_overcurrent;
 
+// added by mstrens because used in main.c
+extern uint32_t ui32_adc_battery_current_15b_moving_average;
+
 // added by mstrens to debug
 
 #if ( GENERATE_DATA_FOR_REGRESSION_ANGLES == (1) )
@@ -96,6 +99,16 @@ void update_foc_pid();
 
 void update_foc_optimiser(void);
 
-//__RAM_FUNC static inline void calculate_id_part1();
+void Update_LUT_periodic(void) ;
 
-//__RAM_FUNC static inline void calculate_id_part2();
+void calculate_id_part1();
+
+void calculate_id_part2();
+
+void update_lead_angle_esc(uint16_t ui16_hall_counter_total,
+    uint32_t ui32_adc_battery_current_15b_moving_average,
+    uint32_t Idc_target_mA,
+    uint32_t ui32_delta_ticks);
+
+extern volatile int16_t i16_lead_final_esc_q_8_8; // utilisé pour la position rotor quand DYNAMIC_LEAD_ANGLE = 2
+extern int16_t i16_lead_angle_pid_Id_Q8_8;    // utilisé pour la position rotor quand DYNAMIC_LEAD_ANGLE = 1

@@ -51,7 +51,7 @@ uint16_t last_foc_pid_ticks = 0;    // used to call a function every 10 msec (up
 uint16_t last_foc_optimiser_ticks = 0 ; // used to call a function every 200 msec (update of optimizer at 5 hz)
 uint16_t last_system_ticks = 0;
 volatile uint32_t system_ticks2 = 0;
-
+static uint16_t ui16_last_lead_angle_esc_ticks = 0;
 
 // maximum duty cycle
 //extern uint8_t ui8_pwm_duty_cycle_max; 
@@ -386,35 +386,56 @@ int main(void)
             new_torque_sample();
         }
         #endif
-        // Here we should call a funtion every 25 msec (based on systick or on an interrupt based on a CCU4 timer)
-        uint16_t temp_ticks = XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW);
-        if (temp_ticks < last_system_ticks) { // once every 65536 * 4 usec = about 0,25 sec
+        uint16_t ui16_current_ticks;
+        uint16_t temp_interval;
+
+        ui16_current_ticks = XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW);
+        if (ui16_current_ticks < last_system_ticks) { // once every 65536 * 4 usec = about 0,25 sec
             system_ticks2++; // add 1 every 0,25 sec (about)
-            last_system_ticks = temp_ticks;
+            last_system_ticks = ui16_current_ticks;
         }
         
-        uint16_t temp_interval;
-        #if (DYNAMIC_LEAD_ANGLE == (1))
-        temp_interval = temp_ticks - last_foc_pid_ticks ; 
-        if ( temp_interval > 2500){ // 100hz : interval 10000 usec / 4usec = 2500 ticks
-            last_foc_pid_ticks = temp_ticks;
-            update_foc_pid();  // this calculate a new FOC angle based on a PI and on the Id current
+        #if (DYNAMIC_LEAD_ANGLE == (2)) // use ESC on Idc
+        static uint16_t ui16_last_lead_angle_esc_ticks = 0;
+        // Calcul du delta avec prise en compte du wrap (overflow 16 bits)
+        temp_interval = (uint16_t)(ui16_current_ticks - ui16_last_lead_angle_esc_ticks);
+        if (temp_interval > (250*24)) { // 24 msec; could be included in ebike_app_controller
+            ui16_last_lead_angle_esc_ticks = ui16_current_ticks;
+            // ui32_current_target_mA = ADC *16 / 100 * 1000
+            uint32_t current_target_mA = (uint32_t) ui8_controller_adc_battery_current_target * 160; 
+            update_lead_angle_esc(  ui16_hall_counter_total, 
+                ui32_adc_battery_current_15b_moving_average,
+                current_target_mA,
+                temp_interval); // appel toutes les 24 ms with temp_interval as parameter.
+            ui16_current_ticks = XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW); // update current time
         }
         #endif
 
-        temp_interval = temp_ticks - last_clock_ticks;
-        //if ( (uint16_t) ((uint16_t) temp_ticks - (uint16_t) last_clock_ticks) > (uint16_t) 6250){ // 25000 usec / 4usec = 6250
+        #if (DYNAMIC_LEAD_ANGLE == (1))
+        temp_interval = ui16_current_ticks - last_foc_pid_ticks ; 
+        if ( temp_interval > 2500){ // 100hz : interval 10000 usec / 4usec = 2500 ticks
+            last_foc_pid_ticks = ui16_current_ticks;
+            update_foc_pid();  // this calculate a new FOC angle based on a PI and on the Id current
+            ui16_current_ticks = XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW); // update current time
+        }
+        #endif
+
+        // Here we should call a funtion every 25 msec (based on systick or on an interrupt based on a CCU4 timer)
+        temp_interval = ui16_current_ticks - last_clock_ticks;
+        //if ( (uint16_t) ((uint16_t) ui16_current_ticks - (uint16_t) last_clock_ticks) > (uint16_t) 6250){ // 25000 usec / 4usec = 6250
         if ( temp_interval > 6250){ // 25000 usec / 4usec = 6250
-            last_clock_ticks = temp_ticks;
+            last_clock_ticks = ui16_current_ticks;
             ebike_app_controller();  // this performs some checks and update some variable every 25 msec
+            ui16_current_ticks = XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW); // update current time
         }
         
         #if (DYNAMIC_LEAD_ANGLE == (1))
-        temp_interval = temp_ticks - last_foc_optimiser_ticks;
-        //if ( (uint16_t) ((uint16_t) temp_ticks - (uint16_t) last_clock_ticks) > (uint16_t) 6250){ // 25000 usec / 4usec = 6250
+        temp_interval = ui16_current_ticks - last_foc_optimiser_ticks;
+        //if ( (uint16_t) ((uint16_t) ui16_current_ticks - (uint16_t) last_clock_ticks) > (uint16_t) 6250){ // 25000 usec / 4usec = 6250
         if ( temp_interval > 50000){ // 200000 usec / 4usec = 50000
-            last_foc_optimiser_ticks = temp_ticks;
+            last_foc_optimiser_ticks = ui16_current_ticks;
             update_foc_optimiser();  // this performs some checks and update some variable every 25 msec
+            ui16_current_ticks = XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW); // update current time
         }
         #endif        
 

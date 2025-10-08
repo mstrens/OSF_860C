@@ -11,7 +11,7 @@
 #ifdef DISPLAY_PLL
 /* ================   code actuel simplifié en retirant les #if qui ne sont plus utilisés =============
 // get the current ticks
-    uint16_t current_speed_timer_ticks = (uint16_t) HALL_SPEED_TIMER_HW->TIMER;
+    uint16_t current_ISR_timer_ticks = (uint16_t) HALL_SPEED_TIMER_HW->TIMER;
     
     // get the capture register = last changed pattern = current pattern
     uint16_t last_hall_pattern_change_ticks = (uint16_t) XMC_CCU4_SLICE_GetCaptureRegisterValue(HALL_SPEED_TIMER_HW , 1);
@@ -21,9 +21,9 @@
     ui8_hall_sensors_state = current_hall_pattern; // duplicate just for easier maintenance of ebike_app.c for 860c (sent to display)
 
     // elapsed time between now and last pattern change (used for interpolation)
-    uint16_t enlapsed_time =  current_speed_timer_ticks - last_hall_pattern_change_ticks ; // ticks between now and last pattern change
+    uint16_t enlapsed_time =  current_ISR_timer_ticks - last_hall_pattern_change_ticks ; // ticks between now and last pattern change
     
-    prev_ticks = current_speed_timer_ticks ;
+    prev_ticks = current_ISR_timer_ticks ;
     
     // when pattern change
     if ( current_hall_pattern != previous_hall_pattern) {
@@ -37,7 +37,7 @@
                 if (ui8_hall_360_ref_valid) { // check that we have a full rotation without pattern sequence error
                     ui16_hall_counter_total = last_hall_pattern_change_ticks - previous_360_ref_ticks; // save the total number of tick for one electric rotation               
                     ui32_angle_per_tick_X16shift = ((uint32_t) ( 1 << 24)) / ui16_hall_counter_total; // new value for interpolation and updating table with reference angle
-                    ui8_motor_commutation_type = SINEWAVE_INTERPOLATION_60_DEGREES; // 0x80 ; it says that we can interpolate because speed is known
+                    ui8_motor_commutation_type = PLL_COMMUTATION; // 0x80 ; it says that we can interpolate because speed is known
                 }
                 ui8_hall_360_ref_valid = 0x01;
                 previous_360_ref_ticks = last_hall_pattern_change_ticks ;    
@@ -84,13 +84,13 @@
 
 // motor states
 #define BLOCK_COMMUTATION 			            0
-#define SINEWAVE_INTERPOLATION_60_DEGREES 	    0x80
+#define PLL_COMMUTATION 	    0x80
 
-#define HALL_TRANSITIONS          6      // 3 capteurs Hall -> 6 transitions / tour électrique
+//#define HALL_TRANSITIONS          6      // 3 capteurs Hall -> 6 transitions / tour électrique
 #define Q16_16_SHIFT              16     // position Q16.16
-#define TICK_US                   4      // 1 tick timer = 4 µs
+//#define TICK_US                   4      // 1 tick timer = 4 µs
 //#define Kp_PLL_Q16                16     // gain PLL en Q16 (à ajuster selon moteur)
-#define MAX_HALL_PATTERNS         8      // nombre de patterns Hall possible
+//#define MAX_HALL_PATTERNS         8      // nombre de patterns Hall possible
 
 // Position rotorique et vitesse en Q16.16
 typedef int32_t q16_16_t; // (signed)
@@ -171,7 +171,7 @@ void HallLoopISR(void)
     // -----------------------------------------------------------
     // 1. Lire timer et POSIF
     // -----------------------------------------------------------
-    uint16_t current_speed_timer_ticks = (uint16_t) HALL_SPEED_TIMER_HW->TIMER;
+    uint16_t current_ISR_timer_ticks = (uint16_t) HALL_SPEED_TIMER_HW->TIMER;
     uint16_t last_capture_ticks = (uint16_t) XMC_CCU4_SLICE_GetCaptureRegisterValue(HALL_SPEED_TIMER_HW , 1);
     uint8_t current_hall_pattern = XMC_POSIF_HSC_GetLastSampledPattern(HALL_POSIF_HW);
 
@@ -181,7 +181,7 @@ void HallLoopISR(void)
     // -----------------------------------------------------------
     // 2. Calcul du temps écoulé depuis le dernier front Hall
     // -----------------------------------------------------------
-    uint16_t elapsed_ticks = current_speed_timer_ticks - last_hall_pattern_change_ticks;
+    uint16_t elapsed_ticks = current_ISR_timer_ticks - last_hall_pattern_change_ticks;
     q16_16_t i32_elapsed_ticks_Q16 = ((q16_16_t)elapsed_ticks) << Q16_16_SHIFT;
 
     // -----------------------------------------------------------
@@ -198,7 +198,7 @@ void HallLoopISR(void)
                 if (ui8_hall_360_ref_valid) { // check that we have a full rotation without pattern sequence error
                     //ui16_hall_counter_total is used in other part of the code (e.g. for rpm in ebike_app.c) 
                     ui16_hall_counter_total = last_hall_pattern_change_ticks - previous_360_ref_ticks; // save the total number of tick for one electric rotation               
-                    ui8_motor_commutation_type = SINEWAVE_INTERPOLATION_60_DEGREES; // 0x80 ; it says that we can interpolate because speed is known
+                    ui8_motor_commutation_type = PLL_COMMUTATION; // 0x80 ; it says that we can interpolate because speed is known
                 }
                 ui8_hall_360_ref_valid = 0x01;
                 previous_360_ref_ticks = last_hall_pattern_change_ticks ;    
@@ -237,7 +237,7 @@ void HallLoopISR(void)
             i32_hall_position += i32_correction;   // hall_position Q16.16
             
             i32_last_hall_position = i32_measured_hall_position;
-            last_hall_pattern_change_ticks = current_speed_timer_ticks;
+            last_hall_pattern_change_ticks = current_ISR_timer_ticks;
         }
         previous_hall_pattern = current_hall_pattern;
     } 
@@ -299,7 +299,7 @@ void HallLoopISR(void)
     uint8_t u8_lut_index_C = (u8_lut_index + 85) & 0xFF; // + 120°
 
     // -----------------------------
-    // 7. Lecture LUT avec rollover N+1
+    // 7. Lecture LUT avec rollover N+1 and interpolation
     // -----------------------------
     int16_t yA0 = i16_LUT_SINUS[u8_lut_index_A];
     int16_t yA1 = i16_LUT_SINUS[(u8_lut_index_A + 1) & 0xFF];
