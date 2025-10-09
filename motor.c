@@ -1797,7 +1797,7 @@ uint16_t b = (uint16_t)a;
  /* --------------------------------------------------------------------------
     Conversion compile-time ° -> Q8.8
     -------------------------------------------------------------------------- */
- #define Q8_8_DEG(x)               ((int16_t)((x) * 256 / 360))
+ #define Q8_8_DEG(x)               ((int16_t)((x) * 65536 / 360))
  
  // Toutes les constantes utilisées directement en Q8.8
  #define CORRECTION_MIN_Q8_8         Q8_8_DEG(CORRECTION_MIN_DEG)
