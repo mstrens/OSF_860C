@@ -592,17 +592,19 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
                     // --- calcul de la vitesse instantanée en Q8.8 ---
                     // 1 tour électrique = 360° = 65536 en Q8.8
                     // vitesse = 65536 / ui16_hall_counter_total  (en Q8.8 par tick)
+                    // still value should be to small and should not provide enough precision
+                    // this is the reason wy we multiply even more by 256. 
+                    // Update hall velocity ; no check on upper limit because it is done later on (to stop the motor)
+                    if (ui16_hall_counter_total > 10 ) { // avoid division by 0 and error in uint if counter would ve to low
+                        i32_hall_velocity_q8_8X256 = ((uint32_t)65536 << 8) / (uint32_t) ui16_hall_counter_total; //in 256 * Q8.8 per tick
+                    }
                     if (ui8_motor_commutation_type == BLOCK_COMMUTATION) {
-                        // Update hall velocity ; no check on upper limit because it is done later on (to stop the motor)
-                        if (ui16_hall_counter_total > 10 ) { // avoid division by 0 and error in uint if counter would ve to low
-                            i32_hall_velocity_q8_8X256 = ((uint32_t)65536 << 8) / (uint32_t) ui16_hall_counter_total; //in 256 * Q8.8 per tick
-                        }
                         #if ( USE_PLL_FOR_POSITION_AND_VELOCITY == (1) ) // when PLL is activated
-                        //  Switch from block to PLL commutation (vitesse suffisante)
+                        //  Switch from block to PLL commutation (when speed is high enough)
                         if ( (ui16_hall_counter_total < (1000000U /4 / (300 / 60 *4) ))) { // to calculate to have 300 rpm (mecanical) ==> 12500
                             // erps = rpm / 60 * 4 poles;
                             // with 4usec/tick => 1000000us / 4 us/tick => 250000 ticks/s => 250000/20 = 12500 ticks 
-                            // initialisation du PLL
+                            // re-initialisation du PLL
                             i32_pll_integrator_q8_8X256 = 0;
                             i16_pll_position_q8_8 = u16_hall_angle_table_Q8_8[current_hall_pattern];     // initialisation à la position actuelle
                             i32_pll_velocity_q8_8X256 = i32_hall_velocity_q8_8X256 ; // use raw velocity based on time interval over 360°
@@ -663,20 +665,6 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
         } // end of code for a valid hall change 
         // save current hall pattern if change is valid or not
         previous_hall_pattern = current_hall_pattern; // saved to detect future change and check for valid transition
-        #if ( GENERATE_DATA_FOR_REGRESSION_ANGLES == (1) )
-        if ((ticks_intervals_status == 0) && (current_hall_pattern == 1) ) {
-            ticks_intervals[0] = ui16_hall_counter_total ; // save the total ticks for previous 360°
-            ticks_intervals[1] = last_hall_pattern_change_ticks - previous_hall_pattern_change_ticks ;
-            ticks_intervals[7] = ui8_g_duty_cycle; // save the duty cycle
-            ticks_intervals_status = 1;
-        } else if (ticks_intervals_status == 1)  {
-            ticks_intervals[current_hall_pattern] = last_hall_pattern_change_ticks - previous_hall_pattern_change_ticks ;
-            if (current_hall_pattern == 5) {
-                ticks_intervals_status = 2; // stop filling the intervals (wait the values are sent)
-            }    
-        } 
-        previous_hall_pattern_change_ticks = last_hall_pattern_change_ticks;
-        #endif    
     }    // end of a pattern change occured 
     else { // no hall patern change occured
         // Verify if rotor stopped (< 10 ERPS)
@@ -726,7 +714,7 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     int32_t i32_hall_ptmp_q8_8 = (int32_t)u16_hall_angle_table_Q8_8[current_hall_pattern] + i32_hall_delta_pos_q8_8;
     i16_hall_position_q8_8 = (int16_t)i32_hall_ptmp_q8_8; // wrap by 16-bit is OK (Q8.8 signed)
     
-    
+    // calculate rotor position : depend on selected option    
     uint16_t u16_rotor_position_q8_8;
     #if (USE_PLL_FOR_POSITION_AND_VELOCITY == (1))
     if (ui8_motor_commutation_type == PLL_COMMUTATION) {  // as long as hall patern are OK and motor is running
@@ -735,7 +723,7 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
         u16_rotor_position_q8_8 = (uq8_8_t)i16_hall_position_q8_8;
     }    
     #else // when PLL is not activated, use only position from Hall
-    u16_rotor_position_q8_8 = (uq8_8_t)i16_hall_position_q8_8;  // use
+    u16_rotor_position_q8_8 = (uq8_8_t)i16_hall_position_q8_8; 
     #endif
     
     // convert Hall reference to Q8.8 unsigned
