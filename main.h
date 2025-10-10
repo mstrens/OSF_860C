@@ -73,7 +73,7 @@
 #define DYNAMIC_HALL_POSITION_UPDATE     (0)  // (0) no dynamic update of u16_hall_angle_table_Q8_8[]
                                               // (1) Dynamic update (call Update_LUT_periodic() in ebike_app_periodic
 
-#define USE_PLL_FOR_POSITION_AND_VELOCITY (1) // do not use PLL (use only interpolation on HALL)
+#define USE_PLL_FOR_POSITION_AND_VELOCITY (0) // do not use PLL (use only interpolation on HALL)
                                               // still use PLL to be able to compare
                                               // (1) calculate rotor position using PLL once rpm is high enough
 
