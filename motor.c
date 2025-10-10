@@ -97,14 +97,14 @@ typedef uint16_t uq8_8_t;   // valeur non signée Q8.8 (0..255.996) pour index /
 #define HALL_INTERP_MAX_DELTA_Q8_8   ((uint16_t)((60 * 65536UL) / 360))   // 60° = 10922 en Q8.8 (~0x2AAA)
 
 /* Gains in Q8.8 */
-const int16_t Kp_q8_8 = 5;   // par exemple 0.02*256 = 5 ; // Kp = 0.02 → Kp_q8_8 = round(0.02 * 256) = 5
-const int16_t Ki_q8_8 = 0;   // si utilisé
+const int32_t Kp_q8_8X256 = 5 * 256;   // par exemple 0.02*256 = 5 ; // Kp = 0.02 → Kp_q8_8X256 = round(0.02 * 256) = 5
+const int32_t Ki_q8_8X256 = 0 * 256;   // si utilisé
 
 q8_8_t i16_hall_position_q8_8 = 0;           // position rotorique absolue (Q18.8)
 q8_8_t i16_last_hall_position_q8_8 = 0;      // position rotorique au dernier front Hall
-q8_8_t i16_hall_velocity_q8_8 = 0;           // vitesse rotorique (Q8.8 / tick)
 q8_8_t i16_hall_phase_error_q8_8 = 0;        // erreur de phase pour PLL
-q8_8_t i16_hall_velocity_raw_q8_8;  // vitesse mesurée directement entre deux fronts Hall
+int32_t i32_hall_velocity_q8_8X256 = 0;           // vitesse rotorique (Q8.8 / tick)
+int32_t i32_hall_velocity_raw_q8_8X256;  // vitesse mesurée directement entre deux fronts Hall
 
 // Lead angle Q8.8 (signed, -180°..+180°) when dynamic = 1
 int16_t i16_lead_angle_pid_Id_Q8_8 = 0;
@@ -577,7 +577,7 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
             // new pattern is not the expected one
             ui8_motor_commutation_type = BLOCK_COMMUTATION; // 0x00
             ui8_hall_360_ref_valid = 0;  // reset the indicator saying no error for a 360° electric rotation 
-            i16_hall_velocity_raw_q8_8 =  0;  // reset the speed for interpolation in block commutation
+            i32_hall_velocity_raw_q8_8X256 =  0;  // reset the speed for interpolation in block commutation
             //hall_pattern_error_counter++; // for debuging
             //        SEGGER_RTT_printf(0, "error %u\r\n", hall_pattern_error_counter);
             //            ui32_ref_angle = 0 ; // reset the position at pattern 1
@@ -592,7 +592,7 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
                     if (ui8_motor_commutation_type == BLOCK_COMMUTATION) {
                         // Update raw velocity
                         if (ui16_hall_counter_total > 10) { // avoid dision by 0 and error in uint if counter would ve to low
-                            i16_hall_velocity_raw_q8_8 = (uint32_t)(65536UL << 8) / ui16_hall_counter_total;  // Q8.8 per tick
+                            i32_hall_velocity_q8_8X256 = ((uint32_t)65536 << 8) / (uint32_t) ui16_hall_counter_total; //in 256 * Q8.8 per tick
                         }
                         //  Switch from block to PLL commutation (vitesse suffisante)
                         if ( (ui16_hall_counter_total < (1000000U /4 / (300 / 60 *4) ))) { // to calculate to have 300 rpm (mecanical) ==> 12500
@@ -602,7 +602,7 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
                             // Réinitialisation du PLL
                             i32_pll_integrator_q8_8 = 0;
                             i16_hall_position_q8_8 = u16_hall_angle_table_Q8_8[current_hall_pattern];     // initialisation à la position actuelle
-                            i16_hall_velocity_q8_8 = i16_hall_velocity_raw_q8_8 ; // use raw velocity based on time interval over 360°
+                            i32_hall_velocity_q8_8X256 = i32_hall_velocity_raw_q8_8X256 ; // use raw velocity based on time interval over 360°
                             ui8_motor_commutation_type = PLL_COMMUTATION; // 0x80 ; it says that we can interpolate because speed is known
                         } 
                     }
@@ -616,7 +616,7 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
                 ui8_foc_flag = 1;     
             } // end current hall pattern == 1 or 3; we are still in the case of a hall change
             // +++++ new code added for PLL +++++++++++++
-            // masured angle Hall en Q8.8 unsigned
+            // measured angle Hall en Q8.8 unsigned
             uq8_8_t measured_hall_q8_8 = u16_hall_angle_table_Q8_8[current_hall_pattern];
             
             // convert estimated position to uq8_8_t for diff (i16_hall_position_q8_8 is signed q8_8_t)
@@ -627,13 +627,13 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
             q8_8_t phase_err_q8_8 = angle_diff_q8_8(measured_hall_q8_8, est_uq8);
             i16_hall_phase_error_q8_8 = phase_err_q8_8;
 
-            // proportional term (Q8.8): (phase_err * Kp_q8_8) >> 8
-            int32_t tmp = (int32_t)phase_err_q8_8 * (int32_t)Kp_q8_8; // fits in 32-bit
+            // proportional term (Q8.8): (phase_err * Kp_q8_8X256) >> 8
+            int32_t tmp = (int32_t)phase_err_q8_8 * (int32_t)Kp_q8_8X256; // fits in 32-bit
             q8_8_t delta_p_q8_8 = (q8_8_t)(tmp >> Q8_8_SHIFT);
 
             // integrator (Ki in Q8.8)
-            if (Ki_q8_8 != 0) {
-                int32_t tmp_i = (int32_t)phase_err_q8_8 * (int32_t)Ki_q8_8;
+            if (Ki_q8_8X256 != 0) {
+                int32_t tmp_i = (int32_t)phase_err_q8_8 * (int32_t)Ki_q8_8X256;
                 int32_t delta_i_q8_8 = (tmp_i >> Q8_8_SHIFT);
                 i32_pll_integrator_q8_8 += delta_i_q8_8;
                 if (i32_pll_integrator_q8_8 > PLL_INT_MAX_Q8_8) i32_pll_integrator_q8_8 = PLL_INT_MAX_Q8_8;
@@ -641,16 +641,20 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
             }
 
             // total correction Q8.8
-            int32_t correction_q8_8 = (int32_t)delta_p_q8_8 + i32_pll_integrator_q8_8; // still Q8.8
+            int32_t correction_vel_q8_8X256 = (int32_t)delta_p_q8_8 + i32_pll_integrator_q8_8; // still Q8.8
 
             // apply correction to velocity and position (Q8.8)
-            // velocity is in Q8.8 per tick
-            int32_t vtmp = (int32_t)i16_hall_velocity_q8_8 + correction_q8_8;
-            if (vtmp > 0x7FFF) vtmp = 0x7FFF;
-            if (vtmp < -0x8000) vtmp = -0x8000;
-            i16_hall_velocity_q8_8 = (q8_8_t)vtmp;
+            // velocity is in Q8.8 per tick * 256
+            int32_t vtmp_q8_8X256 = i32_hall_velocity_q8_8X256 + correction_vel_q8_8X256;
+            #define MAX_ELAPSED_TICKS   4000
+            #define VEL_Q8_8_MAX        ((int32_t)(INT32_MAX / MAX_ELAPSED_TICKS))  // ≈ 536870
+            // clamp
+            if (vtmp_q8_8X256 >  VEL_Q8_8_MAX) vtmp_q8_8X256 =  VEL_Q8_8_MAX;
+            if (vtmp_q8_8X256 < 0) vtmp_q8_8X256 = 0; 
+            i32_hall_velocity_q8_8X256 = vtmp_q8_8X256;
 
-            int32_t ptmp = (int32_t)i16_hall_position_q8_8 + correction_q8_8;
+            int32_t delta_pos_pll_q8_8 = (correction_vel_q8_8X256 * (int32_t)elapsed_ticks) >> 8; // >>8 pour enlever le facteur ×256
+            int32_t ptmp = (int32_t)i16_hall_position_q8_8 + delta_pos_pll_q8_8;
             i16_hall_position_q8_8 = (q8_8_t)((int16_t)(ptmp & 0xFFFF));
 
             // save last measured position
@@ -658,6 +662,7 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
 
             last_hall_pattern_change_ticks = current_ISR_timer_ticks;
             //End of new code added for pll ++++++++++
+
         } // end of code for a valid hall change 
         // save current hall pattern if change is valid or not
         previous_hall_pattern = current_hall_pattern; // saved to detect future change and check for valid transition
@@ -681,11 +686,11 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
         // 150 = rpm; erps= (150*4poles/60sec); /6 because 6 hall for 1 electric tour
         #define RPM_FOR_STOP 150
         #define HALL_COUNTER_THRESHOLD_FOR_SINE_TO_BLOCK 200
-        if (elapsed_ticks > (HALL_COUNTER_FREQ/(RPM_FOR_STOP * 4 / 60)/6)) {  
+        if (elapsed_ticks > (HALL_COUNTER_FREQ/(RPM_FOR_STOP * 4 / 60)/6)) {  // > 4166 => 4166*4 usec = 16msec
             ui8_motor_commutation_type = BLOCK_COMMUTATION; // 0
             ui8_g_foc_angle = 0;
             ui8_hall_360_ref_valid = 0;
-            i16_hall_velocity_raw_q8_8 = 0;  // reset the speed for interpolation in block commutation
+            i32_hall_velocity_raw_q8_8X256 = 0;  // reset the speed for interpolation in block commutation
             //ui32_angle_per_tick_X16shift = 0; // 0 means unvalid value
             ui16_hall_counter_total = 0xffff;
         } else {
@@ -696,12 +701,12 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
                     ui8_motor_commutation_type = BLOCK_COMMUTATION; 
                     // first calculate raw velocity (not calculated in BLOCL_COMMUTATION to avoid a division)
                     if (ui16_hall_counter_total > 10) { // avoid dision by 0 and error in uint if counter would ve to low
-                        i16_hall_velocity_raw_q8_8 = (uint32_t)(65536UL << 8) / ui16_hall_counter_total;  // Q8.8 per tick
+                        i32_hall_velocity_raw_q8_8X256 = (uint32_t)(65536UL << 8) / ui16_hall_counter_total;  // Q8.8 per tick
                     }
-                    i16_hall_velocity_q8_8 = i16_hall_velocity_raw_q8_8 ;
+                    i32_hall_velocity_q8_8X256 = i32_hall_velocity_raw_q8_8X256 ;
                     i32_pll_integrator_q8_8 = 0;
                     // on passe sur la postion calculée par les hall et l'interpolation
-                    int32_t delta = ((int32_t)i16_hall_velocity_raw_q8_8 * (int32_t)elapsed_ticks) >> Q8_8_SHIFT;
+                    int32_t delta = ((int32_t)i32_hall_velocity_raw_q8_8X256 * (int32_t)elapsed_ticks) >> Q8_8_SHIFT;
                     // Saturation à ±60°
                     if (delta > HALL_INTERP_MAX_DELTA_Q8_8)  delta = HALL_INTERP_MAX_DELTA_Q8_8;        
                     i16_hall_position_q8_8 = (q8_8_t) ( (int32_t) u16_hall_angle_table_Q8_8[current_hall_pattern] + delta);    
@@ -719,13 +724,13 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
         // -----------------------------------------------------------
         // i16_hall_position_q8_8 = last_hall_pos + velocity * elapsed_ticks
         // compute delta = (velocity_q8_8 * elapsed_ticks) >> 8
-        delta_pos = ( (int32_t)i16_hall_velocity_q8_8 * (int32_t)elapsed_ticks ) >> Q8_8_SHIFT;
+        delta_pos = ( (int32_t)i32_hall_velocity_q8_8X256 * (int32_t)elapsed_ticks ) >> Q8_8_SHIFT;
         i16_hall_position_q8_8 = (q8_8_t)((int16_t)(((int32_t)i16_last_hall_position_q8_8 + delta_pos) & 0xFFFF));
     } else {
         // when motor is blocked (speed < 10erps),
-        if( i16_hall_velocity_raw_q8_8 > 0 ) { // when raw speed (only hall) is known
+        if( i32_hall_velocity_raw_q8_8X256 > 0 ) { // when raw speed (only hall) is known
             // Calcul de l'avance angulaire = vitesse * temps (Q8.8)
-            delta_pos = ((int32_t)i16_hall_velocity_raw_q8_8 * (int32_t)elapsed_ticks) >> Q8_8_SHIFT;
+            delta_pos = ((int32_t)i32_hall_velocity_raw_q8_8X256 * (int32_t)elapsed_ticks) >> Q8_8_SHIFT;
             // Saturation à ±60°
             if (delta_pos > HALL_INTERP_MAX_DELTA_Q8_8)  delta_pos = HALL_INTERP_MAX_DELTA_Q8_8;
         }
@@ -769,14 +774,17 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     // u8_lut_index = partie entière de Q8.8, sert d’index dans la LUT (0..255)
     // u8_lut_frac = partie fractionnaire Q8.8 pour interpolation linéaire entre N et N+1
     uint8_t u8_lut_index = u16_final_angle_q8_8 >> 8;           // 0..255
-    uint8_t u8_lut_frac  = u16_final_angle_q8_8 & 0xFF;           // fraction Q8.8 pour interpolation fine
-
+    
     // Calcul des index LUT pour les 3 phases A/B/C
     // Les décalages +171/-120° et +85/+120° sont en unités LUT 0..255
     // &0xFF garantit le rollover correct sur 256 éléments de la LUT
     uint8_t u8_lut_index_A = (u8_lut_index + 171) & 0xFF; // -120° = 256*2/3 ≈ 171
     uint8_t u8_lut_index_B = u8_lut_index ;
     uint8_t u8_lut_index_C = (u8_lut_index + 85) & 0xFF; // + 120°
+
+    //#define WITH_LUT_INTERPOLATION  // it seems that interpolation does not provide a real gain.
+    #ifdef  WITH_LUT_INTERPOLATION
+    uint8_t u8_lut_frac  = u16_final_angle_q8_8 & 0xFF;           // fraction Q8.8 pour interpolation fine
 
     // -----------------------------
     // 7. Lecture LUT avec rollover N+1 and interpolation
@@ -792,11 +800,18 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     int16_t yC0 = i16_LUT_SINUS[u8_lut_index_C];
     int16_t yC1 = i16_LUT_SINUS[(u8_lut_index_C + 1) & 0xFF];
     int16_t svm_C = yC0 + (((int32_t)(yC1 - yC0) * u8_lut_frac) >> 8);
+    #else
+    // without interpolation.
+    int16_t svm_A = i16_LUT_SINUS[u8_lut_index_A];
+    int16_t svm_B = i16_LUT_SINUS[u8_lut_index_B];
+    int16_t svm_C = i16_LUT_SINUS[u8_lut_index_C];
+    #endif
 
     ui16_a_pll = (uint16_t) (MIDDLE_SVM_TABLE + (( svm_A * (int16_t) ui8_g_duty_cycle)>>8)); // >>8 because duty_cycle 100% is 256
     ui16_b_pll = (uint16_t) (MIDDLE_SVM_TABLE + (( svm_B * (int16_t) ui8_g_duty_cycle)>>8)); // >>8 because duty_cycle 100% is 256
     ui16_c_pll = (uint16_t) (MIDDLE_SVM_TABLE + (( svm_C * (int16_t) ui8_g_duty_cycle)>>8)); // >>8 because duty_cycle 100% is 256
     // end of added for PLL
+    
 
     #define DEBUG_IRQO_TIME (0) // 1 = calculate the time spent in irq0
     #if (DEBUG_IRQO_TIME == (1))
@@ -863,9 +878,9 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     //XMC_CCU8_SLICE_SetTimerCompareMatch(PHASE_U_TIMER_HW, XMC_CCU8_SLICE_COMPARE_CHANNEL_1 , ui16_a);
     //XMC_CCU8_SLICE_SetTimerCompareMatch(PHASE_V_TIMER_HW, XMC_CCU8_SLICE_COMPARE_CHANNEL_1 , ui16_b);
     //XMC_CCU8_SLICE_SetTimerCompareMatch(PHASE_W_TIMER_HW, XMC_CCU8_SLICE_COMPARE_CHANNEL_1 , ui16_c);
-    PHASE_U_TIMER_HW->CR1S = (uint32_t) ui16_a;
-    PHASE_V_TIMER_HW->CR1S = (uint32_t) ui16_b;
-    PHASE_W_TIMER_HW->CR1S = (uint32_t) ui16_c;
+    PHASE_U_TIMER_HW->CR1S = (uint32_t) ui16_a_pll;
+    PHASE_V_TIMER_HW->CR1S = (uint32_t) ui16_b_pll;
+    PHASE_W_TIMER_HW->CR1S = (uint32_t) ui16_c_pll;
     /* Enable shadow transfer for slice 0,1,2 for CCU80 Kernel */
 	//XMC_CCU8_EnableShadowTransfer(ccu8_0_HW, ((uint32_t)XMC_CCU8_SHADOW_TRANSFER_SLICE_0 |
 	//                                            (uint32_t)XMC_CCU8_SHADOW_TRANSFER_SLICE_1 |
@@ -1065,7 +1080,7 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
 							ui16_wheel_speed_sensor_ticks_counter = 0;
 							ui8_wheel_speed_sensor_ticks_counter_started = 0;
 						} else {
-                            // a valid time occured : save the counter with the enlapse time * 55usec
+                            // a valid time occured : save the counter with the elapse time * 55usec
 							ui16_wheel_speed_sensor_ticks = ui16_wheel_speed_sensor_ticks_counter; 
 							ui16_wheel_speed_sensor_ticks_counter = 0;
                             ++ui32_wheel_speed_sensor_ticks_total; // used only in 860C version
@@ -1795,7 +1810,7 @@ uint16_t b = (uint16_t)a;
  #define MAX_CURRENT_MA            100000
  
  /* --------------------------------------------------------------------------
-    Conversion compile-time ° -> Q8.8
+    Conversion compile-time ° -> Q8.8 : 1 LSB in Q8.8 = (360 / 256 /256)° = 0.00549° 
     -------------------------------------------------------------------------- */
  #define Q8_8_DEG(x)               ((int16_t)((x) * 65536 / 360))
  
