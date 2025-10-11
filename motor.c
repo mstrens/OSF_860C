@@ -669,9 +669,7 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     else { // no hall patern change occured
         // Verify if rotor stopped (< 10 ERPS)
         // 150 = rpm; erps= (150*4poles/60sec); /6 because 6 hall for 1 electric tour
-        #define RPM_FOR_STOP 150
-        #define HALL_COUNTER_THRESHOLD_FOR_SINE_TO_BLOCK 200
-        if (elapsed_ticks > (HALL_COUNTER_FREQ/(RPM_FOR_STOP * 4 / 60)/6)) {  // > 4166 => 4166*4 usec = 16msec
+        if (elapsed_ticks > (HALL_COUNTER_FREQ/(RPM_FOR_STOP * 4 / 60)/6)) {  // > about 8000
             ui8_motor_commutation_type = BLOCK_COMMUTATION; // 0
             ui8_g_foc_angle = 0;
             ui8_hall_360_ref_valid = 0;
@@ -681,7 +679,7 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
         } else {
             // Check for PLL → Hall when we are in PLL commutation mode and speed is quite low
             if (ui8_motor_commutation_type == PLL_COMMUTATION) {
-                if (elapsed_ticks > (HALL_COUNTER_FREQ/(HALL_COUNTER_THRESHOLD_FOR_SINE_TO_BLOCK  * 4 / 60)/6)) {
+                if (elapsed_ticks > (HALL_COUNTER_FREQ/(RPM_FOR_SINE_TO_BLOCK  * 4 / 60)/6)) {
                     // Repasser en Hall uniquement, moteur toujours tournant
                     ui8_motor_commutation_type = BLOCK_COMMUTATION; 
                     // first calculate raw velocity (not calculated in BLOCL_COMMUTATION to avoid a division)
@@ -796,9 +794,7 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
 
     ui16_a_pll = (uint16_t) (MIDDLE_SVM_TABLE + (( svm_A * (int16_t) ui8_g_duty_cycle)>>8)); // >>8 because duty_cycle 100% is 256
     ui16_b_pll = (uint16_t) (MIDDLE_SVM_TABLE + (( svm_B * (int16_t) ui8_g_duty_cycle)>>8)); // >>8 because duty_cycle 100% is 256
-    ui16_c_pll = (uint16_t) (MIDDLE_SVM_TABLE + (( svm_C * (int16_t) ui8_g_duty_cycle)>>8)); // >>8 because duty_cycle 100% is 256
-    // end of added for PLL
-    
+    ui16_c_pll = (uint16_t) (MIDDLE_SVM_TABLE + (( svm_C * (int16_t) ui8_g_duty_cycle)>>8)); // >>8 because duty_cycle 100% is 256  
 
     #define DEBUG_IRQO_TIME (0) // 1 = calculate the time spent in irq0
     #if (DEBUG_IRQO_TIME == (1))

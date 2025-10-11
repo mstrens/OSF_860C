@@ -12,7 +12,7 @@
 //#include "config.h"
 #include "common.h"
                                     // !!!!!!!!!!!!!!
-#define FIRMWARE_VERSION "0.1.37"      //  !!! this version was derived from 0.1.13 for vlcd5 !!!!!!!!!!
+#define FIRMWARE_VERSION "0.1.38"      //  !!! this version was derived from 0.1.13 for vlcd5 !!!!!!!!!!
 //#define MAIN_CONFIGURATOR_VERSION 2   // for configurator (must be the same as in xls sheet)
 //#define SUB_CONFIGURATOR_VERSION 1    // is not used (just for reference)
 
@@ -78,6 +78,9 @@
                                               // (1) calculate rotor position using PLL once rpm is high enough
 
 // *************** from here we have more general parameters 
+#define RPM_FOR_STOP 75           // when rpm is lower than this mecanical speed, Motor is stopped
+#define RPM_FOR_SINE_TO_BLOCK 200 // When RPM is lower than this mecanical speed, PLL is not used anymore
+                        
 
 // this value can be optimized using uc_probe and changing slightly the "global offset angle" in order to get the lowest measured current for a given duty cycle 
 #define DEFAULT_HALL_REFERENCE_ANGLE 66
