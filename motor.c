@@ -668,7 +668,7 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     }    // end of a pattern change occured 
     else { // no hall patern change occured
         // Verify if rotor stopped (< 10 ERPS)
-        // 150 = rpm; erps= (150*4poles/60sec); /6 because 6 hall for 1 electric tour
+        // 75 = rpm; erps= (75*4poles/60sec); /6 because 6 hall for 1 electric tour
         if (elapsed_ticks > (HALL_COUNTER_FREQ/(RPM_FOR_STOP * 4 / 60)/6)) {  // > about 8000
             ui8_motor_commutation_type = BLOCK_COMMUTATION; // 0
             ui8_g_foc_angle = 0;
