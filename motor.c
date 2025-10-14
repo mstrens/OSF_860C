@@ -777,7 +777,9 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
             u32_hall_velocity_q8_8X256 = 0;  
             ui16_hall_counter_total = 0xffff;
         }
+
     }
+    // 
 
     // ********** calculate pll position ****************************
     // update pll rotor position based on PLL : pll_position = pll_position + velocity * elapsed_ticks
@@ -830,16 +832,22 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     //ui16_angle_for_id_q8_8 = (uint16_t)i32_interpolation_angle_q8_8;
     ui16_angle_for_id_q8_8 = (uint16_t)u32_interpolation_angle_q8_8;
     ui16_angle_for_id_q8_8 += (uint16_t) ui16_motor_phase_absolute_angle_q8_8;
-    ui16_angle_for_id_q8_8 += (uint16_t) hall_reference_angle << 8;
     
-    //ui16_hall_angle_position_q8_8 = (uint16_t)u32_interpolation_angle_q8_8 + (uint16_t) ui16_motor_phase_absolute_angle_q8_8 ;
+    
+    ui16_hall_angle_position_q8_8 = (uint16_t)u32_interpolation_angle_q8_8 + (uint16_t) ui16_motor_phase_absolute_angle_q8_8 ;
+    if (ui16_hall_angle_position_q8_8 != ui16_angle_for_id_q8_8) {
+        debug_cnt1++;
+    }
+    
     // hall angle position to be compare with pll angle position 
 
     // add hall_reference_angle ; set on 66 based on tests with my motor. (note : 64 = 90°)
+    uint16_t ui16_angle_no_ref_no_lead_q8_8 = ui16_angle_for_id_q8_8 ;
+    uint16_t ui16_angle_no_lead_q8_8 = ui16_angle_no_ref_no_lead_q8_8 + (uint16_t) (hall_reference_angle << 8);
     //ui16_angle_for_id_q8_8 = ui16_hall_angle_position_q8_8 + (uint16_t) hall_reference_angle << 8;
 
-    
-    uint16_t u16_SVM_table_index_q8_8 = ui16_angle_for_id_q8_8 + (uint16_t)(ui8_g_foc_angle<<8);
+    // add lead angle
+    uint16_t u16_SVM_table_index_q8_8 = ui16_angle_no_lead_q8_8 + (uint16_t)(ui8_g_foc_angle<<8);
     uint8_t u8_lut_index = (uint8_t)(u16_SVM_table_index_q8_8 >> 8);
 
     ui8_signed_index_debug = u8_lut_index;
