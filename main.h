@@ -66,9 +66,6 @@
 // those rules apply only when rotor rotation speed is fast enough otherwise we use "normal positioning"
 // Normal positionning means that extrapolation is based on each pattern change and on speed on last 360°
 
-#define TYPE_OF_FILTER_FOR_CURRENT (0) // 0 = moving average over 64 values max (this is normally used)
-                                // 1 = moving average over a full rotation 
-
 #define DYNAMIC_LEAD_ANGLE      (0)   // (0) no dynamic
                                       // (1) dynamic based on Id and a PID + optimiser 
                                       // (2) dynamic based on Idc and a optimiser (= esc) 
