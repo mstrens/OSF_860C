@@ -48,24 +48,7 @@ const uint8_t expected_pattern_table[8] = {
 };
 
 
-// copied from tsdz2
-#define SVM_TABLE_LEN   256
-// for tsdz8 using a timer counting up to 1680 (instead of 420); values have been calculated in an XLS sheet (on google drive)
-// svm table 19 Khz
-static const uint16_t ui16_svm_table[SVM_TABLE_LEN] = {
-1566,1576,1586,1595,1604,1612,1620,1627,1634,1640,1646,1651,1656,1661,1665,1668,1671,1674,1676,
-1677,1678,1678,1678,1678,1677,1675,1673,1670,1667,1664,1659,1655,1650,1644,1638,1632,1625,1617,
-1609,1601,1592,1583,1573,1556,1524,1493,1461,1428,1396,1363,1329,1295,1261,1227,1193,1158,1123,
-1088,1053,1018,982,947,911,876,840,804,769,733,698,662,627,592,557,522,487,453,419,385,351,317,
-284,252,219,187,156,124,107,97,88,79,71,63,55,48,42,36,30,25,21,16,13,10,7,5,3,2,2,2,2,3,4,6,9,
-12,15,19,24,29,34,40,46,53,60,68,76,85,94,104,114,104,94,85,76,68,60,53,46,40,34,29,24,19,15,12,
-9,6,4,3,2,2,2,2,3,5,7,10,13,16,21,25,30,36,42,48,55,63,71,79,88,97,107,124,156,187,219,252,284,
-317,351,385,419,453,487,522,557,592,627,662,698,733,769,804,840,876,911,947,982,1018,1053,1088,
-1123,1158,1193,1227,1261,1295,1329,1363,1396,1428,1461,1493,1524,1556,1573,1583,1592,1601,1609,
-1617,1625,1632,1638,1644,1650,1655,1659,1664,1667,1670,1673,1675,1677,1678,1678,1678,1678,1677,
-1676,1674,1671,1668,1665,1661,1656,1651,1646,1640,1634,1627,1620,1612,1604,1595,1586,1576};
 
-#if (USE_INT_LUT == (1))
 static const int16_t i16_LUT_SINUS[256] = {
     770,770,770,771,772,773,775,776,778,780,782,784,786,789,791,793,
     795,796,798,799,800,800,800,799,798,796,794,791,787,782,776,770,
@@ -172,7 +155,6 @@ uint16_t previous_hall_pattern_change_ticks ;
 uint16_t prev_pattern_change_ticks;
 uint16_t debug_cnt1 = 0;
 uint16_t debug_cnt2 = 0;
-#endif
 
 // motor variables
 uint8_t ui8_hall_360_ref_valid = 0; // fill with a hall pattern to check sequence is correct
@@ -596,10 +578,8 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
             ui8_motor_commutation_type = BLOCK_COMMUTATION; // 0x00
             ui8_hall_360_ref_valid = 0;  // reset the indicator saying no error for a 360° electric rotation 
             ui32_angle_per_tick_X16shift = 0; // 0 means unvalid value
-            #if (USE_INT_LUT == (1))
             //i32_hall_velocity_q8_8X256 =  0;  // reset the speed for interpolation in block commutation
             u32_hall_velocity_q8_8X256 =  0;  // reset the speed for interpolation in block commutation
-            #endif
             // reset PLL
             i32_pll_integrator_q8_8X256 = 0;
             //i16_pll_position_q8_8 = u16_hall_angle_table_Q8_8[current_hall_pattern];     // initialisation à la position actuelle
@@ -745,9 +725,8 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
         //ui8_motor_phase_absolute_angle = ui8_best_ref_angles[current_hall_pattern]; // use best ref instead of ui8_hall_ref_angles[]
         // set rotor angle based on fixed hall ref angles
         ui8_motor_phase_absolute_angle = ui8_hall_ref_angles[current_hall_pattern]; // use  hall_ref_angles[]
-        #if (USE_INT_LUT)
         ui16_motor_phase_absolute_angle_q8_8 = u16_hall_angle_table_Q8_8[current_hall_pattern]; 
-        #endif
+        
         #if ( GENERATE_DATA_FOR_REGRESSION_ANGLES == (1) )
         if ((ticks_intervals_status == 0) && (current_hall_pattern == 1) ) {
             ticks_intervals[0] = ui16_hall_counter_total ; // save the total ticks for previous 360°
@@ -776,10 +755,8 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
             ui8_g_foc_angle = 0;
             ui8_hall_360_ref_valid = 0;
             ui32_angle_per_tick_X16shift = 0; // 0 means unvalid value
-            #if (USE_INT_LUT == (1))
             //i32_hall_velocity_q8_8X256 = 0;  
             u32_hall_velocity_q8_8X256 = 0;  
-            #endif
             ui16_hall_counter_total = 0xffff;
             #if (TYPE_OF_FILTER_FOR_CURRENT == (1))
             // when we can not use accumulated value, use the latest on and reset accum
@@ -814,7 +791,6 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
         //}
 //        compensated_enlapsed_time_new = elapsed_ticks_since_pattern_1 + ui8_fw_hall_counter_offset + ui8_hall_counter_offset;
 //        ui8_interpolation_angle_new = (((uint32_t) compensated_enlapsed_time_new) *  ui32_angle_per_tick_X16shift_new) >> 16 ; 
-        #if (USE_INT_LUT == (1))
         // update hall rotor position based only on hall 
         //i32_interpolation_angle_q8_8 = ((int32_t)i32_hall_velocity_q8_8X256 * (int32_t)enlapsed_time) >> 8;
         u32_interpolation_angle_q8_8 = ( (((uint32_t) enlapsed_time) *  (uint32_t)u32_hall_velocity_q8_8X256 ) + 0) >> 8;
@@ -823,7 +799,6 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
         //if (i32_interpolation_angle_q8_8 > HALL_INTERP_MAX_DELTA_Q8_8)  i32_interpolation_angle_q8_8 = HALL_INTERP_MAX_DELTA_Q8_8;
         
         //if (i32_interpolation_angle_q8_8 < 0) ui8_error_interpolation_q8_8 = 1;
-        #endif
     }
     
 
@@ -834,7 +809,6 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
 
     
 
-    #if ( USE_INT_LUT == (1) )
     //ui16_angle_for_id_q8_8 = (uint16_t)i32_interpolation_angle_q8_8;
     ui16_angle_for_id_q8_8 = (uint16_t)u32_interpolation_angle_q8_8;
     ui16_angle_for_id_q8_8 += (uint16_t) ui16_motor_phase_absolute_angle_q8_8;
@@ -867,36 +841,6 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     ui16_b = (uint16_t) (MIDDLE_SVM_TABLE + (( svm_B * (int16_t) ui8_g_duty_cycle)>>8)); // >>8 because duty_cycle 100% is 256
     ui16_c = (uint16_t) (MIDDLE_SVM_TABLE + (( svm_C * (int16_t) ui8_g_duty_cycle)>>8)); // >>8 because duty_cycle 100% is 256  
  
-    #else
-    
-    // to debug
-//    #else
-//    uint8_t ui8_svm_table_index = ui8_interpolation_angle_new + (ui32_ref_angle >> 16) +  ui8_best_ref_angles[1] + 
-//        ui8_g_foc_angle + hall_reference_angle ;
-    
-//    #endif
-    // Phase A is advanced 240 degrees over phase B
-    ui16_temp = ui16_svm_table[(uint8_t) (ui8_svm_table_index + 171)]; // 171 = 240 deg when 360° is coded as 256
-    if (ui16_temp > MIDDLE_SVM_TABLE) { // 214 at 19 khz
-        ui16_a = MIDDLE_SVM_TABLE + (((ui16_temp - MIDDLE_SVM_TABLE) * (uint16_t) ui8_g_duty_cycle)>>8); // >>8 because duty_cycle 100% is 256
-    } else {
-        ui16_a = MIDDLE_SVM_TABLE - (((MIDDLE_SVM_TABLE - ui16_temp) * (uint16_t) ui8_g_duty_cycle)>>8);
-    }
-    // phase B as reference phase
-    ui16_temp = ui16_svm_table[ui8_svm_table_index] ;
-    if (ui16_temp > MIDDLE_SVM_TABLE) {
-        ui16_b = MIDDLE_SVM_TABLE + (((ui16_temp - MIDDLE_SVM_TABLE) * (uint16_t) ui8_g_duty_cycle)>>8);
-    } else {
-        ui16_b = MIDDLE_SVM_TABLE - (((MIDDLE_SVM_TABLE - ui16_temp) * (uint16_t) ui8_g_duty_cycle)>>8);
-    }
-    // phase C is advanced 120 degrees over phase B
-    ui16_temp = ui16_svm_table[(uint8_t) (ui8_svm_table_index + 85 )] ; // 85 = 120 deg
-    if (ui16_temp > MIDDLE_SVM_TABLE) {
-        ui16_c = MIDDLE_SVM_TABLE + (((ui16_temp - MIDDLE_SVM_TABLE) * (uint16_t) ui8_g_duty_cycle)>>8);
-    } else {
-        ui16_c = MIDDLE_SVM_TABLE - (((MIDDLE_SVM_TABLE - ui16_temp) * (uint16_t) ui8_g_duty_cycle)>>8);
-    }
-    #endif
 
     #define DEBUG_IRQO_TIME (0) // 1 = calculate the time spent in irq0
     #if (DEBUG_IRQO_TIME == (1))
