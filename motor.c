@@ -1,3 +1,5 @@
+//branch test 2---
+
 /*
  * TongSheng TSDZ2 motor controller firmware
  *
@@ -12,6 +14,7 @@
 #include "ebike_app.h"
 #include "common.h"
 #include "adc.h"
+#include <math.h>
 
 #include "cy_retarget_io.h"
 //#include "cy_utils.h"
@@ -82,6 +85,12 @@ static const int16_t i16_LUT_SINUS[256] = {
     795,793,791,789,786,784,782,780,778,776,775,773,772,771,770,770
 };
 
+// this could probably be removed
+volatile uint8_t ui8_best_ref_angles[8] ; // this table is prefilled in main.c at start up
+uint32_t best_ref_angles_X16bits[8] ;  // same as ui8_best_ref_angles but with 8 more bits for better filtering
+uint32_t ui32_angle_per_tick_X16shift = 0 ; // 
+
+
 // Hall positions in Q8.8
 // Position rotorique in Q8.8 et vitesse en Q16.16
 typedef int32_t q16_16_t; // (signed) (16 bits for decimal, 16bits for unit, 1 unit = 360/256 = 1.4°)
@@ -99,6 +108,30 @@ typedef uint16_t uq8_8_t;   // valeur non signée Q8.8 (0..255.996) pour index /
 #define HALL_INTERP_MAX_DELTA_Q8_8   ((uint16_t)((60 * 65536UL) / 360))   // 60° = 10922 en Q8.8 (~0x2AAA)
 #define Q16_16_SHIFT              16     // position Q16.16
 
+
+uint16_t ui16_angle_for_id_q8_8;   // position without taking care of lead angle; updated at the end of ISR 0 
+uint8_t ui8_angle_for_id;   // position without taking care of lead angle; updated at the end of ISR 0 
+
+
+// for hall position & hall velocity 
+q8_8_t i16_hall_position_q8_8 = 0;           // position rotorique absolue (Q18.8) based on hall (+ interpolation)
+//int32_t i32_hall_velocity_q8_8X256;  // vitesse mesurée directement entre deux fronts Hall
+uint32_t u32_hall_velocity_q8_8X256;  // vitesse mesurée directement entre deux fronts Hall
+
+
+// for PLL position and velocity
+q8_8_t i16_pll_position_q8_8 = 0;            // position calculated by PLL
+q8_8_t i16_last_pll_position_q8_8 = 0;      // position rotorique au dernier front Hall
+int32_t i32_pll_velocity_q8_8X256 = 0;           // vitesse rotorique (Q8.8 / tick)
+/* Gains in Q8.8 */
+const int32_t Kp_q8_8X256 = 5 * 256;   // par exemple 0.02*256 = 5 ; // Kp = 0.02 → Kp_q8_8X256 = round(0.02 * 256) = 5
+const int32_t Ki_q8_8X256 = 0 * 256;   // si utilisé
+// Intégrateur (Q16.16)
+int32_t i32_pll_integrator_q8_8X256 = 0; // 
+// Anti-windup limits (Q16.16)
+const int32_t PLL_INT_MAX_Q8_8X256 = (1 << 23); // to do check if 23 is OK
+const int32_t PLL_INT_MIN_Q8_8X256 = -(1 << 23);
+
 uq8_8_t ui16_motor_phase_absolute_angle_q8_8 = 0;
 // Angles mesurés pour les patterns Hall valides (Q8.8 = angle° * 256); sequence is 1,3,2,6,4, 5
 uq8_8_t u16_hall_angle_table_Q8_8[8] = {
@@ -112,12 +145,6 @@ uq8_8_t u16_hall_angle_table_Q8_8[8] = {
     0       // 7 invalide
 };
 
-// for hall position & hall velocity 
-q8_8_t i16_hall_position_q8_8 = 0;           // position rotorique absolue (Q18.8) based on hall (+ interpolation)
-//int32_t i32_hall_velocity_q8_8X256;  // vitesse mesurée directement entre deux fronts Hall
-uint32_t u32_hall_velocity_q8_8X256;  // vitesse mesurée directement entre deux fronts Hall
-
-uint16_t ui16_angle_for_id_q8_8;   // position without taking care of lead angle; updated at the end of ISR 0 
 
 //o debug
 uint8_t ui8_error_interpolation_q8_8 = 0; // to debug
@@ -263,17 +290,12 @@ uint8_t ui8_hall_ref_angles[8] = { // Sequence is 1, 3, 2 , 6, 4, 5; so angle ar
         0                     // error ; index must be between 1 and 6
 };
 
-// this could probably be removed
-volatile uint8_t ui8_best_ref_angles[8] ; // this table is prefilled in main.c at start up
-uint32_t best_ref_angles_X16bits[8] ;  // same as ui8_best_ref_angles but with 8 more bits for better filtering
-uint32_t ui32_angle_per_tick_X16shift = 0 ; // 
 
 // Hall offset for current Hall state; This offset is added in the interpolation process (so based also on the erps)
 // the value is in ticks (1 ticks = 4 usec); we need  55usec/4 : 55 = 39 + 16 (39 = 3/4 of 55usec = delay between measuring and PWM change); 16=delay hall sensor
 // based on the regression tests, there should probably be a correction of about 2 depending it is a rising or a falling edge of hall pattern
 // still this should have only a small impact
 uint8_t ui8_hall_counter_offset = 14; 
-uint8_t ui8_angle_for_id;   // position without taking care of lead angle; updated at the end of ISR 0 
 
 
 #if (DYNAMIC_LEAD_ANGLE == (1) ) //1 dynamic based on Id and a PID + optimiser 
@@ -324,7 +346,7 @@ uint16_t irq1_min = 0xFFFF;
 uint16_t irq1_max = 0;
 
 
-uint16_t hall_pattern_error_counter = 0;
+uint16_t hall_pattern_error_counter = 0; // to debug only
 // used to calculate hall angles based of linear regression of all ticks intervals
 // are filled in irq0 and transmitted in ebike_app.c using segger_rtt_print 
 #if ( GENERATE_DATA_FOR_REGRESSION_ANGLES == (1) )
@@ -377,7 +399,7 @@ inline uint32_t update_moving_average(uint32_t new_value){
 }
 #endif
 
-inline uint32_t filtering_function(uint32_t ui32_temp_15b , uint32_t ui32_filtered_15b , uint32_t alpha){
+inline __attribute__((always_inline)) uint32_t filtering_function(uint32_t ui32_temp_15b , uint32_t ui32_filtered_15b , uint32_t alpha){
     uint32_t ui32_temp_new = ui32_temp_15b * (16U - alpha);
     uint32_t ui32_temp_old =  ui32_filtered_15b * alpha;
     uint32_t ui32_filtered_value = ((ui32_temp_new + ui32_temp_old + (8)) >> 4);                    
@@ -498,7 +520,6 @@ __RAM_FUNC static inline void calculate_id_part1(){  // to be called in begin of
 __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting UP (= 1/4 of 19mhz cycles with 1680 ticks at 64mHz and centered aligned)
 //void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting UP (= 1/4 of 19mhz cycles with 1680 ticks at 64mHz and centered aligned)
 
-//void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting UP (= 1/4 of 19mhz cycles with 1680 ticks at 64mHz and centered aligned)
 // here we just calculate the new compare values used for the 3 slices (0,1,2) that generates the 3 PWM
 #if (USE_IRQ_FOR_HALL == (1))
     uint32_t critical_section_value = XMC_EnterCriticalSection();
@@ -566,28 +587,6 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     ui8_angle_for_id_prev = ui8_angle_for_id;  // save angle to use it in ISR 1 (when current iu, iv, iw are measured for actual pwm)
     #endif
 
-//the resistance/gain in TSDZ8 is 4X smaller than in TSDZ2; still ADC is 12 bits instead of 10; so ADC 12bits TSDZ8 = ADC 10 bits TSDZ2
-        // in TSDZ2, we used only the 8 lowest bits of adc; 1 adc step = 0,16A
-        // In tsdz8, the resistance is (I expect) 0.003 Ohm ; So 1A => 0,003V => 0,03V (gain aop is 10)*4096/5Vcc = 24,576 steps
-        //      SO 1 adc step 12bits = 1/24,576 = 0,040A
-        // For 10 A, TSDZ2 should gives 10/0,16 = 62 steps
-        // For 10 A, TSDZ8 shoud give 10*24,576 steps = 246 steps
-        // to convert TSDZ8 steps 12bits  in the same units as TSDZ2, we shoud take ADC12bits *62/245,76 = 0,25 and divide by 4 (or >>2)
-        // current is available in gr0 result 15 in queue 0 p2.8 and/or in gr1 result 152 (p2.8)
-        // both results use IIR filters and so results are in 14 bits instead of 12 bits
-        // use measurement from the 2 groups
-    //ui32_adc_battery_current_15b = ((XMC_VADC_GROUP_GetResult(vadc_0_group_0_HW , 15 ) & 0xFFFF) +
-    //                                (XMC_VADC_GROUP_GetResult(vadc_0_group_1_HW , 15 ) & 0xFFFF)) ;  // So here result is in 15 bits (averaging
-    // changed when using infineon init for vadc (result in 12bits and in ch 1)
-    ui32_adc_battery_current_15b = (XMC_VADC_GROUP_GetResult(vadc_0_group_0_HW , VADC_I4_RESULT_REG ) & 0xFFFF) <<3; // change from 12 to 15 digits 
-    #if (TYPE_OF_FILTER_FOR_CURRENT == (0)) // when using a moving average on 64 values    
-    ui32_adc_battery_current_15b_moving_average = update_moving_average(ui32_adc_battery_current_15b);
-    #else
-    //accumulate the current to calculate an average on 1 rotation (there are quite big variations inside each 60° sector)
-    ui32_adc_battery_current_15b_accum += ui32_adc_battery_current_15b;
-    ui32_adc_battery_current_15b_counter++;
-    // the average is then calculated only once per rotation later on
-    #endif
     
     // to see on prove scope oscillo
     //I_t = ui32_adc_battery_current_15b >> 3; 
@@ -601,6 +600,11 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
             //i32_hall_velocity_q8_8X256 =  0;  // reset the speed for interpolation in block commutation
             u32_hall_velocity_q8_8X256 =  0;  // reset the speed for interpolation in block commutation
             #endif
+            // reset PLL
+            i32_pll_integrator_q8_8X256 = 0;
+            //i16_pll_position_q8_8 = u16_hall_angle_table_Q8_8[current_hall_pattern];     // initialisation à la position actuelle
+            i32_pll_velocity_q8_8X256 = 0 ; // use raw velocity based on time interval over 360°
+            
             if (ui16_hall_counter_total < 2000) hall_pattern_error_counter++; // for debuging when speed is high enough
     //        SEGGER_RTT_printf(0, "error %u\r\n", hall_pattern_error_counter);
 //            ui32_ref_angle = 0 ; // reset the position at pattern 1
@@ -786,15 +790,6 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
         }
     }
 
-    // mstrens : moved from irq1 to irq0 to use average current over 1 rotation for regulation
-    #if (TYPE_OF_FILTER_FOR_CURRENT == (0))
-    if (ui32_adc_battery_current_15b_moving_average > (255 << 5)) { // clamp for safety
-        ui32_adc_battery_current_15b_moving_average = 255 << 5;
-    }    
-    ui8_adc_battery_current_filtered = ui32_adc_battery_current_15b_moving_average  >> 5;
-    #else
-    ui8_adc_battery_current_filtered  = ui32_adc_battery_current_1_rotation_15b >> 5 ; // from 15 bits to 10 bits like TSDZ2 
-    #endif
     /****************************************************************************/
     // - calculate interpolation angle and sine wave table index when speed is known
     ui8_interpolation_angle = 0; // interpolation angle
@@ -928,6 +923,33 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     ProbeScope_Sampling(); // this is here in a interrupt that run fast
     #endif
 
+    //the resistance/gain in TSDZ8 is 4X smaller than in TSDZ2; still ADC is 12 bits instead of 10; so ADC 12bits TSDZ8 = ADC 10 bits TSDZ2
+        // in TSDZ2, we used only the 8 lowest bits of adc; 1 adc step = 0,16A
+        // In tsdz8, the resistance is (I expect) 0.003 Ohm ; So 1A => 0,003V => 0,03V (gain aop is 10)*4096/5Vcc = 24,576 steps
+        //      SO 1 adc step 12bits = 1/24,576 = 0,040A
+        // For 10 A, TSDZ2 should gives 10/0,16 = 62 steps
+        // For 10 A, TSDZ8 shoud give 10*24,576 steps = 246 steps
+        // to convert TSDZ8 steps 12bits  in the same units as TSDZ2, we shoud take ADC12bits *62/245,76 = 0,25 and divide by 4 (or >>2)
+        // current is available in gr0 result 15 in queue 0 p2.8 and/or in gr1 result 152 (p2.8)
+        // both results use IIR filters and so results are in 14 bits instead of 12 bits
+        // use measurement from the 2 groups
+    //ui32_adc_battery_current_15b = ((XMC_VADC_GROUP_GetResult(vadc_0_group_0_HW , 15 ) & 0xFFFF) +
+    //                                (XMC_VADC_GROUP_GetResult(vadc_0_group_1_HW , 15 ) & 0xFFFF)) ;  // So here result is in 15 bits (averaging
+    // changed when using infineon init for vadc (result in 12bits and in ch 1)
+    ui32_adc_battery_current_15b = (XMC_VADC_GROUP_GetResult(vadc_0_group_0_HW , VADC_I4_RESULT_REG ) & 0xFFFF) <<3; // change from 12 to 15 digits 
+    #if (TYPE_OF_FILTER_FOR_CURRENT == (0)) // when using a moving average on 64 values    
+    ui32_adc_battery_current_15b_moving_average = update_moving_average(ui32_adc_battery_current_15b);
+    if (ui32_adc_battery_current_15b_moving_average > (255 << 5)) { // clamp for safety
+        ui32_adc_battery_current_15b_moving_average = 255 << 5;
+    }  
+    ui8_adc_battery_current_filtered = ui32_adc_battery_current_15b_moving_average  >> 5;
+    #else
+    //accumulate the current to calculate an average on 1 rotation (there are quite big variations inside each 60° sector)
+    ui32_adc_battery_current_15b_accum += ui32_adc_battery_current_15b;
+    ui32_adc_battery_current_15b_counter++;
+    // the average is then calculated only once per rotation later on
+    ui8_adc_battery_current_filtered  = ui32_adc_battery_current_1_rotation_15b >> 5 ; // from 15 bits to 10 bits like TSDZ2     
+    #endif
 
 
 } // end of CCU80_0_IRQHandler

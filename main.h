@@ -74,7 +74,7 @@
                                       // (2) dynamic based on Idc and a optimiser (= esc) 
 
 #define USE_INT_LUT (1)      // (0) use unsigned LUT for sinus
-                            // (1) use signed LUT
+                            // (1) use signed
 
 // *************** from here we have more general parameters 
 
