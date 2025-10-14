@@ -50,7 +50,7 @@
 #define MY_DISABLED 0
 #define uCPROBE_GUI_OSCILLOSCOPE MY_DISABLED // MY_ENABLED
 
-#define USE_IRQ_FOR_HALL (0) // 1 = use irq; 0 = use capture
+#define USE_IRQ_FOR_HALL (1) // 1 = use irq; 0 = use capture
 
 // note when USE_SPIDER_LOGIC_FOR_TORQUE > 0, KATANA logic is not used; to use KATANA, USE_SPIDER must be 0
 #define USE_SPIDER_LOGIC_FOR_TORQUE (0) // (1) = use Spider logic with a buffer of 20 value over one rotation.
@@ -72,6 +72,9 @@
 #define DYNAMIC_LEAD_ANGLE      (0)   // (0) no dynamic
                                       // (1) dynamic based on Id and a PID + optimiser 
                                       // (2) dynamic based on Idc and a optimiser (= esc) 
+
+#define USE_INT_LUT (1)      // (0) use unsigned LUT for sinus
+                            // (1) use signed LUT
 
 // *************** from here we have more general parameters 
 
@@ -149,8 +152,8 @@
 #define WHEEL_SPEED_SENSOR_TICKS_COUNTER_MAX			(uint16_t)((uint32_t)PWM_CYCLES_SECOND*10U/1157U)   // 164 at 19 khz (135 at 15,625KHz) something like 200 m/h with a 6'' wheel
 #define WHEEL_SPEED_SENSOR_TICKS_COUNTER_MIN			(uint16_t)((uint32_t)PWM_CYCLES_SECOND*1000U/477U) // 32767@15625KHz could be a bigger number but will make for a slow detection of stopped wheel speed
 
-#define WHEEL_SPEED_SENSOR_SIMULATION					0
-
+#define WHEEL_SPEED_SENSOR_SIMULATION	1 // 1 allows to avoid the error after 12 sec if motor runs but not the wheel sensor
+                                            // 0 do not simulate
 
 
 

@@ -760,8 +760,8 @@ void init_cycfg_peripherals(void)
     XMC_CCU4_Init(ccu4_0_HW, XMC_CCU4_SLICE_MCMS_ACTION_TRANSFER_PR_CR);
     XMC_CCU4_StartPrescaler(ccu4_0_HW);
     XMC_CCU4_SLICE_CompareInit(HALL_DELAY_TIMER_HW, &HALL_DELAY_TIMER_compare_config);
-    XMC_CCU4_SLICE_SetTimerCompareMatch(HALL_DELAY_TIMER_HW, 2U);
-    XMC_CCU4_SLICE_SetTimerPeriodMatch(HALL_DELAY_TIMER_HW, 4U);
+    XMC_CCU4_SLICE_SetTimerCompareMatch(HALL_DELAY_TIMER_HW, 10U); // it was 2
+    XMC_CCU4_SLICE_SetTimerPeriodMatch(HALL_DELAY_TIMER_HW, 20U);  // it was 4
     XMC_CCU4_SetMultiChannelShadowTransferMode(ccu4_0_HW, XMC_CCU4_MULTI_CHANNEL_SHADOW_TRANSFER_SW_SLICE0);
     XMC_CCU4_EnableShadowTransfer(ccu4_0_HW,
         XMC_CCU4_SHADOW_TRANSFER_SLICE_0 |
