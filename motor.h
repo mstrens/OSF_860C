@@ -11,6 +11,14 @@
 #define BLOCK_COMMUTATION 			            0
 #define SINEWAVE_INTERPOLATION_60_DEGREES 	    0x80
 
+//Hall calibration
+#define HALL_TO_CALIBRATE 0
+#define HALL_CALIBRATING    1
+#define HALL_MEASURED       2
+#define HALL_CALIBRATION_CANCELED 3
+#define HALL_CALIBRATION_ERROR    4
+#define HALL_CALIBRATED     5
+
 // power variables
 extern volatile uint8_t ui8_controller_duty_cycle_ramp_up_inverse_step;
 extern volatile uint8_t ui8_controller_duty_cycle_ramp_down_inverse_step;
@@ -99,3 +107,6 @@ void update_foc_optimiser(void);
 //__RAM_FUNC static inline void calculate_id_part1();
 
 //__RAM_FUNC static inline void calculate_id_part2();
+
+void hall_calibrate();
+void hall_positions_init();

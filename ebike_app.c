@@ -328,6 +328,7 @@ void ebike_app_controller(void) // is called every 25ms by main()
 			break;
 		case 3:
 			check_system();
+			hall_calibrate();  // calibrate the hall position (using result of data saved by ISR when speed is high enough)
 			/*
 			// added by mstrens
 			ui8_best_ref_angles[1] = ui8_best_ref_angles1;
@@ -2620,7 +2621,7 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 	  case COMM_FRAME_TYPE_CONFIGURATIONS:
 		// disable the motor to avoid a quick of the motor while configurations are changed
 		// disable the motor, lets hope this is safe to do here, in this way
-		// the motor shold be enabled again on the ebike_control_motor()
+		// the motor should be enabled again on the ebike_control_motor()
 		motor_disable_pwm();
 		ui8_motor_enabled = 0;
 		ui8_m_system_state |= ERROR_NOT_INIT;

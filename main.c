@@ -283,6 +283,7 @@ int main(void)
 
     //XMC_WDT_Service();
     // set initial position of hall sensor and first next expected one in shadow and load immediately in real register
+    hall_positions_init(); // added by mstrens to manage hybrid hall positioning.
     //posif_init_position();
     get_hall_pattern();
     previous_hall_pattern = 0; // use a different hall pattern to force the angle. 

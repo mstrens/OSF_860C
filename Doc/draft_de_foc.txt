@@ -1,0 +1,285 @@
+//FOC
+// +++++++++++ to calculate Id ++++++++++
+q8_8_t i16_angle_at_midpoint_q8_8; // position; saved at begin of ISR 0 to match with current iu,Iv,iw measured at begin of ISR 1 and extrapolate 
+uint16_t ADC_Bias_Iu = 1 << 11; // ADC is 12 bits, 0 = mid point 
+uint16_t ADC_Bias_Iv = 1 << 11; // ADC is 12 bits, 0 = mid point 
+uint16_t ADC_Bias_Iw = 1 << 11; // ADC is 12 bits, 0 = mid point 
+
+#define SQRT3                                       (1.732050807569F)       /* √3 */
+#define DIV_SQRT3                                   (591)                  /* ((int16_t)((1/SQRT3) * (1<<SCALE_SQRT3))) */
+#define DIV_SQRT3_Q14                               (9459U)
+#define SCALE_DIV_3                                 (14U)                   /* For 1/3 scaling. */
+#define DIV_3                                       (5461U)                 /* ((int16_t)((1/3) * (1<<SCALE_DIV_3))) */
+
+#define DEGREE_90                                   (4194304U << 8U)        /* 90° angle (0 ~ 2^23 represent electrical angle 0° ~ 180° in CORDIC) */
+#define DEGREE_X                                    (DEGREE_90 * 1U)        /* X = 0°, 90°, 180°, or 270° */
+#define DEGREE_SHIFT                                (652448U << 8U)         /* 14° angle shift */
+
+#define CORDIC_VECTORING_MODE                       (0x62)                  /* CORDIC: Circular Vectoring Mode (default). MPS: Divide by 2 (default).*/
+#define CORDIC_ROTATION_MODE                        (0x6A)                  /*  CORDIC: Circular Rotation Mode. MPS: Divide by 2 (default).*/
+#define CORDIC_SHIFT                                (14U)             /* 8 ~ 16. Shift for CORDIC input / output registers, whose [7:0] are 0x00. Normally no need change.*/
+
+
+#define ALPHA_Q15   172     // ~0.005263 * 32768
+#define Q15_SHIFT   15
+
+
+__RAM_FUNC void foc_isr(){  // to be called in begin of ISR 1 when rotor position has been updated and current are measured
+    // it measure actual currents but angle must be one one that was apply for PWM and so it is the angle from isr 0 before update.
+    //static inline void calculate_id_part1(){  // to be called in first ISR when rotor position has been updated  
+    // read the 3 ADC
+    // substact the ADC bias
+    // calculate i_alpha and i_beta (clark transform)
+    // fill cordic to get IQ ID (park transform)
+    int16_t i16_raw_Iu = XMC_VADC_GROUP_GetResult(VADC_I1_GROUP , VADC_I1_RESULT_REG ) & 0x0FFF;
+    int16_t i16_raw_Iw = XMC_VADC_GROUP_GetResult(VADC_I3_GROUP , VADC_I3_RESULT_REG ) & 0x0FFF;
+    int16_t i16_raw_Iv = XMC_VADC_GROUP_GetResult(VADC_I2_GROUP , VADC_I2_RESULT_REG ) & 0x0FFF;
+
+    // note :  in infineon version the sign are reversed ; this is strange
+    int32_t i32_Iu = (i16_raw_Iu - ADC_Bias_Iu) << 3; // change from 12 bits to 15 bits to use Q15
+    int32_t i32_Iv = (i16_raw_Iv - ADC_Bias_Iv) << 3;
+    int32_t i32_Iw = (i16_raw_Iw - ADC_Bias_Iw) << 3;
+    
+    // calculate I alpha and I beta
+    /* I_Alpha = (2 * I_U - (I_V + I_W))/3 */  // ou Ialpha = (2/3) * (Ia - 0.5*Ib - 0.5*Ic)
+    //HandlePtr->I_Alpha_1Q31 = ((CurrentPhaseU << 1) - (CurrentPhaseV + CurrentPhaseW)) * (DIV_3 << (CORDIC_SHIFT-14));
+    int32_t I_Alpha_1Q31 = ((i32_Iu << 1) - (i32_Iv + i32_Iw)) * (DIV_3 << (CORDIC_SHIFT-14));
+    /*  I_Beta = (I_V - I_W)/√3 in 1Q31 */
+    //HandlePtr->I_Beta_1Q31 = (CurrentPhaseV - CurrentPhaseW) * (DIV_SQRT3_Q14 << (CORDIC_SHIFT-14));
+    int32_t I_Beta_1Q31 = (i32_Iv - i32_Iw) * (DIV_SQRT3_Q14 << (CORDIC_SHIFT-14));
+
+    // prepare parktransform with cordic
+        /* General control of CORDIC Control Register */
+    MATH->CON = CORDIC_ROTATION_MODE;
+    /* Z = φ, Hall rotor angle, or estimated rotor angle of last PWM cycle from PLL */
+    //MATH->CORDZ = RotorAngleQ31;
+    // to convert an angle from ui8 to Q31, we must first do a cast of uint8 to int8 and then a shift left by 24 
+    // ui16_angle_for_id_prev_q8_8 (Q8.8 0..360°) → Q31 (-π..+π), wrap OK pour CORDIC
+    MATH->CORDZ = ((int16_t) ui16_angle_for_id_prev_q8_8) << 16; // we convert angle in 0/255 with 8 bit as digital to Q31 signed 
+    /* Y = I_Alpha */
+    MATH->CORDY = I_Alpha_1Q31;
+    /* X = I_Beta. Input CORDX data, and auto start of CORDIC calculation (~62 kernel clock cycles) */
+    MATH->CORDX = I_Beta_1Q31;
+
+    // get the result of cordic for id and iq    
+    /* Wait if CORDIC is still running calculation */
+    while (MATH->STATC & 0x01) {  continue; }
+    /* Read CORDIC results Iq and Id - 32-bit. CORDIC Result Register [7:0] are 0x00 */
+    int32_t i32_iq = MATH->CORRX;
+    i32_iq >>= CORDIC_SHIFT; // shift 14
+    i32_iq = (i32_iq * 311) >> 8;   // x MPS/K.;
+    
+    //Idem for Id
+    int32_t i32_id = MATH->CORRY;
+    i32_id >>= CORDIC_SHIFT;
+    i32_id = (i32_id * 311) >> 8;   // x MPS/K.;
+    // here id should be in the same units as original current (so as with ADC 15 bits because we used ADC12 << 3)
+    // 1 step ADC10 = 0,16A
+    // 1 step ADC15 = 0,16A / 32 = 0,005 A = 5 mA
+    // Current does not exceed 50A, so ADC 15 bit should not exceed 50000 / 5 = 10000 
+    
+    // PI Controller - compare Iq  and get Torque_Vq
+    pi_controller(i32_Ref_Iq, i32_iq, &PI_iq);
+    int32_t i32_vq = PI_iq.Uk;
+    // PI Controller Id PI controller of FOC */ // note: Ref_Id is set on 0 and does not change => Flux_Vd
+    int32_t i32_Ref_id = 0 ;
+    pi_controller(i32_Ref_Id, i32_id, &PI_id);
+    int32_t i32_vd = PI_id.Uk;
+
+    // Inert park with CORDIC : Z = φ. Θ = atan(Vq/Vd) + rotor angle φ, equivalent to Inv. Park Transform
+    // in vectoring mode, cordic is here configured to return an unsigned Q32 angle  
+    MATH->CON = CORDIC_VECTORING_MODE; // General control of CORDIC Control Register 
+    MATH->CORDZ = RotorAngleQ31; // Z = φ. Θ = atan(Vq/Vd) + rotor angle φ, equivalent to Inv. Park Transform 
+    MATH->CORDY = i32_vq << CORDIC_SHIFT; // Y = Vq = PI_iq.Uk       
+    MATH->CORDX = i32_vd << CORDIC_SHIFT; // X = Vd = PI_id.Uk. Input CORDX data, and auto start of CORDIC calculation */
+    /* Wait if CORDIC is still running calculation */
+    while (MATH->STATC & 0x01) {  continue; }
+    uint32_t Vref32 = MATH->CORRX;   /* Read CORDIC result |Vref| - 32-bit unsigned */ 
+    int32_Vref_AngleQ31 = MATH->CORRZ; /* Angle addition by CORDIC directly, where Θ = atan(Vq/Vd), φ is rotor angle */
+
+    uint32_t SVM_Vref16;
+	SVM_Vref16 = Vref32 >>CORDIC_SHIFT;
+
+	SVM_Vref16 = (SVM_Vref16 * 311) >> 8;        // mutiply by 1.21   ????? Probably K factor + some shift
+	Vref32 = SVM_Vref16 << CORDIC_SHIFT;
+
+   // -----------------------------
+    // 6. Index LUT et fraction
+    // -----------------------------
+    // u8_lut_index = partie entière de Q8.8, sert d’index dans la LUT (0..255)
+    // u8_lut_frac = partie fractionnaire Q8.8 pour interpolation linéaire entre N et N+1
+    uint8_t u8_lut_index = Vref32 >> 24;           // 0..255 // to do add rounding !!!!!!!!!!!!!!!!
+    
+    // Calcul des index LUT pour les 3 phases A/B/C
+    // Les décalages +171/-120° et +85/+120° sont en unités LUT 0..255
+    // &0xFF garantit le rollover correct sur 256 éléments de la LUT
+    uint8_t u8_lut_index_A = (u8_lut_index + 171) & 0xFF; // -120° = 256*2/3 ≈ 171
+    uint8_t u8_lut_index_B = u8_lut_index ;
+    uint8_t u8_lut_index_C = (u8_lut_index + 85) & 0xFF; // + 120°
+
+    int16_t svm_A = i16_LUT_SINUS[u8_lut_index_A];
+    int16_t svm_B = i16_LUT_SINUS[u8_lut_index_B];
+    int16_t svm_C = i16_LUT_SINUS[u8_lut_index_C];
+    
+    uint32_t ui16_a_pll = (uint32_t) (MIDDLE_SVM_TABLE + (( svm_A * (int16_t) ui8_g_duty_cycle)>>8)); // >>8 because duty_cycle 100% is 256
+    uint32_t ui16_b_pll = (uint32_t) (MIDDLE_SVM_TABLE + (( svm_B * (int16_t) ui8_g_duty_cycle)>>8)); // >>8 because duty_cycle 100% is 256
+    uint32_t ui16_c_pll = (uint32_t) (MIDDLE_SVM_TABLE + (( svm_C * (int16_t) ui8_g_duty_cycle)>>8)); // >>8 because duty_cycle 100% is 256  
+
+    // fill the PWM parameters with the values calculated in the other CCU8 interrupt
+    //XMC_CCU8_SLICE_SetTimerCompareMatch(PHASE_U_TIMER_HW, XMC_CCU8_SLICE_COMPARE_CHANNEL_1 , ui16_a);
+    //XMC_CCU8_SLICE_SetTimerCompareMatch(PHASE_V_TIMER_HW, XMC_CCU8_SLICE_COMPARE_CHANNEL_1 , ui16_b);
+    //XMC_CCU8_SLICE_SetTimerCompareMatch(PHASE_W_TIMER_HW, XMC_CCU8_SLICE_COMPARE_CHANNEL_1 , ui16_c);
+    PHASE_U_TIMER_HW->CR1S = (uint32_t) ui16_a_pll;
+    PHASE_V_TIMER_HW->CR1S = (uint32_t) ui16_b_pll;
+    PHASE_W_TIMER_HW->CR1S = (uint32_t) ui16_c_pll;
+    /* Enable shadow transfer for slice 0,1,2 for CCU80 Kernel */
+	//XMC_CCU8_EnableShadowTransfer(ccu8_0_HW, ((uint32_t)XMC_CCU8_SHADOW_TRANSFER_SLICE_0 |
+	//                                            (uint32_t)XMC_CCU8_SHADOW_TRANSFER_SLICE_1 |
+	//                                            (uint32_t)XMC_CCU8_SHADOW_TRANSFER_SLICE_2 ));
+    ccu8_0_HW->GCSS = ((uint32_t)XMC_CCU8_SHADOW_TRANSFER_SLICE_0 |
+	                                            (uint32_t)XMC_CCU8_SHADOW_TRANSFER_SLICE_1 |
+	                                            (uint32_t)XMC_CCU8_SHADOW_TRANSFER_SLICE_2 );
+    // update of PWM will occur later on when timer reach O match 
+} // end of foc isr
+
+/////// PID +++++++++++++++++++++++++++++++++++++
+
+typedef struct PI_Coefs_Type
+{
+  int32_t error;										/* PI error signal (reference value � feedback value), error[k] */
+
+  int32_t Uk;											  /* PI output U[k] */
+  int32_t Ik;											  /* Integral result I[k] */
+
+  uint16_t Kp;										  /* Proportional gain Kp */
+  uint16_t Ki;										  /* Integral gain Ki */
+  int16_t Scale_KpKi;								/* Scale-up Kp and Ki by 2^Scale_KpKi */
+
+  int32_t Ik_limit_min;
+  int32_t Ik_limit_max;
+
+  int32_t Uk_limit_min;
+  int32_t Uk_limit_max;
+  uint8_t Uk_limit_status;
+} PI_Coefs_Type;
+
+PI_Coefs_Type PI_iq; /* Torque / Iq PI controller. */
+PI_Coefs_Type PI_id; /* Flux /Id PI controller. */
+
+/* API to initialize PI Controller parameters */
+void pmsm_foc_pi_controller_init(void)
+{
+  /*################### For Torque / Iq PI controller ######################*/
+  PI_iq.Kp = PI_iq_KP;
+  PI_iq.Ki = PI_iq_KI;
+  PI_iq.Scale_KpKi = PI_iq_SCALE_KPKI;
+
+  PI_iq.Ik_limit_min = PI_iq_IK_LIMIT_MIN;
+  PI_iq.Ik_limit_max = PI_iq_IK_LIMIT_MAX;
+  PI_iq.Ik_limit_min <<= PI_iq.Scale_KpKi;	/* Ik limits shift. */
+  PI_iq.Ik_limit_max <<= PI_iq.Scale_KpKi;
+
+  PI_iq.Ik = 0;
+
+  PI_iq.Uk_limit_min = PI_iq_UK_LIMIT_MIN;
+  PI_iq.Uk_limit_max = PI_iq_UK_LIMIT_MAX;
+
+/*################### For Flux / Id PI controller ######################*/
+  PI_id.Kp = PI_id_KP;
+  PI_id.Ki = PI_id_KI;
+  PI_id.Scale_KpKi = PI_id_SCALE_KPKI;
+
+  PI_id.Ik_limit_min = PI_id_IK_LIMIT_MIN;
+  PI_id.Ik_limit_max = PI_id_IK_LIMIT_MAX;
+  PI_id.Ik_limit_min <<= PI_id.Scale_KpKi;		/* Ik limits shift. */
+  PI_id.Ik_limit_max <<= PI_id.Scale_KpKi;
+
+  PI_id.Ik = 0;
+
+  PI_id.Uk_limit_min = PI_id_UK_LIMIT_MIN;
+  PI_id.Uk_limit_max = PI_id_UK_LIMIT_MAX;
+}
+
+__STATIC_INLINE int32_t MIN_MAX_LIMIT(int32_t input_val,int32_t higher_limit,int32_t lower_limit)
+  {
+    int32_t return_val;
+    if ( input_val > higher_limit ) return_val = higher_limit;
+    else if ( input_val < lower_limit ) return_val = lower_limit;
+    else return_val = input_val;
+    return return_val;
+  }
+  
+// pi controller withour anti windup    
+__STATIC_INLINE __RAM_FUNC void pi_controller(int32_t reference, int32_t feedback, PI_Coefs_Type *PI_data)
+    {
+      int32_t Tmp_Ik_Uk;
+    
+      PI_data->error = reference - feedback;
+    
+      /* Integral output I[k] = I[k-1] + Ki * error[k] */
+      Tmp_Ik_Uk = ((int32_t)PI_data->Ki * PI_data->error) + PI_data->Ik;
+    
+      /* Check I[k] limit */
+      PI_data->Ik = MIN_MAX_LIMIT(Tmp_Ik_Uk, PI_data->Ik_limit_max, PI_data->Ik_limit_min);
+    
+      /* PI output U[k] = Kp * error[k] + I[k] */
+      Tmp_Ik_Uk = ((int32_t)PI_data->Kp * PI_data->error) + PI_data->Ik;
+    
+      /* Check U[k] output limit */
+      PI_data->Uk = MIN_MAX_LIMIT((Tmp_Ik_Uk >> PI_data->Scale_KpKi), PI_data->Uk_limit_max, PI_data->Uk_limit_min);
+    
+    }
+
+// PI anti windup
+    __STATIC_INLINE __RAM_FUNC void pi_controller_anti_windup(int32_t reference, int32_t feedback,
+        PI_Coefs_Type *PI_data)
+{
+static int32_t Tmp_Ik_Uk;
+
+PI_data->error = reference - feedback;
+
+if(PI_data->Uk_limit_status == 0)  // 0 = when output was not no limitted on previous run, take care, update I term of PID
+{
+/* Integral output I[k] = I[k-1] + Ki * error[k] */
+Tmp_Ik_Uk = ((int32_t)PI_data->Ki * PI_data->error) + PI_data->Ik;
+PI_data->Ik = MIN_MAX_LIMIT(Tmp_Ik_Uk, PI_data->Ik_limit_max, PI_data->Ik_limit_min);
+}
+
+/* PI output U[k] = Kp * error[k] + I[k] */
+Tmp_Ik_Uk = ((int32_t)PI_data->Kp * PI_data->error) + PI_data->Ik;
+Tmp_Ik_Uk = Tmp_Ik_Uk >> PI_data->Scale_KpKi;
+/* Check U[k] output limit */
+PI_data->Uk = MIN_MAX_LIMIT(Tmp_Ik_Uk, PI_data->Uk_limit_max, PI_data->Uk_limit_min);
+if(PI_data->Uk != Tmp_Ik_Uk)
+{
+PI_data->Uk_limit_status = 1;
+}
+else
+{
+PI_data->Uk_limit_status = 0;
+}
+
+}
+
+
+//// utilisation du cordic ----------
+comme le cordic retourne une valeur multipliée par K (1,6...), le mieux pour éviter les débordement est de pré-scaler les données en input.
+Le résultat est alors directement correct et il n'y a pas (moins) de rique de débordement.
+Chat a caluculer que les ADC 12 bits peuvent être décalés <<9 pour augmenter la précision
+Après le réscaling, if faut encore faire un <<8 pour aligner les données comme le veux le cordic (dans les 24 bits de poids fort du registre)
+Le code proposé est 
+#include <stdint.h>
+
+#define M_CONST   636751U   // round(2^20 / K)
+#define SHIFT_OUT 11U       // p - 9
+#define ROUND_C   (1U << (SHIFT_OUT - 1)) // 1024
+
+// a : ADC 12-bit (0..4095)
+static inline uint32_t prepare_X_reg_u32(uint32_t a)
+{
+    // a*M fits in uint32 (max ~2.6e9), do uint32 multiplies
+    uint32_t prod = a * M_CONST;          // 32-bit multiply -> fits
+    uint32_t X_field = (prod + ROUND_C) >> SHIFT_OUT; // rounding then shift
+    if (X_field > ((1U<<23)-1)) X_field = (1U<<23)-1; // safeguard saturation
+    return X_field << 8; // ready to write to CORDIC X register
+}
