@@ -226,7 +226,7 @@ uint16_t debug8 =0;
 uint16_t debug9 =0;
 
 // added by mstrens to optimise hall positions
-extern volatile uint8_t ui8_best_ref_angles[8];
+//extern volatile uint8_t ui8_best_ref_angles[8];
 
 uint16_t ui16_adc_pedal_torque_delta_to_remap = 0;
 uint16_t ui16_adc_pedal_torque_delta_remapped = 0;
@@ -353,11 +353,11 @@ void ebike_app_controller(void) // is called every 25ms by main()
 
      ------------------------------------------------------------------------*/
 	// for debugging
-	debug1 = ui8_best_ref_angles[2];
-	debug2 = ui8_best_ref_angles[3];
-	debug3 = ui8_best_ref_angles[4];
-	debug4 = ui8_best_ref_angles[5];
-	debug5 = ui8_best_ref_angles[6];
+	//debug1 = ui8_best_ref_angles[2];
+	//debug2 = ui8_best_ref_angles[3];
+	//debug3 = ui8_best_ref_angles[4];
+	//debug4 = ui8_best_ref_angles[5];
+	//debug5 = ui8_best_ref_angles[6];
 	
 	#if ( GENERATE_DATA_FOR_REGRESSION_ANGLES == (1) )
 	// allow to calculate the regressions for each interval; 

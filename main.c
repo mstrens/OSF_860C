@@ -98,7 +98,7 @@ extern uint16_t ui16_display_data_factor;
 extern volatile uint8_t ui8_g_foc_angle;
 extern uint8_t ui8_throttle_adc_in;
 
-extern volatile uint8_t ui8_best_ref_angles[8] ;
+//extern volatile uint8_t ui8_best_ref_angles[8] ;
 extern uint32_t best_ref_angles_X16bits[8] ;
 
 extern volatile uint16_t ui16_adc_motor_phase_current;
@@ -283,7 +283,6 @@ int main(void)
 
     //XMC_WDT_Service();
     // set initial position of hall sensor and first next expected one in shadow and load immediately in real register
-    hall_positions_init(); // added by mstrens to manage hybrid hall positioning.
     //posif_init_position();
     get_hall_pattern();
     previous_hall_pattern = 0; // use a different hall pattern to force the angle. 

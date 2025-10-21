@@ -68,13 +68,6 @@ static const int16_t i16_LUT_SINUS[256] = {
     795,793,791,789,786,784,782,780,778,776,775,773,772,771,770,770
 };
 
-// this could probably be removed
-volatile uint8_t ui8_best_ref_angles[8] ; // this table is prefilled in main.c at start up
-uint32_t best_ref_angles_X16bits[8] ;  // same as ui8_best_ref_angles but with 8 more bits for better filtering
-
-//uint32_t ui32_angle_per_tick_X16shift = 0 ; // 
-
-
 // Hall positions in Q8.8
 // Position rotorique in Q8.8 et vitesse en Q16.16
 typedef int32_t q16_16_t; // (signed) (16 bits for decimal, 16bits for unit, 1 unit = 360/256 = 1.4°)
@@ -92,35 +85,6 @@ typedef uint16_t uq8_8_t;   // valeur non signée Q8.8 (0..255.996) pour index /
 #define HALL_INTERP_MAX_DELTA_Q8_8   ((uint16_t)((60 * 65536UL) / 360))   // 60° = 10922 en Q8.8 (~0x2AAA)
 #define Q16_16_SHIFT              16     // position Q16.16
 
-uint16_t last_hall_pattern_change_ticks;
-uint16_t ui16_hall_angle_position_q8_8; // hall position (abs + interpol) to compare with pll position
-
-// common for hall and pll position
-uint16_t ui16_angle_for_id_q8_8;   // position including reference without taking care of lead angle; updated at the end of ISR 0 
-uint8_t ui8_angle_for_id;   // position without taking care of lead angle; updated at the end of ISR 0 
-
-
-// for hall position & hall velocity 
-q8_8_t i16_hall_position_q8_8 = 0;           // position rotorique absolue (Q18.8) based on hall (+ interpolation)
-//int32_t i32_hall_velocity_q8_8X256;  // vitesse mesurée directement entre deux fronts Hall
-uint32_t ui32_hall_velocity_q8_8X256;  // vitesse mesurée directement entre deux fronts Hall
-
-
-// for PLL position and velocity
-q8_8_t i16_pll_position_q8_8 = 0;            // position calculated by PLL
-q8_8_t i16_last_pll_position_q8_8 = 0;      // position rotorique au dernier front Hall
-int32_t i32_pll_velocity_q8_8X256 = 0;           // vitesse rotorique (Q8.8 / tick)
-
-/* Gains in Q8.8 */
-int32_t Kp_pll = 6 ; // it was 5  // par exemple 0.02*256 = 5 ; // Kp = 0.02 → Kp_pll = round(0.02 * 256) = 5
-int32_t Ki_pll = 0 ;   // si utilisé
-// Intégrateur (Q16.16)
-int32_t i32_pll_integrator_q8_8X256 = 0; // 
-// Anti-windup limits (Q16.16)
-#define PLL_INT_MARGIN_MULT 32
-const int32_t PLL_INT_MAX_Q8_8X256 = 26843 * PLL_INT_MARGIN_MULT; // ~858976
-const int32_t PLL_INT_MIN_Q8_8X256 = - (26843 * PLL_INT_MARGIN_MULT);
-
 uq8_8_t ui16_motor_phase_absolute_angle_q8_8 = 0;
 // Angles mesurés pour les patterns Hall valides (Q8.8 = angle° * 256); sequence is 1,3,2,6,4, 5
 uq8_8_t u16_hall_angle_table_Q8_8[8] = {
@@ -134,29 +98,80 @@ uq8_8_t u16_hall_angle_table_Q8_8[8] = {
     0       // 7 invalide
 };
 
-uint16_t previous_hall_pattern_change_ticks ;
-uint16_t ticks_between_2_hall_fronts; 
-// for hall hybrid
-volatile uint16_t curr_sector_avg_duration = 0; 
+uint16_t last_hall_pattern_change_ticks;
+uint16_t ui16_hall_angle_position_q8_8; // hall position (abs + interpol) to compare with pll position
 
+// common for hall and pll position
+//uint16_t ui16_angle_for_id_q8_8;   // position including reference without taking care of lead angle; updated at the end of ISR 0 
+uint8_t ui8_angle_for_id;   // position without taking care of lead angle; updated at the end of ISR 0 
+
+// for hall position & hall velocity 
+q8_8_t i16_hall_position_q8_8 = 0;           // position rotorique absolue (Q18.8) based on hall (+ interpolation)
+//int32_t i32_hall_velocity_q8_8X256;  // vitesse mesurée directement entre deux fronts Hall
+uint32_t ui32_hall_velocity_q8_8X256;  // vitesse mesurée directement entre deux fronts Hall
+
+// +++++++++++++++  for hybrid hall positioning ++++++++++++++++++++
+// === Vitesse seuil pour transition Hall→ hybrid
+#define HALL_TO_HYBRID_VELOCITY  ((uint32_t) (1000 * 4474 / 1000))  // velocity is rpm * '4,474
+#define HYBRID_TO_HALL_VELOCITY  ((uint32_t) (500 * 4474 / 1000))
+uint8_t u8_theta_out_valid = 0;  // 0 = Hall-only, 1 = hybrid
+uint16_t ui16_hyb_angle_no_ref_no_lead_q8_8 = 0;       // position estimée
+uint16_t u16_P0_q8_8 = 0;              // position base du front précédent
+uint16_t u16_P1_q8_8 = 0;              // position base du secteur courant
+uint32_t u32_hyb_velocity_q8_8X256 = 0;              // vitesse secteur précédent (angle/tick X256)
+int16_t i16_correction_q8_8 = 0;       // correction progressive restante
+int16_t i16_step_q8_8 = 0;             // step par ISR
+int8_t i8_cnt_steps = 0;             // nombre d’ISR restant pour la correction
+int16_t i16_residual_q8_8 = 0;         // correction résiduelle pour ajustement exact
+#define NB_SECTORS      6
+#define ANGLE_MAX_Q16   65536U       // 1 tour = 65536 en Q16
+#define SHIFT_CORR      3            // correction sur 8 ISR PWM
+const uint16_t u16_base_sector_q8_8[NB_SECTORS]   = {
+    24<<8,  // 1 -> 24 * 360 / 256 degré
+    66<<8,  // 3 -> 66 * 360 / 256 degré
+    107<<8, // 2 -> 107 * 360 / 256 degré
+    152<<8, // 6 -> 152 * 360 / 256 degré    
+    195<<8, // 4 -> 195 * 360 / 256 degré
+    235<<8, // 5 -> 235 * 360 / 256 degré
+};
+const uint16_t u16_sector_angle_q8_8[NB_SECTORS] = {
+    (66-24)<<8,  // 1 -> 24 * 360 / 256 degré
+    (107-66)<<8, // 2 -> 107 * 360 / 256 degré
+    (152-107)<<8,  // 3 -> 66 * 360 / 256 degré
+    (195-152)<<8, // 4 -> 195 * 360 / 256 degré
+    (235-195)<<8, // 5 -> 235 * 360 / 256 degré
+    (24+256-235)<<8, // 6 -> 152 * 360 / 256 degré
+};
+
+/*
+// ++++++++++++ for PLL positionning ++++++ not working !!!!!!!!!!!!!!!
+
+// for PLL position and velocity
+q8_8_t i16_pll_position_q8_8 = 0;            // position calculated by PLL
+q8_8_t i16_last_pll_position_q8_8 = 0;      // position rotorique au dernier front Hall
+int32_t i32_pll_velocity_q8_8X256 = 0;           // vitesse rotorique (Q8.8 / tick)
+
+// Gains in Q8.8 
+int32_t Kp_pll = 6 ; // it was 5  // par exemple 0.02*256 = 5 ; // Kp = 0.02 → Kp_pll = round(0.02 * 256) = 5
+int32_t Ki_pll = 0 ;   // si utilisé
+// Intégrateur (Q16.16)
+int32_t i32_pll_integrator_q8_8X256 = 0; // 
+// Anti-windup limits (Q16.16)
+#define PLL_INT_MARGIN_MULT 32
+const int32_t PLL_INT_MAX_Q8_8X256 = 26843 * PLL_INT_MARGIN_MULT; // ~858976
+const int32_t PLL_INT_MIN_Q8_8X256 = - (26843 * PLL_INT_MARGIN_MULT);
+// +++++++++++ end PLL ++++++++++++++++++++++
+*/
+
+uint16_t previous_hall_pattern_change_ticks = 0; 
+uint16_t ticks_between_2_hall_fronts; 
 int8_t curr_sector = 0; //
 uint8_t prev_sector = 0; 
 uint16_t sector_angle[6] ; // angle in q8.8 (65356=360°) in this sector (begin with this index)
 uint16_t base_angle[6];    // angle at the begin of the sector
 uint16_t end_angle[6];     // angle at the end of the sector (= begin of the next one)
 uint16_t avg_duration[6];    // durée moyenne (ticks timer)
-
-// Variables de position et vitesse
-uint16_t u16_theta_out = 0;
-uint16_t u16_theta_out_prev = 0;
-uint16_t u16_theta_ref_front = 0;   // position figée au front Hall
-uint16_t previous_hall_pattern_change_ticks = 0;    
-uint16_t u16_theta_pred_prev = 0;   
-int32_t i32_omega_estX256 = 0;          // angle/tick * 256 ;  angle : 360° = 65336 ; 1000 rpm = 4474
-uint32_t u32_inv_dur_current_sector_q23 = 0; // Q23 pour précision
-
-// Indicateur si on utilise u16_theta_out ou Hall-only
-uint8_t u8_theta_out_valid = 0;  // 0 = Hall-only, 1 = interpolation u16_theta_out
+uint32_t avg_tot;
 
 //for debug 
 //uint8_t ui8_error_interpolation_q8_8 = 0; // to debug
@@ -177,6 +192,13 @@ uint16_t debug_hall_velocity14000;
 uint16_t debug_pll_velocity14000;
 int16_t i16_diff_angle_hall_pll;
 uint16_t u16_diff_angle_hall_pll_max = 0;
+uint16_t debug_diff_hall_hyb = 0;
+uint16_t debug_velocity_0;
+uint16_t debug_velocity_1;
+uint16_t debug_velocity_2;
+uint16_t debug_velocity_3;
+uint16_t debug_velocity_4;
+uint16_t debug_velocity_5;
 
 
 // motor variables
@@ -281,19 +303,6 @@ volatile uint16_t debug_time_ccu8_irq0 = 0;
 //volatile uint16_t debug_time_ccu8_irq1d = 0;
 //volatile uint16_t debug_time_ccu8_irq1e = 0;
 uint16_t hall_ref_angles_counter = 0;
-
-//extern uint8_t ui8_pwm_duty_cycle_max;
-
-uint8_t ui8_hall_ref_angles[8] = { // Sequence is 1, 3, 2 , 6, 4, 5; so angle are in theory e.g. 39, 86, 127, 167, 216, 0 (256=360°)
-        0,                     // error ; index must be between 1 and 6
-        24 , //    for hall pattern 1
-        107, //     for hall pattern 2  106
-        66, //       for hall pattern 3 65
-        195, //    for hall pattern 4 
-        235 , //    for hall pattern 5
-        152, //     for hall pattern 6  
-        0                     // error ; index must be between 1 and 6
-};
 
 // === Mapping des états Hall vers secteurs === Sequence is 1, 3, 2, 6, 4, 5 
 //                                                 for sect 0, 1, 2, 3, 4, 5
@@ -446,7 +455,7 @@ uint16_t hall_cal_total_count;
 inline __attribute__((always_inline)) void hall_collect_calibrate(){
     switch (hall_calib_state) {
         case HALL_TO_CALIBRATE:
-            if (ui32_hall_velocity_q8_8X256 > 2000){
+            if (ui32_hall_velocity_q8_8X256 > (uint32_t)(2237)){ // 1000 rpm = 4474; so 2237 = 500 rpm 
                 hall_calib_state = HALL_CALIBRATING;
                 hall_cal_total_count = 6 * 200;
                 for (uint8_t i=0;i<6;i++){
@@ -456,13 +465,29 @@ inline __attribute__((always_inline)) void hall_collect_calibrate(){
             } 
             break;
         case HALL_CALIBRATING:
-            hall_cal_sum[prev_sector] = ticks_between_2_hall_fronts ;
+            hall_cal_sum[prev_sector] += ticks_between_2_hall_fronts ;
             hall_cal_count[prev_sector]++;
             hall_cal_total_count--;
             if (hall_cal_total_count == 0) {hall_calib_state = HALL_MEASURED; }
             break; 
     }
 }
+
+// to debug
+uint16_t base_angle_0;
+uint16_t base_angle_1;
+uint16_t base_angle_2;
+uint16_t base_angle_3;
+uint16_t base_angle_4;
+uint16_t base_angle_5;
+uint16_t sector_angle_0;
+uint16_t sector_angle_1;
+uint16_t sector_angle_2;
+uint16_t sector_angle_3;
+uint16_t sector_angle_4;
+uint16_t sector_angle_5;
+
+
 
 // function to call in main loop or every 25msec
 void hall_calibrate(){
@@ -483,7 +508,8 @@ void hall_calibrate(){
             return;
         }    
         // --- Calcul des angles Q16 (0..65536 = 360°) ---
-        uint32_t accum_angle = 0;
+        int32_t offset =  24<<8;
+        int16_t accum_angle = offset; // 24 to match current tabel 
         for (int i = 0; i < 6; i++)
         {
             // sector_angle[i] proportionnel à avg_duration[i] / total_duration
@@ -493,39 +519,36 @@ void hall_calibrate(){
             accum_angle += sector_angle[i];
         }
         // --- Corriger le dernier secteur pour compenser arrondi ---
-        if (accum_angle != 65536u)  {
-            int32_t diff = 65536u - (int32_t)accum_angle;
-            sector_angle[6] += diff;
+        if (accum_angle != (65536u + offset))  {
+            int32_t diff = 65536u + offset - accum_angle;
+            sector_angle[5] = (uint16_t)((int32_t) sector_angle[5] + diff);
             end_angle[5] = base_angle[5] + sector_angle[5];
         }
         hall_calib_state = HALL_CALIBRATED;
+        
+        // to debug
+        base_angle_0 = (base_angle[0] + 128) >> 8;
+        base_angle_1 = (base_angle[1] + 128) >> 8;
+        base_angle_2 = (base_angle[2] + 128) >> 8;
+        base_angle_3 = (base_angle[3] + 128) >> 8;
+        base_angle_4 = (base_angle[4] + 128) >> 8;
+        base_angle_5 = (base_angle[5] + 128) >> 8;
+        sector_angle_0 = sector_angle[0];
+        sector_angle_1 = sector_angle[1];
+        sector_angle_2 = sector_angle[2];
+        sector_angle_3 = sector_angle[3];
+        sector_angle_4 = sector_angle[4];
+        sector_angle_5 = sector_angle[5];
     }
 }
 // ++++++++++++++ end for calibrate ++++++++++++++
+
+
+
+
 // +++++++++++++++  for hybrid hall positioning ++++++++++++++++++++
-
-// === Paramètres système ===
-#define TIMER_HZ        250000     // timer Hall : 250 kHz → 4 µs/tick
-#define ISR_HZ          19000      // boucle de contrôle : 19 kHz
-#define DT_NOMINAL_TICKS ((float)TIMER_HZ / ISR_HZ)  // ≈ 13.16 ticks
-#define INV_DT_Q12      ((int32_t)((1 << 12) / DT_NOMINAL_TICKS)) // ≈ 315 (1/dt)
-
-// === Constantes de lissage et filtrage ===
-#define K_FRONT_SHIFT       2     // correction front Hall (≈1/4)
-#define K_CONT_SHIFT        5     // correction continue (≈1/32)
-#define OMEGA_ALPHA_SHIFT   4     // filtre vitesse (≈1/16)
-
-// === Vitesse seuil pour transition Hall→u16_theta_out
-#define HALL_TO_HYBRID_VELOCITY  ((uint32_t) (1000 * 4474 / 1000))  // velocity is rpm * '4,474
-#define HYBRID_TO_HALL_VELOCITY  ((uint32_t) (500 * 4474 / 1000))
-
-// omega =  angle * 256 / ticks = ((angle <<8) >> 23) * (1<<23) / ticks = (angle * INV_TICKS) >> 15
 // ============================================================
 // === Fonctions utilitaires pour angles et ticks ===
-inline uint16_t angle_add(uint16_t a, int32_t b)
-{
-    return (uint16_t)(a + b);
-}
 
 inline int16_t angle_diff(uint16_t a, uint16_t b) {
     int32_t d = (int32_t)a - (int32_t)b;
@@ -534,121 +557,88 @@ inline int16_t angle_diff(uint16_t a, uint16_t b) {
     return (int16_t)d;
 }
 
-void hall_positions_init(){
-    sector_angle[0] = 10923;
-    sector_angle[1] = 10923;
-    sector_angle[2] = 10923;
-    sector_angle[3] = 10923;
-    sector_angle[4] = 10923;
-    sector_angle[5] = 10923;
+// =========  filtrage sans reliquat du au calcul en entier =========
+//int32_t diff = omega_mech - i32_omega_estX256;
+//int32_t delta = diff >> OMEGA_ALPHA_SHIFT;
+//if (delta == 0 && diff != 0)  delta = (diff > 0) ? 1 : -1;
+//i32_omega_estX256 += delta;
 
-    uint32_t accum_angle = 0;
-    for (int i = 0; i < 6; i++)  {
-    // sector_angle[i] proportionnel à avg_duration[i] / total_duration
-    base_angle[i] = (uint16_t)accum_angle;
-    end_angle[i] = base_angle[i] + sector_angle[i];
-    accum_angle += sector_angle[i];
-    }
-    // --- Corriger le dernier secteur pour compenser arrondi ---
-    if (accum_angle != 65536u)  {
-    int32_t diff = 65536u - (int32_t)accum_angle;
-    sector_angle[6] += diff;
-    end_angle[5] = base_angle[5] + sector_angle[5];
-    }
-    // Optionnel : petites modifications pour "tromper" le compilateur
-    for(int i=0; i<6; i++) {
-    base_angle[i]++; base_angle[i]--;
-    }
-  
-}
-
+// called when hall pattern change
 inline __attribute__((always_inline)) void synchronise_hall_hybrid(){
-    // to do !!!!! to avoid 2 divisions, when pattern becomses 1 we could calculate hall velocity based on 60° instead of 360°
     if ((!u8_theta_out_valid) && (ui32_hall_velocity_q8_8X256 > HALL_TO_HYBRID_VELOCITY)) {
-        // Position Hall-only : on prend angle de base secteur
-        u16_theta_out = base_angle[curr_sector];
-        u16_theta_ref_front = u16_theta_out;
-        previous_hall_pattern_change_ticks = last_hall_pattern_change_ticks;
-        u16_theta_pred_prev = u16_theta_out;
-    
-        // Initialisation avg_duration avec le ticks_between_2_hall_fronts mesuré
-        avg_duration[0] = ticks_between_2_hall_fronts;
-        avg_duration[1] = ticks_between_2_hall_fronts;
-        avg_duration[2] = ticks_between_2_hall_fronts;
-        avg_duration[3] = ticks_between_2_hall_fronts;
-        avg_duration[4] = ticks_between_2_hall_fronts;
-        avg_duration[5] = ticks_between_2_hall_fronts;
+        ui16_hyb_angle_no_ref_no_lead_q8_8 = u16_base_sector_q8_8[curr_sector];       // position estimée = secteur de base du secteur courant
+        u16_P0_q8_8 = u16_base_sector_q8_8[curr_sector];              // position base du front précédent
+        u16_P1_q8_8 = u16_base_sector_q8_8[curr_sector];              // position base du secteur courant
         
-        curr_sector_avg_duration = ticks_between_2_hall_fronts;
-        u32_inv_dur_current_sector_q23 = ((uint32_t)1 << 23) / curr_sector_avg_duration;
-
-        // Calcul initial i32_omega_estX256 à partir des 2 derniers fronts si possible
-        //i32_omega_estX256 = ((int32_t)sector_angle[prev_sector] << 8) / ticks_between_2_hall_fronts; // angle/tick*256
-        i32_omega_estX256 = (((int32_t)sector_angle[prev_sector] ) * ((int32_t)u32_inv_dur_current_sector_q23) ) >> 15; // angle/tick*256
-
+        u32_hyb_velocity_q8_8X256 = ui32_hall_velocity_q8_8X256;              // vitesse from hall  (angle/tick X256)
+        i16_correction_q8_8 = 0;       // correction progressive restante
+        i16_step_q8_8 = 0;             // step par ISR
+        i8_cnt_steps = 0;             // nombre d’ISR restant pour la correction
+        i16_residual_q8_8 = 0;         // correction résiduelle pour ajustement exact
         u8_theta_out_valid = 1;
-    } else { // u16_theta_out is valid (because rpm is high enough)
-        // --- IIR sur durée secteur ---
-        avg_duration[prev_sector] =
-        (uint16_t)(avg_duration[prev_sector]
-                - (avg_duration[prev_sector] >> OMEGA_ALPHA_SHIFT)
-                + (ticks_between_2_hall_fronts >> OMEGA_ALPHA_SHIFT));
+    } 
+    
+    else { // hybrid is valid (because rpm is high enough) so it makes sense to calculate Hybrid position
+        
+        // Interpolation au front avec vitesse précédente
+        uint16_t u16_theta_est_at_T1_q8_8 = u16_P0_q8_8 + (uint16_t)((u32_hyb_velocity_q8_8X256 * (uint32_t)ticks_between_2_hall_fronts) >> 8);// speed is in x256 to keep accuracy
+        // Erreur vs base nouveau secteur
+        u16_P1_q8_8 = u16_base_sector_q8_8[curr_sector];
+        int16_t i16_err_q8_8 = angle_diff(u16_P1_q8_8 , u16_theta_est_at_T1_q8_8);
 
-        // --- Prédiction et correction u16_theta_out au front ---
-        int32_t theta_pred_front_i32 = (int32_t)u16_theta_ref_front + (i32_omega_estX256 * ticks_between_2_hall_fronts >> 8);
-        uint16_t theta_pred_front = (uint16_t)theta_pred_front_i32;
-        uint16_t theta_raw_front = end_angle[prev_sector] ;
-        int16_t efront = angle_diff(theta_raw_front, theta_pred_front);
-        u16_theta_out = angle_add(theta_pred_front, efront >> K_FRONT_SHIFT);
+        // === Vérifier si l'erreur est excessive (supérieure à ±30°) ===
+        if ((i16_err_q8_8 > (int16_t)HALL_ANGLE_OFFSET_30_DEG_Q8_8) || (i16_err_q8_8 < -(int16_t)HALL_ANGLE_OFFSET_30_DEG_Q8_8))  {
+            // --- Réalignement partiel (application immédiate de 75% de la correction) ---
+            int16_t i16_err_immediate_q8_8 = (i16_err_q8_8 * 3) / 4;  // 75%
+            int16_t i16_err_remaining_q8_8 = i16_err_q8_8 - i16_err_immediate_q8_8;  // reste 25%
 
-        // --- Mise à jour vitesse ---
-        uint32_t inv_dur_q23 = avg_duration[prev_sector] ? ((1u << 23) / avg_duration[prev_sector]) : 0;
-        int32_t omega_mech = ((int32_t)sector_angle[prev_sector] * (int32_t)inv_dur_q23) >> 15;
-        i32_omega_estX256 = i32_omega_estX256 - (i32_omega_estX256 >> OMEGA_ALPHA_SHIFT) + (omega_mech >> OMEGA_ALPHA_SHIFT);
+            // Appliquer 75% tout de suite (on décale la position estimée)
+            ui16_hyb_angle_no_ref_no_lead_q8_8 = u16_P1_q8_8 - ((uint16_t)i16_err_remaining_q8_8);
 
-        // --- Références pour interpolation continue ---
-        u16_theta_ref_front = u16_theta_out;
-        previous_hall_pattern_change_ticks = last_hall_pattern_change_ticks;
-        curr_sector_avg_duration = avg_duration[curr_sector];
-        if(curr_sector_avg_duration < 100) curr_sector_avg_duration=100;
-        u32_inv_dur_current_sector_q23 = ((uint32_t)1<<23)/curr_sector_avg_duration;
-        u16_theta_pred_prev = u16_theta_out;
+            // Corriger progressivement le reste sur quelques ISR
+            i16_step_q8_8 = i16_err_remaining_q8_8 >> SHIFT_CORR;
+            i8_cnt_steps = (int8_t)(1 << SHIFT_CORR);
+            i16_correction_q8_8 = i16_err_remaining_q8_8;
+            i16_residual_q8_8 = (int16_t)((int32_t)i16_err_remaining_q8_8 -
+                                        (int32_t)i16_step_q8_8 * (int32_t)i8_cnt_steps);
+        } else        
+        {
+            // Préparer correction progressive
+            i16_step_q8_8 = i16_err_q8_8 >> SHIFT_CORR;
+            //if (i16_step_q8_8 == 0 && i16_err_q8_8 != 0) i16_step_q8_8 = (i16_err_q8_8 > 0) ? 1 : -1;
+            i8_cnt_steps = 1 << SHIFT_CORR;                  // nombre d’ISR pour lisser l’erreur
+            i16_correction_q8_8 = i16_err_q8_8;     // correction à appliquer immédiatement
+            i16_residual_q8_8 = i16_err_q8_8 - (i16_step_q8_8 * (int32_t)i8_cnt_steps);
+        }
+        // Vitesse secteur précédent utilisée pour les prochaines interpolations; <<8 to increase precision
+        u32_hyb_velocity_q8_8X256 = (((uint32_t)u16_sector_angle_q8_8[prev_sector]) << 8) / (uint32_t) ticks_between_2_hall_fronts;
+
+        // Préparer pour interpolation suivante
+        u16_P0_q8_8 = u16_P1_q8_8;
     }
+    // --- Repli Hall-only si vitesse trop faible ---
+    if (ui32_hall_velocity_q8_8X256 < HYBRID_TO_HALL_VELOCITY)
+        u8_theta_out_valid = 0;
 }
 
-
-inline __attribute__((always_inline)) void update_hybrid_position(uint16_t enlapsed){
-    // ==============================================
-    // --- Interpolation continue entre fronts ---
-    // ==============================================
-    if(u8_theta_out_valid)
-    {
-        // --- Prédiction linéaire ---
-        int32_t theta_pred_i32 = (int32_t)u16_theta_ref_front + (i32_omega_estX256 * enlapsed >> 8);
-        uint16_t theta_pred = (uint16_t)theta_pred_i32;
-
-        // frac en Q15 = (dt / curr_duration) en Q15
-        uint32_t frac_q15 = ((uint32_t)enlapsed * u32_inv_dur_current_sector_q23) >> 8; // Q15
-        if (frac_q15 > 32767u) frac_q15 = 32767u;
-        uint16_t theta_raw = base_angle[curr_sector] + (uint16_t)(((uint32_t)sector_angle[curr_sector] * frac_q15) >> 15);
-
-        // --- Lissage continu ---
-        int16_t e = angle_diff(theta_raw, theta_pred);
-        u16_theta_out = angle_add(theta_pred, e >> K_CONT_SHIFT);
-
-        // --- Estimation vitesse instantanée ---
-        int16_t delta_pred = angle_diff(theta_pred, u16_theta_pred_prev);
-        int32_t omega_inst = ((int32_t)delta_pred * INV_DT_Q12) >> 12;
-        i32_omega_estX256 = i32_omega_estX256 - (i32_omega_estX256 >> OMEGA_ALPHA_SHIFT) + (omega_inst >> OMEGA_ALPHA_SHIFT);
-        if(i32_omega_estX256<0) i32_omega_estX256=0;
-        // --- Sauvegardes ---
-        u16_theta_pred_prev = theta_pred;
-        u16_theta_out_prev = u16_theta_out;
-
-        // --- Repli Hall-only si vitesse trop faible ---
-        if (ui32_hall_velocity_q8_8X256 < HYBRID_TO_HALL_VELOCITY)
-            u8_theta_out_valid = 0;
-    }
+// ISR PWM : interpolation + correction progressive
+inline __attribute__((always_inline)) void update_hybrid_position(uint16_t elapsed_ticks){
+    if(u8_theta_out_valid) {
+        // Interpolation linéaire depuis le dernier changement front
+        uint16_t u16_theta_interp_q8_8 = u16_P0_q8_8 + ((u32_hyb_velocity_q8_8X256 * elapsed_ticks) >> 8);
+        if (i8_cnt_steps > 0) {         // Appliquer correction progressive avec signe correct (soustraction)
+            ui16_hyb_angle_no_ref_no_lead_q8_8 = u16_theta_interp_q8_8 - i16_correction_q8_8;
+            // Décrémenter correction pour le prochain ISR
+            i16_correction_q8_8 -= i16_step_q8_8;
+            i8_cnt_steps--;
+        }
+        else if (i8_cnt_steps == 0) {        // Appliquer résiduel une seule fois pour convergence exacte
+            ui16_hyb_angle_no_ref_no_lead_q8_8 = u16_theta_interp_q8_8 - i16_residual_q8_8;
+            i8_cnt_steps--;  // ne plus rentrer ici
+        } else {        // Plus de correction à appliquer
+            ui16_hyb_angle_no_ref_no_lead_q8_8 = u16_theta_interp_q8_8;
+        }
+    }    
 }
 
 
@@ -734,9 +724,10 @@ __RAM_FUNC static inline void calculate_id_part1(){  // to be called in begin of
 #endif // end (1) dynamic based on Id and a PID + optimiser    
 
 
+/*          For pll ------ not working
 // compute signed shortest difference (a - b) in Q8.8 used in PLL
 // both a and b are uq8_8_t (0..65535), returns q8_8_t in range [-128..+128) *256
-/* --- Angle diff corrected (use uint16 arithmetic, wrap properly) --- */
+// --- Angle diff corrected (use uint16 arithmetic, wrap properly) --- 
 inline q8_8_t angle_diff_q8_8(uq8_8_t a, uq8_8_t b){
     int32_t diff = (int32_t)(uint16_t)a - (int32_t)(uint16_t)b;
     if (diff >  0x7FFF) diff -= 0x10000;
@@ -788,6 +779,7 @@ inline __attribute__((always_inline)) void synchronise_pll(){
     else
     debug_pll_velocity14000 = 0;
 }
+*/
 
 // ************************************** begin of IRQ *************************
 // *************** irq 0 of ccu8
@@ -851,10 +843,6 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
             ui8_motor_commutation_type = BLOCK_COMMUTATION; // 0x00
             ui8_hall_360_ref_valid = 0;  // reset the indicator saying no error for a 360° electric rotation 
             ui32_hall_velocity_q8_8X256 =  0;  // reset the speed for interpolation in block commutation
-            // reset PLL
-            i32_pll_integrator_q8_8X256 = 0;
-            i16_pll_position_q8_8 = u16_hall_angle_table_Q8_8[current_hall_pattern];     // initialisation à la position actuelle
-            i32_pll_velocity_q8_8X256 = 0 ; // use raw velocity based on time interval over 360°
             // reset calibration when calibrating
             if (hall_calib_state == HALL_CALIBRATING) hall_calib_state = HALL_TO_CALIBRATE; // will restart calibration when speed increase again
 
@@ -892,10 +880,24 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
             //synchronise_pll();
             hall_collect_calibrate();
             synchronise_hall_hybrid();
+            if (curr_sector == 0) {
+                debug_velocity_0 = ((uint32_t) u16_sector_angle_q8_8[prev_sector] << 8) / (uint32_t)ticks_between_2_hall_fronts;
+            } else if  (curr_sector == 1) { 
+                debug_velocity_1 = ((uint32_t) u16_sector_angle_q8_8[prev_sector] << 8) / (uint32_t)ticks_between_2_hall_fronts;
+            } else if  (curr_sector == 2) { 
+                debug_velocity_2 = ((uint32_t) u16_sector_angle_q8_8[prev_sector] << 8) / (uint32_t)ticks_between_2_hall_fronts;
+            } else if  (curr_sector == 3) { 
+                debug_velocity_3 = ((uint32_t) u16_sector_angle_q8_8[prev_sector] << 8) / (uint32_t)ticks_between_2_hall_fronts;
+            } else if  (curr_sector == 4) { 
+                debug_velocity_4 = ((uint32_t) u16_sector_angle_q8_8[prev_sector] << 8) / (uint32_t)ticks_between_2_hall_fronts;
+            } else if  (curr_sector == 5) { 
+                debug_velocity_5 = ((uint32_t) u16_sector_angle_q8_8[prev_sector] << 8) / (uint32_t)ticks_between_2_hall_fronts;
+            }                                                                
         }
         previous_hall_pattern = current_hall_pattern; // saved to detect future change and check for valid transition
         ui16_motor_phase_absolute_angle_q8_8 = u16_hall_angle_table_Q8_8[current_hall_pattern]; 
-        previous_hall_pattern_change_ticks = last_hall_pattern_change_ticks ; 
+        previous_hall_pattern_change_ticks = last_hall_pattern_change_ticks ;
+        debug_diff_hall_hyb = ui16_motor_phase_absolute_angle_q8_8 - u16_P0_q8_8;
 
         #if ( GENERATE_DATA_FOR_REGRESSION_ANGLES == (1) )
         if ((ticks_intervals_status == 0) && (current_hall_pattern == 1) ) {
@@ -919,7 +921,6 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
             ui8_g_foc_angle = 0;
             ui8_hall_360_ref_valid = 0;
             ui32_hall_velocity_q8_8X256 = 0;
-            i32_pll_velocity_q8_8X256 = 0;
             ui16_hall_counter_total = 0xffff;
             if (hall_calib_state == HALL_CALIBRATING) hall_calib_state = HALL_TO_CALIBRATE; // will restart calibration when speed increase again
         }
@@ -960,6 +961,13 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
         if (u16_diff_angle_hall_pll_max < abs(i16_diff_angle_hall_pll)) u16_diff_angle_hall_pll_max = abs(i16_diff_angle_hall_pll);
     } else if (ui32_hall_velocity_q8_8X256 < 100)u16_diff_angle_hall_pll_max = 0;
 */
+
+    // to debug calculate difference in pos between hall and hybrid
+    i16_diff_angle_hall_pll = angle_diff(ui16_hall_angle_no_ref_no_lead_q8_8,  ui16_hyb_angle_no_ref_no_lead_q8_8)>>8;
+    if (ui32_hall_velocity_q8_8X256 > 13000){
+        if (u16_diff_angle_hall_pll_max < abs(i16_diff_angle_hall_pll)) u16_diff_angle_hall_pll_max = abs(i16_diff_angle_hall_pll);
+    } else if (ui32_hall_velocity_q8_8X256 < 100)u16_diff_angle_hall_pll_max = 0;
+
 
     // Optional to do : ratio of blend could change with the speed: low speed = 100% hall, high speed = 100% pll, mid speed = e.g.50% or 75 %
 //    uint16_t ui16_angle_no_ref_no_lead_q8_8;
