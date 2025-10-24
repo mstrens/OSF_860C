@@ -98,11 +98,13 @@ extern volatile uint16_t ui16_adc_motor_phase_current;
 uint16_t ui16_motor_speed_erps = 0;
 
 // cadence sensor
-uint16_t ui16_cadence_ticks_count_min_speed_adj = CADENCE_SENSOR_CALC_COUNTER_MIN;
+// CADENCE_SENSOR_CALC_COUNTER_MIN = 4270 is from TSDZ2; here divided by 19 to take care that timeout counter is at 1khz instead of 19khz 
+uint16_t ui16_cadence_ticks_count_min_speed_adj = CADENCE_SENSOR_CALC_COUNTER_MIN / (PWM_CYCLES_SECOND * 1000);  
+            
 static uint8_t ui8_pedal_cadence_RPM = 0;
 // added by mstrens to allow faster torque decrease 
 uint8_t ui8_pedal_cadence_RPM_previous = 0;
-int16_t i16_pedal_cadence_RPM_decrease_ratio = 0 ;
+//int16_t i16_pedal_cadence_RPM_decrease_ratio = 0 ;
 
 // torque sensor
 static uint16_t ui16_adc_pedal_torque_offset = ADC_TORQUE_SENSOR_OFFSET_DEFAULT; 
@@ -1432,7 +1434,7 @@ static void calc_wheel_speed(void)
 {
     // calc wheel speed (km/h x10)
     if (ui16_wheel_speed_sensor_ticks) {
-        uint16_t ui16_tmp = ui16_wheel_speed_sensor_ticks;
+		uint16_t ui16_tmp = ui16_wheel_speed_sensor_ticks; // copy the value from isr
         // rps = PWM_CYCLES_SECOND / ui16_wheel_speed_sensor_ticks (rev/sec)
         // km/h*10 = rps * ui16_wheel_perimeter * ((3600 / (1000 * 1000)) * 10)
         // !!!warning if PWM_CYCLES_SECOND is not a multiple of 1000
@@ -1442,9 +1444,7 @@ static void calc_wheel_speed(void)
 		#if WHEEL_SPEED_SENSOR_SIMULATION
 		if(ui16_motor_speed_erps > 2) {
 			ui16_wheel_speed_x10 = (ui16_motor_speed_erps * 8) / 14;
-		} else {
-			ui16_wheel_speed_x10 = 0;
-		}
+		} else { ui16_wheel_speed_x10 = 0;} 
 		#else
 		ui16_wheel_speed_x10 = 0;
 		#endif
@@ -1463,8 +1463,8 @@ static void calc_cadence(void)
     ui16_cadence_ticks_count_min_speed_adj = map_ui16(ui16_wheel_speed_x10,
             40,
             400,
-            CADENCE_SENSOR_CALC_COUNTER_MIN,            //4270
-            CADENCE_SENSOR_TICKS_COUNTER_MIN_AT_SPEED); //341
+            CADENCE_SENSOR_CALC_COUNTER_MIN / (PWM_CYCLES_SECOND * 1000),            //4270 is from TSDZ2; here divided by 19 to take care that timeout counter is at 1khz instead of 19khz 
+            CADENCE_SENSOR_TICKS_COUNTER_MIN_AT_SPEED / (PWM_CYCLES_SECOND / 1000)); //341
 
     // calculate cadence in RPM and avoid zero division
     // !!!warning if PWM_CYCLES_SECOND > 21845
@@ -1495,14 +1495,14 @@ static void calc_cadence(void)
      -------------------------------------------------------------------------------------------------*/
 	 // added by mstrens
 	 // we also calculate the ratio of decrease of cadence in order to allow faster reaction of assistance when pedal pressure reduce
-	 i16_pedal_cadence_RPM_decrease_ratio = 0;
-	 if ( ui8_pedal_cadence_RPM > 0){
-		int16_t i16_pedal_cadence_RPM_difference = (int16_t) ui8_pedal_cadence_RPM_previous - (int16_t) ui8_pedal_cadence_RPM;
-		if (i16_pedal_cadence_RPM_difference > 0) {
-			i16_pedal_cadence_RPM_decrease_ratio = (i16_pedal_cadence_RPM_difference << 8) / ui8_pedal_cadence_RPM;
-		} 
-	} 
-	 ui8_pedal_cadence_RPM_previous = ui8_pedal_cadence_RPM;
+	// i16_pedal_cadence_RPM_decrease_ratio = 0;
+	// if ( ui8_pedal_cadence_RPM > 0){
+	//	int16_t i16_pedal_cadence_RPM_difference = (int16_t) ui8_pedal_cadence_RPM_previous - (int16_t) ui8_pedal_cadence_RPM;
+	//	if (i16_pedal_cadence_RPM_difference > 0) {
+	//		i16_pedal_cadence_RPM_decrease_ratio = (i16_pedal_cadence_RPM_difference << 8) / ui8_pedal_cadence_RPM;
+	//	} 
+	//} 
+	ui8_pedal_cadence_RPM_previous = ui8_pedal_cadence_RPM;
 }
 
 
@@ -1863,21 +1863,24 @@ static void get_pedal_torque(void)
 		}
 		*/
 		
+		// was used only when katana and spider was not used
 		// When cadence decrease ratio exceed some value, we reset the current and previous Max rotation value
 		// max cadence is 120; so max cadence decrease ratio is (120-1)*256/(120+1) = 256
 		// (2-1)*256/1 = 256
 		// (110-90)*256/100 = 25
- 		#define CADENCE_DECREASE_RATIO 25
-		if (i16_pedal_cadence_RPM_decrease_ratio > CADENCE_DECREASE_RATIO) {
-			ui16_adc_torque_actual_rotation = 0;
-			ui16_adc_torque_previous_rotation = 0 ;
-			ui8_adc_torque_rotation_reset = 1 ; // will force also a reset in the motor.c irq to be safe and reset rpm counter
-		}
+ 		//#define CADENCE_DECREASE_RATIO 25
+		//if (i16_pedal_cadence_RPM_decrease_ratio > CADENCE_DECREASE_RATIO) {
+		//	ui16_adc_torque_actual_rotation = 0;
+		//	ui16_adc_torque_previous_rotation = 0 ;
+		//	ui8_adc_torque_rotation_reset = 1 ; // will force also a reset in the motor.c irq to be safe and reset rpm counter
+		//}
 		
         // get adc pedal torque
 		// by default we use ui16_adc_torque_filtered (calculated in motor.c irq)
 		// when cadence is high enough, we use the max between actual value, actual rotation and previous rotation
 		ui16_adc_pedal_torque = ui16_adc_torque_filtered; // copy the value from irq because it can change
+		
+		/*
 		#if (USE_KATANA1234_LOGIC_FOR_TORQUE == (0)) // when we use the logic based on the max of current, max of current rotation, max of previous rotation
 		#define PEDAL_CADENCE_MIN_FOR_USING_ROTATION 30
 		if (ui8_pedal_cadence_RPM > PEDAL_CADENCE_MIN_FOR_USING_ROTATION) { 
@@ -1887,6 +1890,7 @@ static void get_pedal_torque(void)
 			ui8_adc_torque_rotation_reset = 1 ; // will force also a reset of torque rotation in the motor.c irq and so we use the actual value 
 		}
 		#endif
+		*/
     }
 	
 	// here we know the ui16_adc_pedal_torque but we still have to take care of 
@@ -2570,10 +2574,10 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 			ui8_tx_buffer[10] = ui8_throttle_adc_in;
 		}
 		
-		// ADC torque_sensor
-		ui8_tx_buffer[11] = (uint8_t) (ui16_adc_torque & 0xff);
+		// ADC torque_sensor // changed by ms to use filtered value
+		ui8_tx_buffer[11] = (uint8_t) (ui16_adc_torque_filtered & 0xff);
 		// ADC torque_sensor (higher bits), this bits are shared with wheel speed bits
-		ui8_tx_buffer[7] |= (uint8_t) ((ui16_adc_torque & 0x300) >> 2); //xx00 0000
+		ui8_tx_buffer[7] |= (uint8_t) ((ui16_adc_torque_filtered & 0x300) >> 2); //xx00 0000
 
 		// pedal torque delta no boost
 		ui8_tx_buffer[12] = (uint8_t) (ui16_adc_pedal_torque_delta_no_boost & 0xff);

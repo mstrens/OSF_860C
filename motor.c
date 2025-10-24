@@ -1,14 +1,6 @@
 //branch test 2---
-// TO do : try to calculate hal_velocity every 60° instead of every 360°, so there would be only one division when pattern change
-// use math div to save time for division when calculating velocity
 // Avoid interpolating hall position when Hybrid is valid (save some cpu) 
 
-// for cadence, adapt ui16_cadence_sensor_ticks_counter_min in ebike_app.c in order to take care that counter runs at 1kHz instead of 19kHz
-//             then remove the division by 19 in motor ; this avoid a division in the ISR
-// for cadence activate     ui8_pas_new_transition = 0x80; // used in mspider logic for torque sensor
-// for cadence activate     ui8_pas_new_transition = 1; // mspider logic for torque sensor;mark for one of the 20 transitions per rotation
-// replace ui16_cadence_sensor_ticks_new by ui16_cadence_sensor_ticks to use the value given by the systick ISR                    
-// replace ui16_wheel_speed_sensor_ticks_new by ui16_wheel_speed_sensor_ticks to use the value given by the systick ISR
 // change code to use ms_counter à la place de system_tick
 // !!!! quand on change la fréquence du timer hall_speed de 250000 à 1mHz, il y a aussi des changements dans main 
 // !!! aussi à uint16_t last_clock_ticks = 0;  // used to call a function every 25 ms (ebbike controller at 40Hz)
@@ -18,6 +10,7 @@
 //volatile uint32_t system_ticks2 = 0;
 // il faut faire un search général sur HALL_SPEED_TIMER_HW pour voir tous les impacts (notamment pour les fonctions dans common)
 
+// move more code from ISR1 to systick_handler
 
 /*
  * TongSheng TSDZ2 motor controller firmware
@@ -208,13 +201,13 @@ volatile uint16_t ui16_adc_motor_phase_current = 0; // mstrens: it was uint8 in 
 
 // ADC Values
 volatile uint16_t ui16_adc_voltage = 0;
-volatile uint16_t ui16_adc_torque = 0;
+//volatile uint16_t ui16_adc_torque = 0;
 //volatile uint16_t ui16_adc_throttle = 0; // moved to ebike_app.c
 //added by mstrens
 volatile uint16_t ui16_adc_torque_filtered = 0 ; // filtered adc torque
-volatile uint16_t ui16_adc_torque_actual_rotation = 0;
-volatile uint16_t ui16_adc_torque_previous_rotation = 0;
-volatile uint8_t ui8_adc_torque_rotation_reset = 0;
+//volatile uint16_t ui16_adc_torque_actual_rotation = 0;
+//volatile uint16_t ui16_adc_torque_previous_rotation = 0;
+//volatile uint8_t ui8_adc_torque_rotation_reset = 0;
     
 // brakes
 volatile uint8_t ui8_brake_state = 0;
@@ -222,12 +215,12 @@ volatile uint8_t ui8_brake_state = 0;
 // cadence sensor
 #define NO_PAS_REF 5
 volatile uint16_t ui16_cadence_sensor_ticks = 0;
-static uint16_t ui16_cadence_sensor_ticks_counter_min = CADENCE_SENSOR_CALC_COUNTER_MIN; // initialiszed at 4270 , then varies with wheelSpeed
-static uint8_t ui8_pas_state_old = 4;
-static uint16_t ui16_cadence_calc_counter = 0;
-static uint16_t ui16_cadence_stop_counter = 0;
-static uint8_t ui8_cadence_calc_ref_state = NO_PAS_REF;
-const static uint8_t ui8_pas_old_valid_state[4] = { 0x01, 0x03, 0x00, 0x02 };
+//static uint16_t ui16_cadence_sensor_ticks_counter_min = CADENCE_SENSOR_CALC_COUNTER_MIN; // initialiszed at 4270 , then varies with wheelSpeed
+//static uint8_t ui8_pas_state_old = 4;
+//static uint16_t ui16_cadence_calc_counter = 0;
+//static uint16_t ui16_cadence_stop_counter = 0;
+//static uint8_t ui8_cadence_calc_ref_state = NO_PAS_REF;
+//const static uint8_t ui8_pas_old_valid_state[4] = { 0x01, 0x03, 0x00, 0x02 };
 //added by mstrens
 uint8_t ui8_pas_counter = 0; // counter to detect a full pedal rotation (after 20 valid transitions)
 
@@ -339,7 +332,7 @@ volatile uint32_t ui32_wheel_last_pwm_ticks = 0; // dernier front roue (ui32_pwm
 
 //uint8_t ui8_pedal_cadence_RPM_new= 0;  // cadence calculated in systick (to debug and compare with old one)
 uint16_t ui16_cadence_sensor_ticks_new = 0 ;  // used to calculate the cadence (to debug and compare with old one)
-uint16_t ui16_wheel_speed_sensor_ticks_new = 0 ; // used to calculate the wheel speed; 1 tick = 1/PWM frequency
+//uint16_t ui16_wheel_speed_sensor_ticks_new = 0 ; // used to calculate the wheel speed; 1 tick = 1/PWM frequency
 /****************************************************************************/
 /*
     * - New pedal start/stop detection Algorithm (by MSpider65) -
@@ -367,14 +360,6 @@ const uint8_t ui8_cadence_transpose[16] = {
     /*8*/ 4,  /*9*/ 5,  /*10*/5,  /*11*/1,
     /*12*/5,  /*13*/2,  /*14*/4,  /*15*/5
 };
-
-//const uint8_t ui8_cadence_transpose[16] = {
-//    /*0*/ 5,  /*1*/ 0,  /*2*/ 4,  /*3*/ 5,
-//    /*4*/ 4,  /*5*/ 5,  /*6*/ 5,  /*7*/ 1,
-//    /*8*/ 3,  /*9*/ 5,  /*10*/5,  /*11*/4,
-//    /*12*/5,  /*13*/4,  /*14*/2,  /*15*/5
-//};
-
 
 uint8_t ui8_prev_cadence_state = 0;   // 2 bits combinés prev A/B
 uint8_t ui8_prev_wheel_state = 0;
@@ -445,16 +430,14 @@ void SysTick_Handler(void) {
         if (ui8_cadence_idx_max == 4) { // --- reverse cadence rotation ---
             ui16_cadence_sensor_ticks_new = 0; // reset value used in ebike_app.c
             i8_prev_cadence_index = -1;
-            //ui32_prev_cadence_tick = 0;
-            
-//ui8_pas_new_transition = 0x80; // used in mspider logic for torque sensor // to do
+            ui8_pas_new_transition = 0x80; // used in mspider logic for torque sensor 
         } else { // --- forward cadence (codes 0..3) ---
             //ui16_debug_fw_cnt++;
             if (i8_prev_cadence_index < 0) {   // Premier front après arrêt → initialise seulement
                 i8_prev_cadence_index = (int8_t)ui8_cadence_idx_max;
                 //i8_debug_idx_ref = i8_prev_cadence_index;
                 ui32_prev_cadence_tick = ui32_cadence_tick_max;
-//ui8_pas_counter = 0; // mstrens :  reset the counter for full rotation used to detect a full rotation for torque (spider)
+                ui8_pas_counter = 0; // mstrens :  reset the counter for full rotation used to detect a full rotation for torque (spider)
             } else { // On a déjà une référence
                 uint32_t ui32_curr_cadence_tick = ui32_cadence_last_ticks[i8_prev_cadence_index]; 
                 // if tick for same index is different, then calculate elapsed ticks
@@ -463,9 +446,8 @@ void SysTick_Handler(void) {
                     //ui32_debug_delta_ticks = ui32_cadence_delta_ticks ; 
                     ui16_cadence_sensor_ticks_new = (uint16_t) ui32_cadence_delta_ticks;
                     ui32_prev_cadence_tick =  ui32_curr_cadence_tick;
-                    
-//ui8_pas_new_transition = 1; // mspider logic for torque sensor;mark for one of the 20 transitions per rotation
-// ui8_pas_counter++; // mstrens : increment the counter when the transition is valid           
+                    ui8_pas_new_transition = 1; // mspider logic for torque sensor;mark for one of the 20 transitions per rotation
+                    ui8_pas_counter++; // mstrens : increment the counter when the transition is valid           
                 } else {
                     // when max timestamp changed (but not yet the timestamp of reference transition)
                     //  set the cadence to 7 RPM for immediate start if it was 0
@@ -475,7 +457,15 @@ void SysTick_Handler(void) {
         }
         ui32_last_cadence_ms = ui32_ms_counter;
     }
-
+    // cadence TIMEOUTS --------- 
+    if ((ui32_ms_counter - ui32_last_cadence_ms) > (ui16_cadence_ticks_count_min_speed_adj)) { // adj =4270 at 4km/h ... 341 at 40 km/h
+        ui16_cadence_sensor_ticks_new = 0; // reset cadence
+        i8_prev_cadence_index = -1;
+        ui32_prev_cadence_tick = 0;
+        ui8_pas_new_transition = 0x80; // for mspider logic for torque sensor
+        ui8_pas_counter = 0; // mstrens :  reset the counter for full rotation
+    }
+    
     // --------- 2) Wheel --------- 
     uint32_t ui32_wheel_pwm_tick = ui32_wheel_last_pwm_ticks;
     if (ui32_wheel_pwm_tick != ui32_prev_wheel_pwm_tick) {
@@ -489,25 +479,33 @@ void SysTick_Handler(void) {
         ui32_last_wheel_ms = ui32_ms_counter;
         if (ui32_wheel_delta_ticks > 0) {
             // set the value used in ebike_app.c to wheel speed
-            ui16_wheel_speed_sensor_ticks_new = ui32_wheel_delta_ticks ; // ticks are based on PWM frequency
+            ui16_wheel_speed_sensor_ticks = ui32_wheel_delta_ticks ; // ticks are based on PWM frequency
         }
     }
-
-    /* --------- 3) TIMEOUTS --------- */
+    // wheel TIMEOUTS --------- 
     if ((ui32_ms_counter - ui32_last_wheel_ms) > (WHEEL_SPEED_SENSOR_TICKS_COUNTER_MIN/19)) {
-        ui16_wheel_speed_sensor_ticks_new = 0; // reset wheel speed
+        ui16_wheel_speed_sensor_ticks = 0; // reset wheel speed
         ui32_prev_wheel_pwm_tick = 0;
     }
 
-    if ((ui32_ms_counter - ui32_last_cadence_ms) > (ui16_cadence_ticks_count_min_speed_adj / 19)) { // adj =4270 at 4km/h ... 341 at 40 km/h
-        ui16_cadence_sensor_ticks_new = 0; // reset cadence
-        i8_prev_cadence_index = -1;
-        ui32_prev_cadence_tick = 0;
-        //ui32_prev_cadence_tick_max = 0;
-// ui8_pas_new_transition = 0x80; // for mspider logic for torque sensor
-// ui8_pas_counter = 0; // mstrens :  reset the counter for full rotation
+    //      3)  get raw adc torque sensor (in 10 bits) and filter
+    uint16_t ui16_adc_torque_raw   = (XMC_VADC_GROUP_GetResult(vadc_0_group_0_HW , VADC_TORQUE_RESULT_REG ) & 0xFFF) >> 2; // torque gr0 ch7 result 7 in bg p2.2
+    //filter it (3 X previous + 1 X new)
+    uint16_t ui16_adc_torque_new_filtered = ( ui16_adc_torque_raw + (ui16_adc_torque_filtered<<1) + ui16_adc_torque_filtered) >> 2;
+    if (ui16_adc_torque_new_filtered == ui16_adc_torque_filtered){ // code to ensure it reaches the limits
+        if ( ui16_adc_torque_new_filtered < ui16_adc_torque_raw) 
+            ui16_adc_torque_new_filtered++; 
+        else if (ui16_adc_torque_new_filtered > ui16_adc_torque_raw) 
+            ui16_adc_torque_new_filtered--;
     }
-}
+    ui16_adc_torque_filtered = ui16_adc_torque_new_filtered;
+    
+    //      4) get the voltage
+     //ui16_adc_voltage  = (XMC_VADC_GROUP_GetResult(vadc_0_group_1_HW , 4 ) & 0x0FFF) >> 2; // battery gr1 ch6 result 4
+    // changed to take care of infineon VADC init (result in reg 6)
+    ui16_adc_voltage  = (XMC_VADC_GROUP_GetResult(vadc_0_group_1_HW , VADC_VDC_RESULT_REG ) & 0x0FFF) >> 2; // battery gr1 ch6 result 6
+
+} // end systick_handler
 
 
 // used to calculate hall angles based of linear regression of all ticks intervals
@@ -542,8 +540,8 @@ int battery_current_moving_avg_buffer[64] = {0};
 
 
 // to manage torque sensor using the logic of mspider in https://github.com/TSDZ2-ESP32/TSDZ2-Smart-EBike
-// 1 = PAS state value changed
-// 0x80  = PAS state invalid -> reset
+// 1 = one of 1/20 of a rotation occured (= 4 state transitions )
+// 0x80  = reverse rotation  or timeout detected (stop)-> reset
 volatile uint8_t ui8_pas_new_transition = 0;
 
 inline uint32_t update_moving_average(uint32_t new_value){
@@ -1076,12 +1074,12 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     }
     #endif
 
-
+    /*
     // get the voltage ; done in irq0 because it is used in irq1 and irq0 takes less time
         //ui16_adc_voltage  = (XMC_VADC_GROUP_GetResult(vadc_0_group_1_HW , 4 ) & 0x0FFF) >> 2; // battery gr1 ch6 result 4
     // changed to take care of infineon VADC init (result in reg 6)
     ui16_adc_voltage  = (XMC_VADC_GROUP_GetResult(vadc_0_group_1_HW , VADC_VDC_RESULT_REG ) & 0x0FFF) >> 2; // battery gr1 ch6 result 6
-          
+    */      
     
     #if (uCPROBE_GUI_OSCILLOSCOPE == MY_ENABLED)
     //I_u = XMC_VADC_GROUP_GetResult(VADC_I1_GROUP , VADC_I1_RESULT_REG ) & 0x0FFF;
@@ -1296,18 +1294,17 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     //if (temp1e > debug_time_ccu8_irq1e) debug_time_ccu8_irq1e = temp1e; // store the max enlapsed time in the irq
 
 
-        // collect wheel and cadence ticks to further process in 1 msec irq 
+        // +++++++++  collect wheel and cadence ticks to further process in 1 msec irq +++++++++++
+        // this could be in isr0 or ISR1 (probably best in ISR0)
         collect_wheel_cadence_data();
 
-
-        /****************************************************************************/
-        // Wheel speed sensor detection
+        /*
+        // ***************************************************************************
+        // Old Wheel speed sensor detection
         // 
-        
         static uint16_t ui16_wheel_speed_sensor_ticks_counter;
         static uint8_t ui8_wheel_speed_sensor_ticks_counter_started;
         static uint8_t ui8_wheel_speed_sensor_pin_state_old;
-
         // check wheel speed sensor pin state
         //ui8_temp = WHEEL_SPEED_SENSOR__PORT->IDR & WHEEL_SPEED_SENSOR__PIN; // in tsdz2
         uint8_t ui8_in_speed_pin_state = (uint8_t) XMC_GPIO_GetInput(IN_SPEED_PORT, IN_SPEED_PIN);
@@ -1357,41 +1354,34 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
                 ui8_wheel_speed_sensor_ticks_counter_started = 0;
             }
         }
-        //end wheel speed
-
+        //end old wheel speed
+        */
+        /*
         // added by mstrens
         // get raw adc torque sensor (in 10 bits) 
-        ui16_adc_torque   = (XMC_VADC_GROUP_GetResult(vadc_0_group_0_HW , VADC_TORQUE_RESULT_REG ) & 0xFFF) >> 2; // torque gr0 ch7 result 7 in bg p2.2
+        uint16_t ui16_adc_torque_raw   = (XMC_VADC_GROUP_GetResult(vadc_0_group_0_HW , VADC_TORQUE_RESULT_REG ) & 0xFFF) >> 2; // torque gr0 ch7 result 7 in bg p2.2
         //filter it (3 X previous + 1 X new)
-        uint16_t ui16_adc_torque_new_filtered = ( ui16_adc_torque + (ui16_adc_torque_filtered<<1) + ui16_adc_torque_filtered) >> 2;
+        uint16_t ui16_adc_torque_new_filtered = ( ui16_adc_torque_raw + (ui16_adc_torque_filtered<<1) + ui16_adc_torque_filtered) >> 2;
         if (ui16_adc_torque_new_filtered == ui16_adc_torque_filtered){ // code to ensure it reaches the limits
-            if ( ui16_adc_torque_new_filtered < ui16_adc_torque) 
+            if ( ui16_adc_torque_new_filtered < ui16_adc_torque_raw) 
                 ui16_adc_torque_new_filtered++; 
-            else if (ui16_adc_torque_new_filtered > ui16_adc_torque) 
+            else if (ui16_adc_torque_new_filtered > ui16_adc_torque_raw) 
                 ui16_adc_torque_new_filtered--;
         }
         ui16_adc_torque_filtered = ui16_adc_torque_new_filtered;
-        
-        /****************************************************************************/
+        */ // end reading torque
         /*
-         * - New pedal start/stop detection Algorithm (by MSpider65) -
-         *
-         * Pedal start/stop detection uses both transitions of both PAS sensors
-         * ui8_temp stores the PAS1 and PAS2 state: bit0=PAS1,  bit1=PAS2
-         * Pedal forward ui8_temp sequence is: 0x01 -> 0x00 -> 0x02 -> 0x03 -> 0x01
-         * After a stop, the first forward transition is taken as reference transition
-         * Following forward transition sets the cadence to 7RPM for immediate startup
-         * Then, starting from the second reference transition, the cadence is calculated based on counter value
-         * All transitions are a reference for the stop detection counter (4 time faster stop detection):
-         */
-        
+        // ***************************************************************************
+        // - New pedal start/stop detection Algorithm (by MSpider65) -
+        //
+        // Pedal start/stop detection uses both transitions of both PAS sensors
+        // ui8_temp stores the PAS1 and PAS2 state: bit0=PAS1,  bit1=PAS2
+        // Pedal forward ui8_temp sequence is: 0x01 -> 0x00 -> 0x02 -> 0x03 -> 0x01
+        // After a stop, the first forward transition is taken as reference transition
+        // Following forward transition sets the cadence to 7RPM for immediate startup
+        // Then, starting from the second reference transition, the cadence is calculated based on counter value
+        // All transitions are a reference for the stop detection counter (4 time faster stop detection):        
         uint8_t ui8_temp_cadence = 0;
-        //if (PAS1__PORT->IDR & PAS1__PIN) {    // this was the code in TSDZ2
-        //    ui8_temp |= (unsigned char)0x01;
-		//}
-        //if (PAS2__PORT->IDR & PAS2__PIN) {
-        //    ui8_temp |= (unsigned char)0x02;
-		//}
         ui8_temp_cadence = (uint8_t) (XMC_GPIO_GetInput(IN_PAS1_PORT, IN_PAS1_PIN ) | ( XMC_GPIO_GetInput(IN_PAS2_PORT, IN_PAS2_PIN ) <<1 ));
         if (ui8_temp_cadence != ui8_pas_state_old) {
             if (ui8_pas_state_old != ui8_pas_old_valid_state[ui8_temp_cadence]) {
@@ -1434,7 +1424,7 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
             // increment cadence tick counter
             ++ui16_cadence_calc_counter;
         }
-        // end cadence
+        */ // end cadence
 
         // original perform also a save of some parameters (battery consumption) // to do 
     #if (DEBUG_IRQ1_TIME == (1))
@@ -1453,6 +1443,7 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     // ui16_adc_torque_previous_rotation is the max during previous rotation
     // ui8_pas_counter count the number of transition to detect a 360° pedal rotation
 
+    /*
     // first reset the values per rotation when requested by ebike_app.c (because cadence is lower than a threshold)
     if (ui8_adc_torque_rotation_reset) {
         ui8_adc_torque_rotation_reset = 0; //reset the flag
@@ -1473,7 +1464,7 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
         ui16_adc_torque_previous_rotation = 0;
         ui16_adc_torque_actual_rotation = 0;
     }
-    
+    */ // end of logic when katana and spider was not used
 
     #if (DYNAMIC_LEAD_ANGLE == (1))
     // update data to get an avg of Id

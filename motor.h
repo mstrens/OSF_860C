@@ -43,9 +43,9 @@ extern volatile uint16_t ui16_adc_torque;
 //extern volatile uint16_t ui16_adc_throttle; // mstrens : moved to ebike_app.c
 
 extern volatile uint16_t ui16_adc_torque_filtered  ; 
-extern volatile uint16_t ui16_adc_torque_actual_rotation ;
-extern volatile uint16_t ui16_adc_torque_previous_rotation ;
-extern volatile uint8_t ui8_adc_torque_rotation_reset ;
+//extern volatile uint16_t ui16_adc_torque_actual_rotation ;
+//extern volatile uint16_t ui16_adc_torque_previous_rotation ;
+//extern volatile uint8_t ui8_adc_torque_rotation_reset ;
 
 extern volatile uint8_t ui8_pas_new_transition;
 
