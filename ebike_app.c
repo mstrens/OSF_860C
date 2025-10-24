@@ -1456,15 +1456,15 @@ static void calc_wheel_speed(void)
 
 static void calc_cadence(void)
 {
-    // get the cadence sensor ticks
+    // get the cadence sensor ticks from the ISR
     uint16_t ui16_cadence_sensor_ticks_temp = ui16_cadence_sensor_ticks;
 
     // adjust cadence sensor ticks counter min depending on wheel speed
     ui16_cadence_ticks_count_min_speed_adj = map_ui16(ui16_wheel_speed_x10,
             40,
             400,
-            CADENCE_SENSOR_CALC_COUNTER_MIN,
-            CADENCE_SENSOR_TICKS_COUNTER_MIN_AT_SPEED);
+            CADENCE_SENSOR_CALC_COUNTER_MIN,            //4270
+            CADENCE_SENSOR_TICKS_COUNTER_MIN_AT_SPEED); //341
 
     // calculate cadence in RPM and avoid zero division
     // !!!warning if PWM_CYCLES_SECOND > 21845

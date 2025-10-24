@@ -1,8 +1,24 @@
 //branch test 2---
 // TO do : try to calculate hal_velocity every 60° instead of every 360°, so there would be only one division when pattern change
 // use math div to save time for division when calculating velocity
-// measure time spent in ISR with hybrid positionning
-// use calibrated table 
+// Avoid interpolating hall position when Hybrid is valid (save some cpu) 
+
+// for cadence, adapt ui16_cadence_sensor_ticks_counter_min in ebike_app.c in order to take care that counter runs at 1kHz instead of 19kHz
+//             then remove the division by 19 in motor ; this avoid a division in the ISR
+// for cadence activate     ui8_pas_new_transition = 0x80; // used in mspider logic for torque sensor
+// for cadence activate     ui8_pas_new_transition = 1; // mspider logic for torque sensor;mark for one of the 20 transitions per rotation
+// replace ui16_cadence_sensor_ticks_new by ui16_cadence_sensor_ticks to use the value given by the systick ISR                    
+// replace ui16_wheel_speed_sensor_ticks_new by ui16_wheel_speed_sensor_ticks to use the value given by the systick ISR
+// change code to use ms_counter à la place de system_tick
+// !!!! quand on change la fréquence du timer hall_speed de 250000 à 1mHz, il y a aussi des changements dans main 
+// !!! aussi à uint16_t last_clock_ticks = 0;  // used to call a function every 25 ms (ebbike controller at 40Hz)
+//uint16_t last_foc_pid_ticks = 0;    // used to call a function every 10 msec (update foc pid angle at 100hz)
+//uint16_t last_foc_optimiser_ticks = 0 ; // used to call a function every 200 msec (update of optimizer at 5 hz)
+//uint16_t last_system_ticks = 0;
+//volatile uint32_t system_ticks2 = 0;
+// il faut faire un search général sur HALL_SPEED_TIMER_HW pour voir tous les impacts (notamment pour les fonctions dans common)
+
+
 /*
  * TongSheng TSDZ2 motor controller firmware
  *
@@ -314,6 +330,186 @@ uint16_t irq1_max = 0;
 uint16_t debug_error_div = 0;
 
 uint16_t hall_pattern_error_counter = 0; // to debug only
+
+// new wheel and cadence variables
+// =============== VARIABLES PARTAGÉES =============== 
+volatile uint32_t ui32_pwm_ticks = 0;          // compteur soft 19kHz
+volatile uint32_t ui32_cadence_last_ticks[6] = {0};   // timestamps pédalage (codes 0..5)
+volatile uint32_t ui32_wheel_last_pwm_ticks = 0; // dernier front roue (ui32_pwm_ticks)
+
+//uint8_t ui8_pedal_cadence_RPM_new= 0;  // cadence calculated in systick (to debug and compare with old one)
+uint16_t ui16_cadence_sensor_ticks_new = 0 ;  // used to calculate the cadence (to debug and compare with old one)
+uint16_t ui16_wheel_speed_sensor_ticks_new = 0 ; // used to calculate the wheel speed; 1 tick = 1/PWM frequency
+/****************************************************************************/
+/*
+    * - New pedal start/stop detection Algorithm (by MSpider65) -
+    *
+    * Pedal start/stop detection uses both transitions of both PAS sensors
+    * ui8_temp stores the PAS1 and PAS2 state: bit0=PAS1,  bit1=PAS2
+    * Pedal forward ui8_temp sequence is: 0x01 -> 0x00 -> 0x02 -> 0x03 -> 0x01
+    * After a stop, the first forward transition is taken as reference transition
+    * Following forward transition sets the cadence to 7RPM for immediate startup
+    * Then, starting from the second reference transition, the cadence is calculated based on counter value
+    * All transitions are a reference for the stop detection counter (4 time faster stop detection):
+    */
+
+
+//  -------- TABLE DE TRANSITION QUADRATURE 16→CODE -------------
+//   index = (prev<<2) | curr
+//   prev,curr ∈ [0..3] → 16 combinaisons possibles
+//   mapping :
+//     reverse : 00->01 (1), 01->11 (7), 11->10 (14), 10->00 (8)  ; table filled with 4
+//     forward : 00->10 (2), 10->11 (11), 11->01 (13), 01->00 (4) ; table filled with 0...3
+//     no-change / invalid : autres cas                           ; table filled with 5
+const uint8_t ui8_cadence_transpose[16] = {
+    /*0*/ 5,  /*1*/ 4,  /*2*/ 0,  /*3*/ 5,
+    /*4*/ 3,  /*5*/ 5,  /*6*/ 5,  /*7*/ 4,
+    /*8*/ 4,  /*9*/ 5,  /*10*/5,  /*11*/1,
+    /*12*/5,  /*13*/2,  /*14*/4,  /*15*/5
+};
+
+//const uint8_t ui8_cadence_transpose[16] = {
+//    /*0*/ 5,  /*1*/ 0,  /*2*/ 4,  /*3*/ 5,
+//    /*4*/ 4,  /*5*/ 5,  /*6*/ 5,  /*7*/ 1,
+//    /*8*/ 3,  /*9*/ 5,  /*10*/5,  /*11*/4,
+//    /*12*/5,  /*13*/4,  /*14*/2,  /*15*/5
+//};
+
+
+uint8_t ui8_prev_cadence_state = 0;   // 2 bits combinés prev A/B
+uint8_t ui8_prev_wheel_state = 0;
+        
+// this function has to be called in ISR0 or ISR1 (at 19kHz) to collect the data that are processed in a systick irq at 1kHz
+static inline __attribute__((always_inline))  void collect_wheel_cadence_data(){
+        
+        ui32_pwm_ticks++; // incrément soft timer 32 bits
+        // --- wheel sensor ---
+        uint8_t ui8_wheel_state = (uint8_t) XMC_GPIO_GetInput(IN_SPEED_PORT, IN_SPEED_PIN);
+        if (!ui8_prev_wheel_state && ui8_wheel_state) {
+            ui32_wheel_last_pwm_ticks = ui32_pwm_ticks; // rising edge
+        }
+        ui8_prev_wheel_state = ui8_wheel_state;
+    
+        // --- cadence sensor  (2 bits) ---
+        uint8_t ui8_cadence_state = (uint8_t) (XMC_GPIO_GetInput(IN_PAS1_PORT, IN_PAS1_PIN ) | 
+                                        ( XMC_GPIO_GetInput(IN_PAS2_PORT, IN_PAS2_PIN ) <<1 ));
+        if ( ui8_cadence_state != ui8_prev_cadence_state) {
+            uint8_t ui8_cadence_idx = ((ui8_prev_cadence_state << 2) | ui8_cadence_state) & 0x0F;
+            uint8_t ui8_cadence_code = ui8_cadence_transpose[ui8_cadence_idx];
+            ui32_cadence_last_ticks[ui8_cadence_code] = ui32_pwm_ticks; // enregistre l’instant du code
+            ui8_prev_cadence_state = ui8_cadence_state;
+        }    
+}
+
+// this function is called in systick ISR (at 1kHz) 
+// it calculates wheel and cadence ticks using the data collected at 19 kHz; so ticks are at PWM frequency
+// conversion to rpm is done is ebike.app
+#define PWM_HZ           19000UL
+volatile uint32_t ui32_ms_counter = 0;
+
+//uint16_t ui16_debug_fw_cnt= 0;
+//int8_t i8_debug_idx_ref = -2;
+//uint32_t ui32_debug_delta_ticks = 0;
+
+
+void SysTick_Handler(void) {
+    
+    // --- Wheel --- 
+    static uint32_t ui32_prev_wheel_pwm_tick = 0;
+    static uint32_t ui32_last_wheel_ms = 0;
+    // --- cadence --- 
+    static int8_t i8_prev_cadence_index = -1;      // -1 = pas encore de référence
+    static uint32_t ui32_prev_cadence_tick = 0;
+    static uint32_t ui32_last_cadence_ms = 0;
+    static uint32_t ui32_prev_cadence_tick_max = 0;          // pour détecter un vrai nouveau front
+
+//  ========= only for documentation if we have to use pwm ticks
+//static inline uint32_t read_ui32_pwm_ticks_atomic(void) {
+//    uint32_t a,b;
+//    do { a = ui32_pwm_ticks; b = ui32_pwm_ticks; } while (a != b);
+//    return a;
+//}
+    ui32_ms_counter++;  // used to detect timeout
+    // --------- 1) cadence --------- 
+    // Cherche l’index (0..4) ayant le timestamp le plus grand
+    uint8_t ui8_cadence_idx_max = 0;
+    uint32_t ui32_cadence_tick_max = ui32_cadence_last_ticks[0];
+    for (uint8_t i = 1; i <= 4; ++i) {
+        uint32_t t = ui32_cadence_last_ticks[i];
+        if(t > ui32_cadence_tick_max) { ui32_cadence_tick_max = t; ui8_cadence_idx_max = i; }
+    }
+
+    // Check if a new cadence event occured
+    if (ui32_cadence_tick_max != ui32_prev_cadence_tick_max) {
+        ui32_prev_cadence_tick_max = ui32_cadence_tick_max;
+        if (ui8_cadence_idx_max == 4) { // --- reverse cadence rotation ---
+            ui16_cadence_sensor_ticks_new = 0; // reset value used in ebike_app.c
+            i8_prev_cadence_index = -1;
+            //ui32_prev_cadence_tick = 0;
+            
+//ui8_pas_new_transition = 0x80; // used in mspider logic for torque sensor // to do
+        } else { // --- forward cadence (codes 0..3) ---
+            //ui16_debug_fw_cnt++;
+            if (i8_prev_cadence_index < 0) {   // Premier front après arrêt → initialise seulement
+                i8_prev_cadence_index = (int8_t)ui8_cadence_idx_max;
+                //i8_debug_idx_ref = i8_prev_cadence_index;
+                ui32_prev_cadence_tick = ui32_cadence_tick_max;
+//ui8_pas_counter = 0; // mstrens :  reset the counter for full rotation used to detect a full rotation for torque (spider)
+            } else { // On a déjà une référence
+                uint32_t ui32_curr_cadence_tick = ui32_cadence_last_ticks[i8_prev_cadence_index]; 
+                // if tick for same index is different, then calculate elapsed ticks
+                if (ui32_curr_cadence_tick != ui32_prev_cadence_tick) {
+                    uint32_t ui32_cadence_delta_ticks = ui32_curr_cadence_tick  - ui32_prev_cadence_tick;
+                    //ui32_debug_delta_ticks = ui32_cadence_delta_ticks ; 
+                    ui16_cadence_sensor_ticks_new = (uint16_t) ui32_cadence_delta_ticks;
+                    ui32_prev_cadence_tick =  ui32_curr_cadence_tick;
+                    
+//ui8_pas_new_transition = 1; // mspider logic for torque sensor;mark for one of the 20 transitions per rotation
+// ui8_pas_counter++; // mstrens : increment the counter when the transition is valid           
+                } else {
+                    // when max timestamp changed (but not yet the timestamp of reference transition)
+                    //  set the cadence to 7 RPM for immediate start if it was 0
+                    if (ui16_cadence_sensor_ticks_new == 0) ui16_cadence_sensor_ticks_new = CADENCE_TICKS_STARTUP; // 7619
+                }
+            }
+        }
+        ui32_last_cadence_ms = ui32_ms_counter;
+    }
+
+    // --------- 2) Wheel --------- 
+    uint32_t ui32_wheel_pwm_tick = ui32_wheel_last_pwm_ticks;
+    if (ui32_wheel_pwm_tick != ui32_prev_wheel_pwm_tick) {
+        uint32_t ui32_wheel_delta_ticks;
+        if (ui32_prev_wheel_pwm_tick == 0) {
+            ui32_wheel_delta_ticks = 0; // first ticks after a stop
+        } else {
+            ui32_wheel_delta_ticks = (ui32_wheel_pwm_tick - ui32_prev_wheel_pwm_tick);
+        }
+        ui32_prev_wheel_pwm_tick = ui32_wheel_pwm_tick;
+        ui32_last_wheel_ms = ui32_ms_counter;
+        if (ui32_wheel_delta_ticks > 0) {
+            // set the value used in ebike_app.c to wheel speed
+            ui16_wheel_speed_sensor_ticks_new = ui32_wheel_delta_ticks ; // ticks are based on PWM frequency
+        }
+    }
+
+    /* --------- 3) TIMEOUTS --------- */
+    if ((ui32_ms_counter - ui32_last_wheel_ms) > (WHEEL_SPEED_SENSOR_TICKS_COUNTER_MIN/19)) {
+        ui16_wheel_speed_sensor_ticks_new = 0; // reset wheel speed
+        ui32_prev_wheel_pwm_tick = 0;
+    }
+
+    if ((ui32_ms_counter - ui32_last_cadence_ms) > (ui16_cadence_ticks_count_min_speed_adj / 19)) { // adj =4270 at 4km/h ... 341 at 40 km/h
+        ui16_cadence_sensor_ticks_new = 0; // reset cadence
+        i8_prev_cadence_index = -1;
+        ui32_prev_cadence_tick = 0;
+        //ui32_prev_cadence_tick_max = 0;
+// ui8_pas_new_transition = 0x80; // for mspider logic for torque sensor
+// ui8_pas_counter = 0; // mstrens :  reset the counter for full rotation
+    }
+}
+
+
 // used to calculate hall angles based of linear regression of all ticks intervals
 // are filled in irq0 and transmitted in ebike_app.c using segger_rtt_print 
 #if ( GENERATE_DATA_FOR_REGRESSION_ANGLES == (1) )
@@ -1099,6 +1295,11 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     //temp1e = temp1e - start_ticks;
     //if (temp1e > debug_time_ccu8_irq1e) debug_time_ccu8_irq1e = temp1e; // store the max enlapsed time in the irq
 
+
+        // collect wheel and cadence ticks to further process in 1 msec irq 
+        collect_wheel_cadence_data();
+
+
         /****************************************************************************/
         // Wheel speed sensor detection
         // 
@@ -1273,6 +1474,7 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
         ui16_adc_torque_actual_rotation = 0;
     }
     
+
     #if (DYNAMIC_LEAD_ANGLE == (1))
     // update data to get an avg of Id
     calculate_id_part2();

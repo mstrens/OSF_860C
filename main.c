@@ -223,8 +223,6 @@ int main(void)
     /* Initialize printf retarget  when printf on uart is used*/
     //cy_retarget_io_init(CYBSP_DEBUG_UART_HW);
 
-    /* System timer configuration */
-    //SysTick_Config(SystemCoreClock / TICKS_PER_SECOND);
     
     // CCU8 slice 3 (IRQ at mid point) generates a SR3 when period match and this trigger a VADC group 0 for queue
     // CCU8 slice 2 (PWM) is configured in device generator to generate a sr2 when ONE match
@@ -309,14 +307,18 @@ int main(void)
 //	NVIC_EnableIRQ(CCU40_1_IRQn);
     // set irq triggered by posif when a pattern changes
     #if (USE_IRQ_FOR_HALL == (1))    
-    NVIC_SetPriority(POSIF0_0_IRQn,0);
+    NVIC_SetPriority(POSIF0_0_IRQn,1);
     NVIC_EnableIRQ(POSIF0_0_IRQn);     
     #endif
     /* CCU80_0_IRQn and CCU80_1_IRQn. slice 3 interrupt on counting up and down. at 19 khz to manage rotating flux*/
-	NVIC_SetPriority(CCU80_0_IRQn, 1U);
+	NVIC_SetPriority(CCU80_0_IRQn, 2U);
 	NVIC_EnableIRQ(CCU80_0_IRQn);
-    NVIC_SetPriority(CCU80_1_IRQn, 1U);
+    NVIC_SetPriority(CCU80_1_IRQn, 2U);
 	NVIC_EnableIRQ(CCU80_1_IRQn);
+    /* System timer configuration */
+    SysTick_Config(SystemCoreClock / TICKS_PER_SECOND); // One irq every 1 msec
+    // systick priority is normally already set to the lowest level by systick_config()
+    //NVIC_SetPriority(SysTick_IRQn, 3U); // lowest priority for systick irq used for Wheel speed.
 
     //added to test the same startup as infineon example
     #define XMC_CCU8_GIDLC_CLOCK_MASK (15U) // start the 4 slice simultanously
