@@ -338,7 +338,7 @@ volatile uint32_t ui32_cadence_last_ticks[6] = {0};   // timestamps pédalage (c
 volatile uint32_t ui32_wheel_last_pwm_ticks = 0; // dernier front roue (ui32_pwm_ticks)
 
 //uint8_t ui8_pedal_cadence_RPM_new= 0;  // cadence calculated in systick (to debug and compare with old one)
-uint16_t ui16_cadence_sensor_ticks_new = 0 ;  // used to calculate the cadence (to debug and compare with old one)
+volatile uint16_t ui16_cadence_sensor_ticks_new = 0 ;  // used to calculate the cadence (to debug and compare with old one)
 uint16_t ui16_wheel_speed_sensor_ticks_new = 0 ; // used to calculate the wheel speed; 1 tick = 1/PWM frequency
 /****************************************************************************/
 /*
@@ -499,7 +499,7 @@ void SysTick_Handler(void) {
         ui32_prev_wheel_pwm_tick = 0;
     }
 
-    if ((ui32_ms_counter - ui32_last_cadence_ms) > (ui16_cadence_ticks_count_min_speed_adj / 19)) { // adj =4270 at 4km/h ... 341 at 40 km/h
+    if ((ui32_ms_counter - ui32_last_cadence_ms) > (ui16_cadence_ticks_count_min_speed_adj )) { // adj =4270 at 4km/h ... 341 at 40 km/h
         ui16_cadence_sensor_ticks_new = 0; // reset cadence
         i8_prev_cadence_index = -1;
         ui32_prev_cadence_tick = 0;
@@ -1371,19 +1371,19 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
                 ui16_adc_torque_new_filtered--;
         }
         ui16_adc_torque_filtered = ui16_adc_torque_new_filtered;
-        
-        /****************************************************************************/
+
         /*
-         * - New pedal start/stop detection Algorithm (by MSpider65) -
-         *
-         * Pedal start/stop detection uses both transitions of both PAS sensors
-         * ui8_temp stores the PAS1 and PAS2 state: bit0=PAS1,  bit1=PAS2
-         * Pedal forward ui8_temp sequence is: 0x01 -> 0x00 -> 0x02 -> 0x03 -> 0x01
-         * After a stop, the first forward transition is taken as reference transition
-         * Following forward transition sets the cadence to 7RPM for immediate startup
-         * Then, starting from the second reference transition, the cadence is calculated based on counter value
-         * All transitions are a reference for the stop detection counter (4 time faster stop detection):
-         */
+        // **************************************************************************
+        //
+        // - New pedal start/stop detection Algorithm (by MSpider65) -
+        /
+        // Pedal start/stop detection uses both transitions of both PAS sensors
+        // ui8_temp stores the PAS1 and PAS2 state: bit0=PAS1,  bit1=PAS2
+        // Pedal forward ui8_temp sequence is: 0x01 -> 0x00 -> 0x02 -> 0x03 -> 0x01
+        // After a stop, the first forward transition is taken as reference transition
+        // Following forward transition sets the cadence to 7RPM for immediate startup
+        // Then, starting from the second reference transition, the cadence is calculated based on counter value
+        // All transitions are a reference for the stop detection counter (4 time faster stop detection):
         
         uint8_t ui8_temp_cadence = 0;
         //if (PAS1__PORT->IDR & PAS1__PIN) {    // this was the code in TSDZ2
@@ -1434,7 +1434,7 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
             // increment cadence tick counter
             ++ui16_cadence_calc_counter;
         }
-        // end cadence
+        */ // end cadence
 
         // original perform also a save of some parameters (battery consumption) // to do 
     #if (DEBUG_IRQ1_TIME == (1))

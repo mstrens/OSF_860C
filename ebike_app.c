@@ -98,7 +98,7 @@ extern volatile uint16_t ui16_adc_motor_phase_current;
 uint16_t ui16_motor_speed_erps = 0;
 
 // cadence sensor
-uint16_t ui16_cadence_ticks_count_min_speed_adj = CADENCE_SENSOR_CALC_COUNTER_MIN;
+uint16_t ui16_cadence_ticks_count_min_speed_adj = (CADENCE_SENSOR_CALC_COUNTER_MIN/19);
 static uint8_t ui8_pedal_cadence_RPM = 0;
 // added by mstrens to allow faster torque decrease 
 uint8_t ui8_pedal_cadence_RPM_previous = 0;
@@ -1457,14 +1457,14 @@ static void calc_wheel_speed(void)
 static void calc_cadence(void)
 {
     // get the cadence sensor ticks from the ISR
-    uint16_t ui16_cadence_sensor_ticks_temp = ui16_cadence_sensor_ticks;
+    uint16_t ui16_cadence_sensor_ticks_temp = ui16_cadence_sensor_ticks_new;
 
     // adjust cadence sensor ticks counter min depending on wheel speed
     ui16_cadence_ticks_count_min_speed_adj = map_ui16(ui16_wheel_speed_x10,
             40,
             400,
-            CADENCE_SENSOR_CALC_COUNTER_MIN,            //4270
-            CADENCE_SENSOR_TICKS_COUNTER_MIN_AT_SPEED); //341
+            CADENCE_SENSOR_CALC_COUNTER_MIN / 19,            //4270
+            CADENCE_SENSOR_TICKS_COUNTER_MIN_AT_SPEED /19); //341
 
     // calculate cadence in RPM and avoid zero division
     // !!!warning if PWM_CYCLES_SECOND > 21845

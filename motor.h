@@ -51,6 +51,9 @@ extern volatile uint8_t ui8_pas_new_transition;
 
 // cadence sensor
 extern volatile uint16_t ui16_cadence_sensor_ticks;
+// added by mstrens
+extern volatile uint16_t ui16_cadence_sensor_ticks_new;
+
 
 // wheel speed sensor
 extern volatile uint16_t ui16_wheel_speed_sensor_ticks;
