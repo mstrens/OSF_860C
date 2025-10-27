@@ -42,16 +42,9 @@
 *******************************************************************************/
 
 // Variable for keeping track of time 
-/*
-volatile uint32_t system_ticks = 0;
-uint32_t loop_25ms_ticks = 0;  
-uint32_t start = 0 ; // mainly for debugging ; allow to print some variable every e.g. 5 sec
-*/
 uint16_t last_clock_ticks = 0;  // used to call a function every 25 ms (ebbike controller at 40Hz)
 //uint16_t last_foc_pid_ticks = 0;    // used to call a function every 10 msec (update foc pid angle at 100hz)
 //uint16_t last_foc_optimiser_ticks = 0 ; // used to call a function every 200 msec (update of optimizer at 5 hz)
-uint32_t last_system_ticks = 0;
-volatile uint32_t system_ticks2 = 0;
 
 
 // maximum duty cycle
@@ -137,20 +130,6 @@ extern uint16_t irq0_max ;
 extern uint16_t irq1_min ;
 extern uint16_t irq1_max ;
 
-
-/*******************************************************************************
-* Function Name: SysTick_Handler
-********************************************************************************
-* Summary:
-* This is the interrupt handler function for the SysTick timer interrupt.
-* It counts the time elapsed in milliseconds since the timer started. 
-*******************************************************************************/
-/*
-void SysTick_Handler(void)
-{
-    system_ticks++;
-}
-*/
 
 #define CHANNEL_NUMBER_PIN_2_2              (7U) // Torque
 #define CHANNEL_NUMBER_PIN_2_3              (5U) // unknown
@@ -357,13 +336,12 @@ int main(void)
         wait_time--;
     }
     
-    //start = system_ticks;
    XMC_WDT_Start();
    XMC_WDT_Service();
 
-   // init the clock timer
+   // init the clock timer for 25 msec ebie_app controller
    last_clock_ticks = ui32_ms_counter ; 
-   last_system_ticks = last_clock_ticks;
+   
 //***************************** while ************************************
     while (1) // main loop
     {     
@@ -407,27 +385,32 @@ int main(void)
             update_foc_optimiser();  // this performs some checks and update some variable every 25 msec
         }
         #endif        
-
-        // Here we should call a funtion every 250 msec (used for debug only with take_action() from common.c)
-        temp_ticks = ui32_ms_counter;
-        if ((temp_ticks - last_system_ticks) > 250)  { // 250 msec
-            last_system_ticks = temp_ticks;
-            system_ticks2++; // add 1 every 0,25 sec (about)
-        }
         
         #if (uCPROBE_GUI_OSCILLOSCOPE == MY_ENABLED)
         //ProbeScope_Sampling(); // this should be moved e.g. in a interrupt that run faster
         #endif
         
 
+        static uint32_t last_print_ms;
         #if (DEBUG_ON_JLINK == 1)
-        if (take_action(3,1000)){
-            //SEGGER_RTT_printf(0, "init_state %x   status %X\r\n", ui8_m_motor_init_state , ui8_m_motor_init_status);
-            SEGGER_RTT_printf(0, "running %u %u %u %u %u %u %u %u \r\n", is_running_0 , is_running_1 , is_running_2 , is_running_3, 
-                tim_0 , tim_1 ,tim_2 ,tim_3);
-            SEGGER_RTT_printf(0, "error ticks = %u %u %u %u %u %u %u%\r\n", error_ticks_counter, 
-                           interval_ticks_min , interval_ticks_max , irq0_min , irq0_max , irq1_min , irq1_max);                                                    
+        temp_ticks = ui32_ms_counter;
+        if ((temp_ticks - last_print_ms)  > 100){ // 25 msec
+           last_print_ms = temp_ticks;
+           SEGGER_RTT_printf(0, "ui8_m_system_state = %u  underVolt = %u\r\n", ui8_m_system_state, ui8_voltage_shutdown_flag);
+           SEGGER_RTT_printf(0, "Wrong = %x   all %X\r\n", posif_event_wrong , posif_event_all);
         }
+        
+
+        //if (take_action(3,100)){
+        //    SEGGER_RTT_printf(0, "ui8_m_system_state = %i\r\n", (int32_t) ui8_m_system_state);
+        //    SEGGER_RTT_printf(0, "Wrong = %x   all %X\r\n", posif_event_wrong , posif_event_all);
+        //}    
+            //SEGGER_RTT_printf(0, "init_state %x   status %X\r\n", ui8_m_motor_init_state , ui8_m_motor_init_status);
+//            SEGGER_RTT_printf(0, "running %u %u %u %u %u %u %u %u \r\n", is_running_0 , is_running_1 , is_running_2 , is_running_3, 
+//                tim_0 , tim_1 ,tim_2 ,tim_3);
+//            SEGGER_RTT_printf(0, "error ticks = %u %u %u %u %u %u %u%\r\n", error_ticks_counter, 
+//                           interval_ticks_min , interval_ticks_max , irq0_min , irq0_max , irq1_min , irq1_max);                                                    
+//        }
               //if( take_action(1, 250)) SEGGER_RTT_printf(0,"Light is= %u\r\n", (unsigned int) ui8_lights_button_flag);
 //        if( take_action(2, 500)) SEGGER_RTT_printf(0,"Adc current= %u adcX8=%u  current_Ax10=%u  factor=%u\r\n", 
 //            (unsigned int) ui8_adc_battery_current_filtered ,

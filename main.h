@@ -19,7 +19,7 @@
 
 
 // here some parameters for testing/debugging
-#define DEBUG_ON_JLINK         (0)  // when 1, messages are generated on jlink; best is to connect only 3 wires (grnd + SWO and S???)
+#define DEBUG_ON_JLINK         (1)  // when 1, messages are generated on jlink; best is to connect only 3 wires (grnd + SWO and S???)
 
 #define USE_CONFIG_FROM_COMPILATION (0)  // this should normally be set on 0; Then values defined in configurator and stored in flash are applied
                                         // set to 1 only if you want to give priority to

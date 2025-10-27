@@ -74,7 +74,8 @@ static uint8_t ui8_error_battery_overcurrent_counter = 0;
 static uint8_t ui8_battery_overcurrent_delay = 2;
 uint8_t ui8_adc_battery_overcurrent = (uint8_t)(ADC_10_BIT_BATTERY_CURRENT_MAX + ADC_10_BIT_BATTERY_EXTRACURRENT);
 static uint16_t ui16_adc_voltage_shutdown = 0;
-static uint8_t ui8_voltage_shutdown_flag = 0;
+//static uint8_t ui8_voltage_shutdown_flag = 0;
+uint8_t ui8_voltage_shutdown_flag = 0;
 
 // power control
 static uint8_t ui8_battery_current_max = DEFAULT_VALUE_BATTERY_CURRENT_MAX;

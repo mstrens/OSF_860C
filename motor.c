@@ -882,6 +882,11 @@ __RAM_FUNC static inline void calculate_id_part1(){  // to be called in begin of
     }
 #endif // end (1) dynamic based on Id and a PID + optimiser    
 
+// debug posif event for irq
+uint32_t posif_event_wrong;
+uint32_t posif_event_all;
+
+
 
 // ************************************** begin of IRQ *************************
 // *************** irq 0 of ccu8
@@ -899,7 +904,7 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     current_hall_pattern = current_hall_pattern_irq;
     XMC_ExitCriticalSection(critical_section_value);
 #else // irq0 when using a XMC_CCU4_SLICE_CAPTURE
-    // get the current ticks
+// get the current ticks
     //uint16_t current_speed_timer_ticks = (uint16_t) (XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW) );
     uint16_t current_speed_timer_ticks = (uint16_t) HALL_SPEED_TIMER_HW->TIMER;
     // get the capture register = last changed pattern = current pattern
@@ -907,7 +912,15 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     // get the current hall pattern
     current_hall_pattern = XMC_POSIF_HSC_GetLastSampledPattern(HALL_POSIF_HW) ;
 #endif
-    #define DEBUG_IRQ0_INTERVALS (0) // 1 = calculate min and max intervals between 2 irq0
+// debug irq SR1 to check if value is 1 when an hall front occured
+posif_event_wrong = XMC_POSIF_GetEventStatus(HALL_POSIF_HW, XMC_POSIF_IRQ_EVENT_WHE);
+//posif_event_all = HALL_POSIF_HW->PFLG & 0x06; // keep 
+XMC_POSIF_ClearEvent(HALL_POSIF_HW, XMC_POSIF_IRQ_EVENT_WHE);
+if (posif_event_wrong ) posif_event_all++;
+
+
+
+#define DEBUG_IRQ0_INTERVALS (0) // 1 = calculate min and max intervals between 2 irq0
     #if (DEBUG_IRQ0_INTERVALS == (1))
     interval_ticks = current_speed_timer_ticks - prev_ticks;
     if (first_ticks == 0){

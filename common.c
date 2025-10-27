@@ -12,8 +12,7 @@
 #include "cy_utils.h"
 #include "cy_retarget_io.h"
 
-extern uint32_t system_ticks2;
-extern uint32_t ui32_ms_counter;
+extern volatile uint32_t ui32_ms_counter;
 
 // Function to map a value from one range to another based on given input and output ranges.
 // Uses nearest integer rounding for precision.
@@ -129,29 +128,19 @@ void lights_set_state(uint8_t ui8_state) {
     }
 }
 
-uint32_t last_action_systicks[10]= {0};
+uint32_t last_action_ms[10]= {0};
 
 // retun true when enlapsed time expired
 bool take_action(uint32_t index, uint32_t interval){
     if (index < 10) {
-        if ((system_ticks2 - last_action_systicks[index]) > interval){
-            last_action_systicks[index] = system_ticks2;
+        if ((ui32_ms_counter - last_action_ms[index]) > interval){
+            last_action_ms[index] = ui32_ms_counter;
              return true;
         }
     }
     return false;
 }
 
-// retun true when enlapsed time expired
-bool take_action_250ms(uint32_t index, uint32_t interval){
-    if (index < 10) {
-        if ((system_ticks2 - last_action_systicks[index]) > interval){
-            last_action_systicks[index] = system_ticks2;
-            return true;
-        }
-    }
-    return false;
-}
 
 
 /*
