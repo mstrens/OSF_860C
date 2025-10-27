@@ -1,3 +1,4 @@
+//test4
 /*
 * Description: This is based on the open source firmware for TSDZ2 motor made by mbrusa
 * It is adapted for TSDZ8 
@@ -47,9 +48,9 @@ uint32_t loop_25ms_ticks = 0;
 uint32_t start = 0 ; // mainly for debugging ; allow to print some variable every e.g. 5 sec
 */
 uint16_t last_clock_ticks = 0;  // used to call a function every 25 ms (ebbike controller at 40Hz)
-uint16_t last_foc_pid_ticks = 0;    // used to call a function every 10 msec (update foc pid angle at 100hz)
-uint16_t last_foc_optimiser_ticks = 0 ; // used to call a function every 200 msec (update of optimizer at 5 hz)
-uint16_t last_system_ticks = 0;
+//uint16_t last_foc_pid_ticks = 0;    // used to call a function every 10 msec (update foc pid angle at 100hz)
+//uint16_t last_foc_optimiser_ticks = 0 ; // used to call a function every 200 msec (update of optimizer at 5 hz)
+uint32_t last_system_ticks = 0;
 volatile uint32_t system_ticks2 = 0;
 
 
@@ -111,6 +112,8 @@ extern uint8_t hall_reference_angle;
 extern uint8_t ui8_wheel_speed_simulate ;  //added by mstrens to simulate a fixed speed whithout having a speed sensor 
 
 extern uint8_t ui8_m_system_state;
+
+extern volatile uint32_t ui32_ms_counter; // updated by systick every ms
 
 /*
 // debug manipulating each ref angle and see impact
@@ -359,7 +362,7 @@ int main(void)
    XMC_WDT_Service();
 
    // init the clock timer
-   last_clock_ticks = XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW) ; 
+   last_clock_ticks = ui32_ms_counter ; 
    last_system_ticks = last_clock_ticks;
 //***************************** while ************************************
     while (1) // main loop
@@ -372,14 +375,6 @@ int main(void)
         if (ui8_received_package_flag == 0) {
             fillRxBuffer();
         }
-        // must be activated for real production
-        // Here we should call a funtion every 25 msec (based on systick or on an interrupt based on a CCU4 timer)
-        /*
-        if ((system_ticks - loop_25ms_ticks) > 25) { 
-            loop_25ms_ticks = system_ticks;
-            ebike_app_controller();  // this performs some checks and update some variable every 25 msec
-        }
-        */
        
         // avoid a reset
         XMC_WDT_Service(); // reset if we do not run here within the 0,5 sec
@@ -388,127 +383,63 @@ int main(void)
             new_torque_sample();
         }
         #endif
-        // Here we should call a funtion every 25 msec (based on systick or on an interrupt based on a CCU4 timer)
-        uint16_t temp_ticks = XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW);
-        if (temp_ticks < last_system_ticks) { // once every 65536 * 4 usec = about 0,25 sec
-            system_ticks2++; // add 1 every 0,25 sec (about)
-            last_system_ticks = temp_ticks;
-        }
+                
+        uint32_t temp_ticks;
         
-        uint16_t temp_interval;
         #if (DYNAMIC_LEAD_ANGLE == (1))
-        temp_interval = temp_ticks - last_foc_pid_ticks ; 
-        if ( temp_interval > 2500){ // 100hz : interval 10000 usec / 4usec = 2500 ticks
+        temp_ticks = ui32_ms_counter; 
+        if ( (temp_ticks - last_foc_pid_ticks) > 10){ // 100hz : interval 10000 usec / 4usec = 2500 ticks
             last_foc_pid_ticks = temp_ticks;
             update_foc_pid();  // this calculate a new FOC angle based on a PI and on the Id current
         }
         #endif
 
-        temp_interval = temp_ticks - last_clock_ticks;
-        //if ( (uint16_t) ((uint16_t) temp_ticks - (uint16_t) last_clock_ticks) > (uint16_t) 6250){ // 25000 usec / 4usec = 6250
-        if ( temp_interval > 6250){ // 25000 usec / 4usec = 6250
-            last_clock_ticks = temp_ticks;
+        temp_ticks = ui32_ms_counter;
+        if ((temp_ticks - last_clock_ticks)  > 25){ // 25 msec
+           last_clock_ticks = temp_ticks;
             ebike_app_controller();  // this performs some checks and update some variable every 25 msec
         }
         
         #if (DYNAMIC_LEAD_ANGLE == (1))
-        temp_interval = temp_ticks - last_foc_optimiser_ticks;
-        //if ( (uint16_t) ((uint16_t) temp_ticks - (uint16_t) last_clock_ticks) > (uint16_t) 6250){ // 25000 usec / 4usec = 6250
-        if ( temp_interval > 50000){ // 200000 usec / 4usec = 50000
+        temp_ticks = ui32_ms_counter;
+        if ( (temp_ticks - last_foc_optimiser_ticks) > 200){ // 200msec =  5 hz
             last_foc_optimiser_ticks = temp_ticks;
             update_foc_optimiser();  // this performs some checks and update some variable every 25 msec
         }
         #endif        
 
+        // Here we should call a funtion every 250 msec (used for debug only with take_action() from common.c)
+        temp_ticks = ui32_ms_counter;
+        if ((temp_ticks - last_system_ticks) > 250)  { // 250 msec
+            last_system_ticks = temp_ticks;
+            system_ticks2++; // add 1 every 0,25 sec (about)
+        }
         
         #if (uCPROBE_GUI_OSCILLOSCOPE == MY_ENABLED)
         //ProbeScope_Sampling(); // this should be moved e.g. in a interrupt that run faster
         #endif
         
-        // for debug
-        // if (take_action_250ms(1,4))debug_time_ccu8_irq0 = 0;
-//        if( take_action(1,1000)) debug_time_ccu8_irq0 = 0;
 
         #if (DEBUG_ON_JLINK == 1)
-        if (take_action_250ms(3,4)){
-        //if(take_action(3,1000)){
-//            uint32_t vadc_group0_event = XMC_VADC_GROUP_ChannelGetAssertedEvents(vadc_0_group_0_HW );
+        if (take_action(3,1000)){
             //SEGGER_RTT_printf(0, "init_state %x   status %X\r\n", ui8_m_motor_init_state , ui8_m_motor_init_status);
-            /*
-            uint32_t is_running_0 = XMC_CCU8_SLICE_IsTimerRunning	(	PHASE_U_TIMER_HW	)	;
-            uint32_t is_running_1 = XMC_CCU8_SLICE_IsTimerRunning	(	PHASE_V_TIMER_HW	)	;
-            uint32_t is_running_2 = XMC_CCU8_SLICE_IsTimerRunning	(	PHASE_W_TIMER_HW	)	;
-            uint32_t is_running_3 = XMC_CCU8_SLICE_IsTimerRunning	(	PWM_IRQ_TIMER_HW	)	;  
-            uint32_t tim_0 = XMC_CCU8_SLICE_GetTimerValue(PHASE_U_TIMER_HW);
-            uint32_t tim_1 = XMC_CCU8_SLICE_GetTimerValue(PHASE_V_TIMER_HW);
-            uint32_t tim_2 = XMC_CCU8_SLICE_GetTimerValue(PHASE_W_TIMER_HW);
-            uint32_t tim_3 = XMC_CCU8_SLICE_GetTimerValue(PWM_IRQ_TIMER_HW);
             SEGGER_RTT_printf(0, "running %u %u %u %u %u %u %u %u \r\n", is_running_0 , is_running_1 , is_running_2 , is_running_3, 
                 tim_0 , tim_1 ,tim_2 ,tim_3);
-            */
-           /*
-            for (uint32_t i = 0; i<=28 ; i++){
-                if (NVIC_GetEnableIRQ((IRQn_Type) i)) {
-                    SEGGER_RTT_printf (0, "irq on = %u\r\n", i);
-                }
-           }
-           */     
-               SEGGER_RTT_printf(0, "error ticks = %u %u %u %u %u %u %u%\r\n", error_ticks_counter, 
-                           interval_ticks_min , interval_ticks_max , irq0_min , irq0_max , irq1_min , irq1_max);
-                           
+            SEGGER_RTT_printf(0, "error ticks = %u %u %u %u %u %u %u%\r\n", error_ticks_counter, 
+                           interval_ticks_min , interval_ticks_max , irq0_min , irq0_max , irq1_min , irq1_max);                                                    
         }
-        #endif    
-        #if (DEBUG_ON_JLINK == 1)
-         // do debug if communication with display is working
-         //if( take_action_250ms(1, 1)) SEGGER_RTT_printf(0,"Light is= %u\r\n", (unsigned int) ui8_lights_button_flag);
-        
-         //if( take_action(1, 250)) SEGGER_RTT_printf(0,"Light is= %u\r\n", (unsigned int) ui8_lights_button_flag);
-        if (ui8_m_system_state) { // print a message when there is an error detected
-            if( take_action_250ms(1,1)) jlink_print_system_state();
-            //if( take_action(1,200)) jlink_print_system_state();
-        }
-
+              //if( take_action(1, 250)) SEGGER_RTT_printf(0,"Light is= %u\r\n", (unsigned int) ui8_lights_button_flag);
 //        if( take_action(2, 500)) SEGGER_RTT_printf(0,"Adc current= %u adcX8=%u  current_Ax10=%u  factor=%u\r\n", 
 //            (unsigned int) ui8_adc_battery_current_filtered ,
 //            (unsigned int) ui16_adc_battery_current_acc_X8 ,
 //            (unsigned int) ui8_battery_current_filtered_x10 , 
 //            (unsigned int) ui16_display_data_factor
 //            );
-        // monitor duty cycle, current when motor is running
-        /*
-        //if( take_action(3, 1000)) SEGGER_RTT_printf(0,"dctarg=%u dc=%u    ctarg=%u cfilt=%u Throttle=%u  erps=%u foc%u\r\n",
-        if( take_action_250ms(3, 4)) SEGGER_RTT_printf(0,"dctarg=%u dc=%u    ctarg=%u cfilt=%u Throttle=%u  erps=%u foc%u\r\n",
-        
-            (unsigned int) ui8_controller_duty_cycle_target,
-            (unsigned int) ui8_g_duty_cycle,
-            (unsigned int) ui8_controller_adc_battery_current_target,
-            (unsigned int) ui8_adc_battery_current_filtered,
-            (unsigned int) ui8_throttle_adc_in,
-            (unsigned int) ui16_motor_speed_erps,
-            (unsigned int) ui8_g_foc_angle
-            //(unsigned int) XMC_CCU8_SLICE_IsTimerRunning(PHASE_U_TIMER_HW),
-            //(unsigned int) ui8_motor_enabled
-        );
-        */
 
-        #define DEBUG_HALL_POSITIONS (1)
-        #if (DEBUG_HALL_POSITIONS == (1) )
-        if( take_action_250ms(6, 20)) {
-        //if( take_action(6, 5000)) {
-            SEGGER_RTT_printf(0,
-            "c10b=%u  dc=%u erps=%u t360=%u  best1=%u best2=%u best3=%u best4=%u best5=%u best6=%u\r\n",
-                (unsigned int) ui8_adc_battery_current_filtered,
-                (unsigned int) ui8_g_duty_cycle,
-                (unsigned int) ui16_motor_speed_erps,
-                (unsigned int) ui16_hall_counter_total,
-                ui8_best_ref_angles[1], ui8_best_ref_angles[2], ui8_best_ref_angles[3], ui8_best_ref_angles[4], ui8_best_ref_angles[5], ui8_best_ref_angles[6]
-            );
-        }
-        #endif
         #endif    // end DEBUG_ON_JLINK
        
     } // end while main loop
-}
+} // end main
 
 // Error state (changed)
 // NO_ERROR                                0			// "None"

@@ -13,6 +13,7 @@
 #include "cy_retarget_io.h"
 
 extern uint32_t system_ticks2;
+extern uint32_t ui32_ms_counter;
 
 // Function to map a value from one range to another based on given input and output ranges.
 // Uses nearest integer rounding for precision.
@@ -133,9 +134,9 @@ uint32_t last_action_systicks[10]= {0};
 // retun true when enlapsed time expired
 bool take_action(uint32_t index, uint32_t interval){
     if (index < 10) {
-        if ((system_ticks - last_action_systicks[index]) > interval){
-            last_action_systicks[index] = system_ticks;
-            return true;
+        if ((system_ticks2 - last_action_systicks[index]) > interval){
+            last_action_systicks[index] = system_ticks2;
+             return true;
         }
     }
     return false;
@@ -155,9 +156,9 @@ bool take_action_250ms(uint32_t index, uint32_t interval){
 
 /*
 void wait_ms(uint32_t time){
-    uint32_t start = system_ticks;
+    uint32_t start = ui32_ms_counter;
     uint32_t counter = 0;
-    while ( (system_ticks - start) < time){
+    while ( (ui32_ms_counter - start) < time){
         counter++;
     }
     counter = 0;

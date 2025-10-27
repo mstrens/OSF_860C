@@ -7,8 +7,6 @@
 //             then remove the division by 19 in motor ; this avoid a division in the ISR
 // for cadence activate     ui8_pas_new_transition = 0x80; // used in mspider logic for torque sensor
 // for cadence activate     ui8_pas_new_transition = 1; // mspider logic for torque sensor;mark for one of the 20 transitions per rotation
-// replace ui16_cadence_sensor_ticks_new by ui16_cadence_sensor_ticks to use the value given by the systick ISR                    
-// replace ui16_wheel_speed_sensor_ticks_new by ui16_wheel_speed_sensor_ticks to use the value given by the systick ISR
 // change code to use ms_counter à la place de system_tick
 // !!!! quand on change la fréquence du timer hall_speed de 250000 à 1mHz, il y a aussi des changements dans main 
 // !!! aussi à uint16_t last_clock_ticks = 0;  // used to call a function every 25 ms (ebbike controller at 40Hz)
@@ -71,6 +69,7 @@ const int8_t hall_to_sector[8] = {
     -1, 0, 2, 1, 4, 5, 3, -1
 };
 
+// table has to be updated if PWM frequency change !!!!!!!!!!!!!!
 // table generated with sin(x) + sin(3*x) scaled to -800/+800 to avoid being to close of the limits (-840/+840 for 19 kHz)
 // first value in the table is for x = 90° (to be similar to TSDZ2)
 static const int16_t i16_LUT_SINUS[256] = {
@@ -337,9 +336,6 @@ volatile uint32_t ui32_pwm_ticks = 0;          // compteur soft 19kHz
 volatile uint32_t ui32_cadence_last_ticks[6] = {0};   // timestamps pédalage (codes 0..5)
 volatile uint32_t ui32_wheel_last_pwm_ticks = 0; // dernier front roue (ui32_pwm_ticks)
 
-//uint8_t ui8_pedal_cadence_RPM_new= 0;  // cadence calculated in systick (to debug and compare with old one)
-volatile uint16_t ui16_cadence_sensor_ticks_new = 0 ;  // used to calculate the cadence (to debug and compare with old one)
-uint16_t ui16_wheel_speed_sensor_ticks_new = 0 ; // used to calculate the wheel speed; 1 tick = 1/PWM frequency
 /****************************************************************************/
 /*
     * - New pedal start/stop detection Algorithm (by MSpider65) -
@@ -443,7 +439,7 @@ void SysTick_Handler(void) {
     if (ui32_cadence_tick_max != ui32_prev_cadence_tick_max) {
         ui32_prev_cadence_tick_max = ui32_cadence_tick_max;
         if (ui8_cadence_idx_max == 4) { // --- reverse cadence rotation ---
-            ui16_cadence_sensor_ticks_new = 0; // reset value used in ebike_app.c
+            ui16_cadence_sensor_ticks = 0; // reset value used in ebike_app.c
             i8_prev_cadence_index = -1;
             //ui32_prev_cadence_tick = 0;
             
@@ -461,7 +457,7 @@ void SysTick_Handler(void) {
                 if (ui32_curr_cadence_tick != ui32_prev_cadence_tick) {
                     uint32_t ui32_cadence_delta_ticks = ui32_curr_cadence_tick  - ui32_prev_cadence_tick;
                     //ui32_debug_delta_ticks = ui32_cadence_delta_ticks ; 
-                    ui16_cadence_sensor_ticks_new = (uint16_t) ui32_cadence_delta_ticks;
+                    ui16_cadence_sensor_ticks = (uint16_t) ui32_cadence_delta_ticks;
                     ui32_prev_cadence_tick =  ui32_curr_cadence_tick;
                     
                     ui8_pas_new_transition = 1; // mspider logic for torque sensor;mark for one of the 20 transitions per rotation
@@ -469,7 +465,7 @@ void SysTick_Handler(void) {
                 } else {
                     // when max timestamp changed (but not yet the timestamp of reference transition)
                     //  set the cadence to 7 RPM for immediate start if it was 0
-                    if (ui16_cadence_sensor_ticks_new == 0) ui16_cadence_sensor_ticks_new = CADENCE_TICKS_STARTUP; // 7619
+                    if (ui16_cadence_sensor_ticks == 0) ui16_cadence_sensor_ticks = CADENCE_TICKS_STARTUP; // 7619
                 }
             }
         }
@@ -478,7 +474,7 @@ void SysTick_Handler(void) {
 
     // cadence TIMEOUTS --------- 
     if ((ui32_ms_counter - ui32_last_cadence_ms) > (ui16_cadence_ticks_count_min_speed_adj)) { // adj =4270 at 4km/h ... 341 at 40 km/h
-        ui16_cadence_sensor_ticks_new = 0; // reset cadence
+        ui16_cadence_sensor_ticks = 0; // reset cadence
         i8_prev_cadence_index = -1;
         ui32_prev_cadence_tick = 0;
         ui8_pas_new_transition = 0x80; // for mspider logic for torque sensor
@@ -1320,7 +1316,7 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
 
         /*
         // ***************************************************************************
-        // Wheel speed sensor detection
+        // Old Wheel speed sensor detection
         // 
         
         static uint16_t ui16_wheel_speed_sensor_ticks_counter;
@@ -1494,7 +1490,7 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
         ui16_adc_torque_previous_rotation = 0;
         ui16_adc_torque_actual_rotation = 0;
     }
-    */
+    */ // end of logic when katana and spider was not used
 
     #if (DYNAMIC_LEAD_ANGLE == (1))
     // update data to get an avg of Id

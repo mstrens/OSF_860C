@@ -1458,7 +1458,7 @@ static void calc_wheel_speed(void)
 static void calc_cadence(void)
 {
     // get the cadence sensor ticks from the ISR
-    uint16_t ui16_cadence_sensor_ticks_temp = ui16_cadence_sensor_ticks_new;
+    uint16_t ui16_cadence_sensor_ticks_temp = ui16_cadence_sensor_ticks;
 
     // adjust cadence sensor ticks counter min depending on wheel speed
     ui16_cadence_ticks_count_min_speed_adj = map_ui16(ui16_wheel_speed_x10,
