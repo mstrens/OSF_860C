@@ -311,7 +311,7 @@ int16_t I_v;
 int16_t I_w;
 int16_t I_t;
 // to measure tick intervals in isr0
-uint16_t prev_ticks = 0;
+uint16_t ui16_prev_ISR0_ticks = 0;
 uint16_t interval_ticks = 0;
 uint8_t first_ticks = 1; // says that interval has not yet been calculated
 uint16_t error_ticks_counter = 0;
@@ -891,7 +891,7 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     // here we just calculate the new compare values used for the 3 slices (0,1,2) that generates the 3 PWM
     uint32_t critical_section_value = XMC_EnterCriticalSection();
     // get the current ticks
-    uint16_t ui16_curr_pwm_ticks = (uint16_t) (XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW) );
+    uint16_t ui16_curr_ISR0_ticks = (uint16_t) (XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW) );
     // get the last changed pattern ticks (from posif irq)
     ui16_curr_hall_ticks = ui16_curr_hall_ticks_irq;
     // get the current hall pattern as saved duting the posif irq
@@ -899,12 +899,12 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     XMC_ExitCriticalSection(critical_section_value);
     #define DEBUG_IRQ0_INTERVALS (0) // 1 = calculate min and max intervals between 2 irq0
     #if (DEBUG_IRQ0_INTERVALS == (1))
-    interval_ticks = ui16_curr_pwm_ticks - prev_ticks;
+    interval_ticks = ui16_curr_ISR0_ticks - ui16_prev_ISR0_ticks;
     if (first_ticks == 0){
         if ( (interval_ticks <=13) || (interval_ticks >= 13)) {
             error_ticks_counter++;
-            //error_ticks_value = ui16_curr_pwm_ticks;
-            //error_ticks_prev = prev_ticks;
+            //error_ticks_value = ui16_curr_ISR0_ticks;
+            //error_ticks_prev = ui16_prev_ISR0_ticks;
             if (interval_ticks_min > interval_ticks) interval_ticks_min = interval_ticks;
             if (interval_ticks_max < interval_ticks) interval_ticks_max = interval_ticks;
             
@@ -912,7 +912,7 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     } else {
         first_ticks = 0; 
     }
-    prev_ticks = ui16_curr_pwm_ticks ;
+    ui16_prev_ISR0_ticks = ui16_curr_ISR0_ticks ;
     #endif
 
     ui8_hall_sensors_state = ui8_curr_hall_pattern; // duplicate just for easier maintenance of ebike_app.c for 860c (sent to display)
@@ -921,10 +921,10 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
         ui8_curr_hall_pattern = ui8_prev_hall_pattern; // continue with previous value
     }
     // elapsed time between now and last pattern change (used for interpolation)
-    uint16_t elapsed_ticks =  ui16_curr_pwm_ticks - ui16_curr_hall_ticks ; // ticks between now and last pattern change
+    uint16_t elapsed_ticks =  ui16_curr_ISR0_ticks - ui16_curr_hall_ticks ; // ticks between now and last pattern change
     uint16_t compensated_elapsed_ticks = elapsed_ticks + ui8_hall_counter_offset; // there are some ticks before applying this PWM
     // to debug time in irq
-    //uint16_t start_ticks = ui16_curr_pwm_ticks; // save to calculate enlased time inside the irq // just for debug could be removed
+    //uint16_t start_ticks = ui16_curr_ISR0_ticks; // save to calculate enlased time inside the irq // just for debug could be removed
     #if (DYNAMIC_LEAD_ANGLE == (1)) // 1 dynamic based on Id and a PID + optimiser 
     // added by mstrens to calculate Id with position used for PWM beeing currently applied (so when timer reached 0 match)
     ui8_angle_for_id_prev = ui8_angle_for_id;  // save angle to use it in ISR 1 (when current iu, iv, iw are measured for actual pwm)
@@ -1076,12 +1076,12 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
 
     #define DEBUG_IRQO_TIME (1) // 1 = calculate the time spent in irq0
     #if (DEBUG_IRQO_TIME == (1))
-    if (hall_calib_state == HALL_CALIBRATED) {  // we measure only when hall are calibrated to get more realistic values
+    //if (hall_calib_state == HALL_CALIBRATED) {  // we measure only when hall are calibrated to get more realistic values
         uint16_t temp  = XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW) ;
-        temp = temp - ui16_curr_pwm_ticks;
+        temp = temp - ui16_curr_ISR0_ticks;
         if (irq0_min > temp) irq0_min = temp; // store the in enlapsed time in the irq
         if (irq0_max < temp) irq0_max = temp; // store the max enlapsed time in the irq
-    }
+    //}
     #endif
 
     /*

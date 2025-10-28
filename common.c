@@ -153,3 +153,85 @@ void wait_ms(uint32_t time){
     counter = 0;
 }
 */
+#include "SEGGER_RTT.h"
+#include <stdarg.h>
+#include <stdint.h>
+
+static void _itoa_fast(int value, char *buf) {
+  char tmp[12];
+  int i = 0, j = 0;
+  unsigned int v;
+
+  if (value < 0) {
+    buf[j++] = '-';
+    v = (unsigned int)(-value);
+  } else {
+    v = (unsigned int)value;
+  }
+
+  if (v == 0) {
+    buf[j++] = '0';
+    buf[j] = 0;
+    return;
+  }
+
+  while (v > 0 && i < (int)sizeof(tmp)) {
+    tmp[i++] = '0' + (v % 10);
+    v /= 10;
+  }
+
+  while (i > 0) buf[j++] = tmp[--i];
+  buf[j] = 0;
+}
+
+/**
+ * @brief Log multi-entiers avec suffixe texte optionnel (non bloquant, sans IRQ off)
+ *
+ * @param label  Préfixe (ex: "ADC")
+ * @param count  Nombre d'entiers à afficher
+ * @param tail   Texte final (ex: "\r\n", " END", ou NULL pour rien)
+ * @param ...    Les valeurs (int)
+ *
+ * Exemple:
+ *   RTT_LogN_Tail("ADC", 3, "\r\n", 10, 20, 30);
+ *   → "ADC=10,20,30\r\n"
+ *
+ *   RTT_LogN_Tail("DATA", 2, " OK", 1, 2);
+ *   → "DATA=1,2 OK"
+ */
+void RTT_LogN_Tail(const char *label, unsigned int count, const char *tail, ...) {
+  char msg[128];
+  unsigned int len = 0;
+  va_list args;
+
+  // préfixe
+  while (*label && len < sizeof(msg) - 1)
+    msg[len++] = *label++;
+
+//  msg[len++] = '=';
+
+  // valeurs
+  va_start(args, tail);
+  for (unsigned int i = 0; i < count && len < sizeof(msg) - 8; i++) {
+    int val = va_arg(args, int);
+    char numbuf[16];
+    _itoa_fast(val, numbuf);
+
+    for (unsigned int j = 0; numbuf[j] && len < sizeof(msg) - 1; j++)
+      msg[len++] = numbuf[j];
+
+    if (i < count - 1 && len < sizeof(msg) - 1)
+      msg[len++] = ',';
+  }
+  va_end(args);
+
+  // texte de fin optionnel
+  if (tail) {
+    while (*tail && len < sizeof(msg) - 1)
+      msg[len++] = *tail++;
+  }
+
+  SEGGER_RTT_WriteNoLock(0, msg, len);
+}
+
+

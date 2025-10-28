@@ -398,6 +398,8 @@ int main(void)
         if ((temp_ticks - last_print_ms)  > 100){ // 25 msec
            last_print_ms = temp_ticks;
            
+            RTT_LOG("Min", NULL, irq0_min);
+            RTT_LOG("  Max", "\r\n", irq0_max);
            /*
            SEGGER_RTT_printf(0, "ticks same %u   diff %u   state same %u   diff %u  val %x ints %x error %u  time %u\r\n",
             ui32_same_hall_ticks,

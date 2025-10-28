@@ -62,5 +62,11 @@ void lights_set_state(uint8_t ui8_state) ; // moved by mstrens from another tsdz
 bool take_action(uint32_t index, uint32_t interval);
 bool take_action_250ms(uint32_t index, uint32_t interval);
 
+void RTT_LogN_Tail(const char *label, unsigned int count, const char *tail, ...);
+
+#define RTT_LOG(label, tail, ...)  \
+  RTT_LogN_Tail(label, (sizeof((int[]){__VA_ARGS__})/sizeof(int)), tail, __VA_ARGS__)
+
+
 //void wait_ms(uint32_t time);
 #endif /* COMMON_COMMON_H_ */
