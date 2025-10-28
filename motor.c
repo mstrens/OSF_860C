@@ -592,18 +592,28 @@ void VADC0_G0_0_IRQHandler() {  // VADC is configured to compare the total curre
     motor_disable_pwm();
 }
 
-#if (USE_IRQ_FOR_HALL == (1))
+// Lecture atomique et rapide des Halls
+__STATIC_INLINE uint8_t read_hall_pattern(void)
+{
+    // Supposons que HALL0, HALL1, HALL2 sont sur le même port
+    uint32_t portval = IN_HALL0_PORT->IN;  // lecture unique du port
+    // Extraction et positionnement exact des bits
+    uint8_t pattern = 0;
+    pattern |= (uint8_t)((portval >> IN_HALL0_PIN) & 1);      // Hall0 -> bit 0
+    pattern |= (uint8_t)((portval >> IN_HALL1_PIN) & 1) << 1; // Hall1 -> bit 1
+    pattern |= (uint8_t)((portval >> IN_HALL2_PIN) & 1) << 2; // Hall2 -> bit 2
+    return pattern;
+}
+
 // this irq callback occurs when posif detects a new pattern 
 __RAM_FUNC void POSIF0_0_IRQHandler(){
 //void POSIF0_0_IRQHandler(){
         // Capture time stamp 
     ticks_hall_pattern_irq_last = XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW);
     // capture hall pattern
-    current_hall_pattern_irq = XMC_GPIO_GetInput(IN_HALL0_PORT, IN_HALL0_PIN);// hall 0
-    current_hall_pattern_irq |=  XMC_GPIO_GetInput(IN_HALL1_PORT, IN_HALL1_PIN) << 1;
-    current_hall_pattern_irq |=  XMC_GPIO_GetInput(IN_HALL2_PORT, IN_HALL2_PIN) << 2;
+    current_hall_pattern_irq = read_hall_pattern() ;
 }
-#endif
+
 
 // +++++++++++++    to calibrate ++++++++++++++++
 uint8_t hall_calib_state = HALL_TO_CALIBRATE;
@@ -882,10 +892,6 @@ __RAM_FUNC static inline void calculate_id_part1(){  // to be called in begin of
     }
 #endif // end (1) dynamic based on Id and a PID + optimiser    
 
-// debug posif event for irq
-uint32_t posif_event_wrong;
-uint32_t posif_event_all;
-
 
 
 // ************************************** begin of IRQ *************************
@@ -893,8 +899,7 @@ uint32_t posif_event_all;
 __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting UP (= 1/4 of 19mhz cycles with 1680 ticks at 64mHz and centered aligned)
 //void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting UP (= 1/4 of 19mhz cycles with 1680 ticks at 64mHz and centered aligned)
 
-// here we just calculate the new compare values used for the 3 slices (0,1,2) that generates the 3 PWM
-#if (USE_IRQ_FOR_HALL == (1))
+    // here we just calculate the new compare values used for the 3 slices (0,1,2) that generates the 3 PWM
     uint32_t critical_section_value = XMC_EnterCriticalSection();
     // get the current ticks
     uint16_t current_speed_timer_ticks = (uint16_t) (XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW) );
@@ -903,24 +908,7 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     // get the current hall pattern as saved duting the posif irq
     current_hall_pattern = current_hall_pattern_irq;
     XMC_ExitCriticalSection(critical_section_value);
-#else // irq0 when using a XMC_CCU4_SLICE_CAPTURE
-// get the current ticks
-    //uint16_t current_speed_timer_ticks = (uint16_t) (XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW) );
-    uint16_t current_speed_timer_ticks = (uint16_t) HALL_SPEED_TIMER_HW->TIMER;
-    // get the capture register = last changed pattern = current pattern
-    uint16_t last_hall_pattern_change_ticks = (uint16_t) XMC_CCU4_SLICE_GetCaptureRegisterValue(HALL_SPEED_TIMER_HW , 1);
-    // get the current hall pattern
-    current_hall_pattern = XMC_POSIF_HSC_GetLastSampledPattern(HALL_POSIF_HW) ;
-#endif
-// debug irq SR1 to check if value is 1 when an hall front occured
-posif_event_wrong = XMC_POSIF_GetEventStatus(HALL_POSIF_HW, XMC_POSIF_IRQ_EVENT_WHE);
-//posif_event_all = HALL_POSIF_HW->PFLG & 0x06; // keep 
-XMC_POSIF_ClearEvent(HALL_POSIF_HW, XMC_POSIF_IRQ_EVENT_WHE);
-if (posif_event_wrong ) posif_event_all++;
-
-
-
-#define DEBUG_IRQ0_INTERVALS (0) // 1 = calculate min and max intervals between 2 irq0
+    #define DEBUG_IRQ0_INTERVALS (0) // 1 = calculate min and max intervals between 2 irq0
     #if (DEBUG_IRQ0_INTERVALS == (1))
     interval_ticks = current_speed_timer_ticks - prev_ticks;
     if (first_ticks == 0){

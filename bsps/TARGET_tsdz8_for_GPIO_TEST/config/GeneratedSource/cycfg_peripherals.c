@@ -31,6 +31,7 @@
 
 #define HALL_POSIF_HALPS(EP, CP) (((uint32_t)EP <<  3) | (uint32_t)CP)
 
+
 const XMC_CCU4_SLICE_COMPARE_CONFIG_t HALL_DELAY_TIMER_compare_config =
 {
     .timer_mode = XMC_CCU4_SLICE_TIMER_COUNT_MODE_EA,
@@ -65,6 +66,7 @@ const XMC_CCU4_SLICE_EVENT_CONFIG_t HALL_DELAY_TIMER_event2_config =
     .level = XMC_CCU4_SLICE_EVENT_LEVEL_SENSITIVITY_ACTIVE_HIGH,
     .duration = XMC_CCU4_SLICE_EVENT_FILTER_DISABLED,
 };
+
 const XMC_CCU4_SLICE_CAPTURE_CONFIG_t HALL_SPEED_TIMER_capture_config =
 {
     .fifo_enable = false,
@@ -76,6 +78,7 @@ const XMC_CCU4_SLICE_CAPTURE_CONFIG_t HALL_SPEED_TIMER_capture_config =
     .float_limit = XMC_CCU4_SLICE_PRESCALER_32768,
     .timer_concatenation = false,
 };
+
 const XMC_CCU4_SLICE_EVENT_CONFIG_t HALL_SPEED_TIMER_event0_config =
 {
     .mapped_input = CCU40_IN1_EV0IS_VALUE,
@@ -367,7 +370,7 @@ const XMC_POSIF_CONFIG_t HALL_POSIF_config =
     .input0 = POSIF0_PCONF_INSEL0,
     .input1 = POSIF0_PCONF_INSEL1,
     .input2 = POSIF0_PCONF_INSEL2,
-    .filter = XMC_POSIF_FILTER_64_CLOCK_CYCLE,
+    .filter = XMC_POSIF_FILTER_64_CLOCK_CYCLE, 
 };
 const XMC_POSIF_HSC_CONFIG_t HALL_POSIF_HSC_InitHandle =
 {
@@ -760,8 +763,8 @@ void init_cycfg_peripherals(void)
     XMC_CCU4_Init(ccu4_0_HW, XMC_CCU4_SLICE_MCMS_ACTION_TRANSFER_PR_CR);
     XMC_CCU4_StartPrescaler(ccu4_0_HW);
     XMC_CCU4_SLICE_CompareInit(HALL_DELAY_TIMER_HW, &HALL_DELAY_TIMER_compare_config);
-    XMC_CCU4_SLICE_SetTimerCompareMatch(HALL_DELAY_TIMER_HW, 10U); // it was 2
-    XMC_CCU4_SLICE_SetTimerPeriodMatch(HALL_DELAY_TIMER_HW, 20U);  // it was 4
+    XMC_CCU4_SLICE_SetTimerCompareMatch(HALL_DELAY_TIMER_HW, 5U); // it was 2
+    XMC_CCU4_SLICE_SetTimerPeriodMatch(HALL_DELAY_TIMER_HW, 10U);  // it was 4
     XMC_CCU4_SetMultiChannelShadowTransferMode(ccu4_0_HW, XMC_CCU4_MULTI_CHANNEL_SHADOW_TRANSFER_SW_SLICE0);
     XMC_CCU4_EnableShadowTransfer(ccu4_0_HW,
         XMC_CCU4_SHADOW_TRANSFER_SLICE_0 |
@@ -788,6 +791,8 @@ void init_cycfg_peripherals(void)
     XMC_CCU4_SLICE_ConfigureEvent(HALL_SPEED_TIMER_HW, XMC_CCU4_SLICE_EVENT_1, &HALL_SPEED_TIMER_event1_config);
     XMC_CCU4_SLICE_ConfigureEvent(HALL_SPEED_TIMER_HW, XMC_CCU4_SLICE_EVENT_2, &HALL_SPEED_TIMER_event2_config);
     XMC_CCU4_SLICE_Capture0Config(HALL_SPEED_TIMER_HW, XMC_CCU4_SLICE_EVENT_0);
+    //XMC_CCU4_SLICE_SetInterruptNode(HALL_SPEED_TIMER_HW, XMC_CCU4_SLICE_EVENT_0, XMC_CCU4_SLICE_SR_ID_0); // added by mstrens to get an irq (even not activated in nivq)
+    //XMC_CCU4_SLICE_EnableEvent(HALL_SPEED_TIMER_HW, XMC_CCU4_SLICE_EVENT_0); // added by mstrens to get an irq
     XMC_CCU4_EnableClock(ccu4_0_HW, HALL_SPEED_TIMER_NUM);
     XMC_CCU4_SLICE_SetTimerValue(HALL_SPEED_TIMER_HW, 0U);
     XMC_CCU4_SLICE_StartTimer(HALL_SPEED_TIMER_HW);
@@ -874,7 +879,7 @@ void init_cycfg_peripherals(void)
     XMC_CCU8_SLICE_SetTimerValue(PWM_IRQ_TIMER_HW, 0U);
 
     XMC_POSIF_Enable(HALL_POSIF_HW);
-    XMC_POSIF_SetMode(HALL_POSIF_HW, XMC_POSIF_MODE_HALL_SENSOR);
+     XMC_POSIF_SetMode(HALL_POSIF_HW, XMC_POSIF_MODE_HALL_SENSOR);
     XMC_POSIF_Init(HALL_POSIF_HW, &HALL_POSIF_config);
     XMC_POSIF_HSC_Init(HALL_POSIF_HW, &HALL_POSIF_HSC_InitHandle);
 // mstrens - commented when using a capture instead of an irq to read the ccu4 running timer

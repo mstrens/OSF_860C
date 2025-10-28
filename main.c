@@ -42,7 +42,7 @@
 *******************************************************************************/
 
 // Variable for keeping track of time 
-uint16_t last_clock_ticks = 0;  // used to call a function every 25 ms (ebbike controller at 40Hz)
+uint32_t ui32_last_controller_ms = 0;  // used to call a function every 25 ms (ebbike controller at 40Hz)
 //uint16_t last_foc_pid_ticks = 0;    // used to call a function every 10 msec (update foc pid angle at 100hz)
 //uint16_t last_foc_optimiser_ticks = 0 ; // used to call a function every 200 msec (update of optimizer at 5 hz)
 
@@ -147,6 +147,8 @@ extern uint16_t irq1_max ;
 // ************* declaration **********
 void jlink_print_system_state();
 
+
+  
 
 //*******************************************************************************
 // Function Name: main
@@ -288,10 +290,9 @@ int main(void)
 //    NVIC_SetPriority(CCU40_1_IRQn, 0U); //capture hall pattern and slice 2 time when a hall change occurs
 //	NVIC_EnableIRQ(CCU40_1_IRQn);
     // set irq triggered by posif when a pattern changes
-    #if (USE_IRQ_FOR_HALL == (1))    
     NVIC_SetPriority(POSIF0_0_IRQn,1);
-    NVIC_EnableIRQ(POSIF0_0_IRQn);     
-    #endif
+    NVIC_EnableIRQ(POSIF0_0_IRQn);
+    
     /* CCU80_0_IRQn and CCU80_1_IRQn. slice 3 interrupt on counting up and down. at 19 khz to manage rotating flux*/
 	NVIC_SetPriority(CCU80_0_IRQn, 2U);
 	NVIC_EnableIRQ(CCU80_0_IRQn);
@@ -340,7 +341,7 @@ int main(void)
    XMC_WDT_Service();
 
    // init the clock timer for 25 msec ebie_app controller
-   last_clock_ticks = ui32_ms_counter ; 
+   ui32_last_controller_ms = ui32_ms_counter ; 
    
 //***************************** while ************************************
     while (1) // main loop
@@ -373,8 +374,8 @@ int main(void)
         #endif
 
         temp_ticks = ui32_ms_counter;
-        if ((temp_ticks - last_clock_ticks)  > 25){ // 25 msec
-           last_clock_ticks = temp_ticks;
+        if ((temp_ticks - ui32_last_controller_ms)  > 25){ // 25 msec
+           ui32_last_controller_ms = temp_ticks;
             ebike_app_controller();  // this performs some checks and update some variable every 25 msec
         }
         
@@ -396,8 +397,24 @@ int main(void)
         temp_ticks = ui32_ms_counter;
         if ((temp_ticks - last_print_ms)  > 100){ // 25 msec
            last_print_ms = temp_ticks;
-           SEGGER_RTT_printf(0, "ui8_m_system_state = %u  underVolt = %u\r\n", ui8_m_system_state, ui8_voltage_shutdown_flag);
-           SEGGER_RTT_printf(0, "Wrong = %x   all %X\r\n", posif_event_wrong , posif_event_all);
+           
+           /*
+           SEGGER_RTT_printf(0, "ticks same %u   diff %u   state same %u   diff %u  val %x ints %x error %u  time %u\r\n",
+            ui32_same_hall_ticks,
+            ui32_diff_hall_ticks,
+            ui32_same_hall_state,
+            ui32_diff_hall_state,
+            ui32_diff_hall_value,
+            CCU4_ints,
+            error_time_between_2_ISR_PWM,
+            time_between_2_ISR_PWM_max);
+            */
+           //SEGGER_RTT_printf(0, "time %u\r\n",  time_between_2_ISR_PWM_max);
+           
+            //time_between_2_ISR_PWM_max = 0;
+
+           //SEGGER_RTT_printf(0, "ui8_m_system_state = %u  underVolt = %u\r\n", ui8_m_system_state, ui8_voltage_shutdown_flag);
+           //SEGGER_RTT_printf(0, "Wrong = %x   all %X\r\n", posif_event_wrong , posif_event_all);
         }
         
 

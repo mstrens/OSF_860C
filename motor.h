@@ -113,6 +113,5 @@ void hall_calibrate();
 void hall_positions_init();
 
 
-// debug posif event for irq
-extern uint32_t posif_event_wrong;
-extern uint32_t posif_event_all;
+
+
