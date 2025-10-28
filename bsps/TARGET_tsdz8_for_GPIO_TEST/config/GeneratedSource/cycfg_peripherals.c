@@ -74,7 +74,7 @@ const XMC_CCU4_SLICE_CAPTURE_CONFIG_t HALL_SPEED_TIMER_capture_config =
     .same_event = false,
     .ignore_full_flag = true,
     .prescaler_mode = XMC_CCU4_SLICE_PRESCALER_MODE_NORMAL,
-    .prescaler_initval = XMC_CCU4_SLICE_PRESCALER_256,
+    .prescaler_initval = XMC_CCU4_SLICE_PRESCALER_64, // for 250000 Hz, it was XMC_CCU4_SLICE_PRESCALER_256
     .float_limit = XMC_CCU4_SLICE_PRESCALER_32768,
     .timer_concatenation = false,
 };
