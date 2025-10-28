@@ -234,4 +234,65 @@ void RTT_LogN_Tail(const char *label, unsigned int count, const char *tail, ...)
   SEGGER_RTT_WriteNoLock(0, msg, len);
 }
 
+#include "SEGGER_RTT.h"
+#include <stdarg.h>
+#include <stdint.h>
+
+/**
+ * @brief Conversion rapide en chaîne hexadécimale (8 caractères)
+ */
+static void _itoa_hex(uint32_t value, char *buf) {
+  static const char hex[] = "0123456789ABCDEF";
+  for (int i = 7; i >= 0; i--) {
+    buf[7 - i] = hex[(value >> (i * 4)) & 0xF];
+  }
+  buf[8] = 0;
+}
+
+/**
+ * @brief Log multi-entiers au format hexadécimal avec texte final optionnel
+ *
+ * @param label  Préfixe (ex: "REG")
+ * @param count  Nombre d'entiers à afficher
+ * @param tail   Texte final optionnel ("\r\n", " OK", NULL, etc.)
+ * @param ...    Les valeurs (int)
+ *
+ * Exemple:
+ *   RTT_LogN_TailHex("REG", 3, "\r\n", 0x1234, 0xDEAD, 0xBEEF);
+ *   → "REG=00001234,0000DEAD,0000BEEF\r\n"
+ */
+void RTT_LogN_TailHex(const char *label, unsigned int count, const char *tail, ...) {
+  char msg[128];
+  unsigned int len = 0;
+  va_list args;
+
+  // Préfixe
+  while (*label && len < sizeof(msg) - 1)
+    msg[len++] = *label++;
+
+  msg[len++] = '=';
+
+  // Valeurs hexadécimales
+  va_start(args, tail);
+  for (unsigned int i = 0; i < count && len < sizeof(msg) - 10; i++) {
+    uint32_t val = (uint32_t)va_arg(args, int); // valeurs signées converties
+    char hexbuf[9];
+    _itoa_hex(val, hexbuf);
+
+    for (unsigned int j = 0; hexbuf[j] && len < sizeof(msg) - 1; j++)
+      msg[len++] = hexbuf[j];
+
+    if (i < count - 1 && len < sizeof(msg) - 1)
+      msg[len++] = ',';  // séparateur
+  }
+  va_end(args);
+
+  // Texte final optionnel
+  if (tail) {
+    while (*tail && len < sizeof(msg) - 1)
+      msg[len++] = *tail++;
+  }
+
+  SEGGER_RTT_WriteNoLock(0, msg, len);
+}
 

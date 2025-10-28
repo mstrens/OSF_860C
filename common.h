@@ -68,5 +68,11 @@ void RTT_LogN_Tail(const char *label, unsigned int count, const char *tail, ...)
   RTT_LogN_Tail(label, (sizeof((int[]){__VA_ARGS__})/sizeof(int)), tail, __VA_ARGS__)
 
 
+void RTT_LogN_TailHex(const char *label, unsigned int count, const char *tail, ...);
+
+#define RTT_LOG_HEX(label, tail, ...)  \
+  RTT_LogN_TailHex(label, (sizeof((int[]){__VA_ARGS__})/sizeof(int)), tail, __VA_ARGS__)
+
+
 //void wait_ms(uint32_t time);
 #endif /* COMMON_COMMON_H_ */
