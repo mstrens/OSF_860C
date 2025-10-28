@@ -75,7 +75,6 @@ extern uint8_t ui8_adc_battery_overcurrent;
 #if ( GENERATE_DATA_FOR_REGRESSION_ANGLES == (1) )
 extern uint16_t ticks_intervals[8]; // ticks intervals between 2 pattern changes;
 extern uint8_t ticks_intervals_status; // 0 =  new data can be written; 1 data being written; 2 all data written, must be transmitted
-extern uint16_t previous_hall_pattern_change_ticks;  // save the ticks of last pattern change
 #endif
 
 void CCU80_0_IRQHandler(); // called when ccu8 Slice 4 reaches 840  counting UP (= 1/4 of 19mhz cycles)

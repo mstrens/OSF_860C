@@ -1,4 +1,4 @@
-//branch test 2---
+//branch test 4---
 // TO do : try to calculate hal_velocity every 60° instead of every 360°, so there would be only one division when pattern change
 // use math div to save time for division when calculating velocity
 // Avoid interpolating hall position when Hybrid is valid (save some cpu) 
@@ -133,8 +133,8 @@ uq8_8_t ui16_curr_base_angle_q8_8 = 0;  // position of hall at the begin of the 
 int8_t curr_sector = 0; //
 uint8_t prev_sector = 0; 
 
-uint16_t last_hall_pattern_change_ticks;
-uint16_t previous_hall_pattern_change_ticks = 0; 
+uint16_t ui16_curr_hall_ticks;
+uint16_t ui16_prev_hall_ticks = 0; 
 uint16_t ticks_between_2_hall_fronts; 
 
 uint16_t ui16_hall_angle_position_q8_8; // hall position (abs + interpol) to compare with pll position
@@ -241,10 +241,10 @@ volatile uint8_t ui8_battery_SOC_saved_flag = 0;
 volatile uint8_t ui8_battery_SOC_reset_flag = 0;
 
 // Hall sensor state
-uint8_t current_hall_pattern = 0;
-uint8_t previous_hall_pattern = 7; // Invalid value, force execution of Hall code at the first run
+uint8_t ui8_curr_hall_pattern = 0;
+uint8_t ui8_prev_hall_pattern = 7; // Invalid value, force execution of Hall code at the first run
 
-volatile uint8_t ui8_hall_sensors_state = 0; // name used by ebike_app.c to identify current_hall_pattern; added here for compatibility
+volatile uint8_t ui8_hall_sensors_state = 0; // name used by ebike_app.c to identify ui8_curr_hall_pattern; added here for compatibility
 
 // Hall counter value of last Hall transition 
 uint16_t previous_360_ref_ticks = 0 ; 
@@ -364,13 +364,6 @@ const uint8_t ui8_cadence_transpose[16] = {
     /*12*/5,  /*13*/2,  /*14*/4,  /*15*/5
 };
 
-//const uint8_t ui8_cadence_transpose[16] = {
-//    /*0*/ 5,  /*1*/ 0,  /*2*/ 4,  /*3*/ 5,
-//    /*4*/ 4,  /*5*/ 5,  /*6*/ 5,  /*7*/ 1,
-//    /*8*/ 3,  /*9*/ 5,  /*10*/5,  /*11*/4,
-//    /*12*/5,  /*13*/4,  /*14*/2,  /*15*/5
-//};
-
 
 uint8_t ui8_prev_cadence_state = 0;   // 2 bits combinés prev A/B
 uint8_t ui8_prev_wheel_state = 0;
@@ -441,9 +434,7 @@ void SysTick_Handler(void) {
         if (ui8_cadence_idx_max == 4) { // --- reverse cadence rotation ---
             ui16_cadence_sensor_ticks = 0; // reset value used in ebike_app.c
             i8_prev_cadence_index = -1;
-            //ui32_prev_cadence_tick = 0;
-            
-            ui8_pas_new_transition = 0x80; // used in mspider logic for torque sensor // to do
+             ui8_pas_new_transition = 0x80; // used in mspider logic for torque sensor // to do
         } else { // --- forward cadence (codes 0..3) ---
             //ui16_debug_fw_cnt++;
             if (i8_prev_cadence_index < 0) {   // Premier front après arrêt → initialise seulement
@@ -530,11 +521,10 @@ void SysTick_Handler(void) {
 #if ( GENERATE_DATA_FOR_REGRESSION_ANGLES == (1) )
 uint16_t ticks_intervals[8]; // ticks intervals between 2 pattern changes;
 uint8_t ticks_intervals_status; // 0 =  new data can be written; 1 data being written; 2 all data written, must be transmitted
-uint16_t previous_hall_pattern_change_ticks;  // save the ticks of last pattern change
 #endif
 
 volatile uint16_t ticks_hall_pattern_irq_last = 0;
-volatile uint8_t current_hall_pattern_irq = 0;
+volatile uint8_t ui8_curr_hall_pattern_irq = 0;
 
 //uint32_t ui32_angle_per_tick_X16shift_new;
 //uint32_t ui32_ref_angle; 
@@ -611,7 +601,7 @@ __RAM_FUNC void POSIF0_0_IRQHandler(){
         // Capture time stamp 
     ticks_hall_pattern_irq_last = XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW);
     // capture hall pattern
-    current_hall_pattern_irq = read_hall_pattern() ;
+    ui8_curr_hall_pattern_irq = read_hall_pattern() ;
 }
 
 
@@ -902,19 +892,19 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     // here we just calculate the new compare values used for the 3 slices (0,1,2) that generates the 3 PWM
     uint32_t critical_section_value = XMC_EnterCriticalSection();
     // get the current ticks
-    uint16_t current_speed_timer_ticks = (uint16_t) (XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW) );
+    uint16_t ui16_curr_pwm_ticks = (uint16_t) (XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW) );
     // get the last changed pattern ticks (from posif irq)
-    last_hall_pattern_change_ticks = ticks_hall_pattern_irq_last;
+    ui16_curr_hall_ticks = ticks_hall_pattern_irq_last;
     // get the current hall pattern as saved duting the posif irq
-    current_hall_pattern = current_hall_pattern_irq;
+    ui8_curr_hall_pattern = ui8_curr_hall_pattern_irq;
     XMC_ExitCriticalSection(critical_section_value);
     #define DEBUG_IRQ0_INTERVALS (0) // 1 = calculate min and max intervals between 2 irq0
     #if (DEBUG_IRQ0_INTERVALS == (1))
-    interval_ticks = current_speed_timer_ticks - prev_ticks;
+    interval_ticks = ui16_curr_pwm_ticks - prev_ticks;
     if (first_ticks == 0){
         if ( (interval_ticks <=13) || (interval_ticks >= 13)) {
             error_ticks_counter++;
-            //error_ticks_value = current_speed_timer_ticks;
+            //error_ticks_value = ui16_curr_pwm_ticks;
             //error_ticks_prev = prev_ticks;
             if (interval_ticks_min > interval_ticks) interval_ticks_min = interval_ticks;
             if (interval_ticks_max < interval_ticks) interval_ticks_max = interval_ticks;
@@ -923,38 +913,39 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     } else {
         first_ticks = 0; 
     }
-    prev_ticks = current_speed_timer_ticks ;
+    prev_ticks = ui16_curr_pwm_ticks ;
     #endif
 
-    ui8_hall_sensors_state = current_hall_pattern; // duplicate just for easier maintenance of ebike_app.c for 860c (sent to display)
-    if ((current_hall_pattern < 1 ) || (current_hall_pattern > 6 )){ // invalid value ;  discard value
-        current_hall_pattern = previous_hall_pattern; // continue with previous value
+    ui8_hall_sensors_state = ui8_curr_hall_pattern; // duplicate just for easier maintenance of ebike_app.c for 860c (sent to display)
+    
+    if ((ui8_curr_hall_pattern < 1 ) || (ui8_curr_hall_pattern > 6 )){ // invalid value ;  discard value
+        ui8_curr_hall_pattern = ui8_prev_hall_pattern; // continue with previous value
     }
     // elapsed time between now and last pattern change (used for interpolation)
-    uint16_t elapsed_ticks =  current_speed_timer_ticks - last_hall_pattern_change_ticks ; // ticks between now and last pattern change
-    uint16_t compensated_elapsed_ticks = elapsed_ticks + 14; // there is about 14 ticks before applying this PWM
+    uint16_t elapsed_ticks =  ui16_curr_pwm_ticks - ui16_curr_hall_ticks ; // ticks between now and last pattern change
+    uint16_t compensated_elapsed_ticks = elapsed_ticks + ui8_hall_counter_offset; // there are some ticks before applying this PWM
     // to debug time in irq
-    //uint16_t start_ticks = current_speed_timer_ticks; // save to calculate enlased time inside the irq // just for debug could be removed
+    //uint16_t start_ticks = ui16_curr_pwm_ticks; // save to calculate enlased time inside the irq // just for debug could be removed
     #if (DYNAMIC_LEAD_ANGLE == (1)) // 1 dynamic based on Id and a PID + optimiser 
     // added by mstrens to calculate Id with position used for PWM beeing currently applied (so when timer reached 0 match)
     ui8_angle_for_id_prev = ui8_angle_for_id;  // save angle to use it in ISR 1 (when current iu, iv, iw are measured for actual pwm)
     #endif
     
     // when pattern change
-    if ( current_hall_pattern != previous_hall_pattern) {
+    if ( ui8_curr_hall_pattern != ui8_prev_hall_pattern) {
         prev_sector = curr_sector; // save sector (used to calculate velocity on previous sector and base angle for hybrid interpolation)
                 
         // calculate elapsed time since previous front
-        ticks_between_2_hall_fronts = last_hall_pattern_change_ticks - previous_hall_pattern_change_ticks;
+        ticks_between_2_hall_fronts = ui16_curr_hall_ticks - ui16_prev_hall_ticks;
         if (ticks_between_2_hall_fronts < 100) ticks_between_2_hall_fronts = 100; // highiest speed (about 6000rpm); this avoid exceeding 32 bit is omega estimate.
         // start division (it take 35 cycles, result is read afterwards if it is used to update raw velocity)
         MATH->DIVCON = 0X4 ; // unsigned division, no shift, autostart
         MATH->DVD = (((uint32_t)ui16_sector_angle_q8_8[prev_sector]) << 8); // Load the dividend value
         MATH->DVS = (uint32_t) ticks_between_2_hall_fronts; // Load the divisor value, the division begin immediately
         // update sector number      
-        curr_sector = hall_to_sector[current_hall_pattern];
+        curr_sector = hall_to_sector[ui8_curr_hall_pattern];
         ui16_curr_base_angle_q8_8 =  ui16_base_sector_q8_8[curr_sector] ; 
-        if (current_hall_pattern != expected_pattern_table[previous_hall_pattern]){ // new pattern is not the expected one
+        if (ui8_curr_hall_pattern != expected_pattern_table[ui8_prev_hall_pattern]){ // new pattern is not the expected one
             ui8_motor_commutation_type = BLOCK_COMMUTATION; // 0x00
             ui8_hall_360_ref_valid = 0;  // reset the indicator saying no error for a 360° electric rotation 
             ui32_hall_velocity_q8_8X256 =  0;  // reset the speed for interpolation in block commutation
@@ -962,9 +953,9 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
             if (hall_calib_state == HALL_CALIBRATING) hall_calib_state = HALL_TO_CALIBRATE; // will restart calibration when speed increase again
             ui8_hybrid_position_valid = 0; // do not use hybrid anymore
         } else {   // valid transition
-            if (current_hall_pattern ==  0x01) {  // rotor at 210°
+            if (ui8_curr_hall_pattern ==  0x01) {  // rotor at 210°
                 if (ui8_hall_360_ref_valid) { // check that we have a full rotation without pattern sequence error
-                    ui16_hall_counter_total = last_hall_pattern_change_ticks - previous_360_ref_ticks; // save the total number of tick for one electric rotation
+                    ui16_hall_counter_total = ui16_curr_hall_ticks - previous_360_ref_ticks; // save the total number of tick for one electric rotation
 //                    if (ui16_hall_counter_total > 100 ) { // avoid division by 0 and error in uint if counter would ve to low
 //                        ui32_hall_velocity_q8_8X256 = ((uint32_t) ( 1 << 24)) / ui16_hall_counter_total; //in 256 * Q8.8 per tick
 //                    } else {
@@ -973,8 +964,8 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
                     ui8_motor_commutation_type = SINEWAVE_INTERPOLATION_60_DEGREES; // 0x80 ; it says that we can interpolate because speed is known
                 }
                 ui8_hall_360_ref_valid = 0x01;
-                previous_360_ref_ticks = last_hall_pattern_change_ticks ;    
-            } else if (current_hall_pattern ==  0x03) {  // rotor at 150°)
+                previous_360_ref_ticks = ui16_curr_hall_ticks ;    
+            } else if (ui8_curr_hall_pattern ==  0x03) {  // rotor at 150°)
                 ui8_foc_flag = 1;
             }
             // calculate velocity on previous sector (use also in hybrid synchronisation)
@@ -998,20 +989,20 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
             synchronise_hall_hybrid();
         }
             
-        previous_hall_pattern = current_hall_pattern; // saved to detect future change and check for valid transition
-        previous_hall_pattern_change_ticks = last_hall_pattern_change_ticks ;
+        ui8_prev_hall_pattern = ui8_curr_hall_pattern; // saved to detect future change and check for valid transition
+        ui16_prev_hall_ticks = ui16_curr_hall_ticks ;
         ui16_prev_base_angle_q8_8 = ui16_curr_base_angle_q8_8;
         
         i32_debug_diff_velocity_hall_hyb = abs((int32_t)ui32_hyb_velocity_q8_8X256 - (int32_t)ui32_hall_velocity_q8_8X256);
         #if ( GENERATE_DATA_FOR_REGRESSION_ANGLES == (1) )
-        if ((ticks_intervals_status == 0) && (current_hall_pattern == 1) ) {
+        if ((ticks_intervals_status == 0) && (ui8_curr_hall_pattern == 1) ) {
             ticks_intervals[0] = ui16_hall_counter_total ; // save the total ticks for previous 360°
-            ticks_intervals[1] = last_hall_pattern_change_ticks - previous_hall_pattern_change_ticks ;
+            ticks_intervals[1] = ui16_curr_hall_ticks - ui16_prev_hall_ticks ;
             ticks_intervals[7] = ui8_g_duty_cycle; // save the duty cycle
             ticks_intervals_status = 1;
         } else if (ticks_intervals_status == 1)  {
-            ticks_intervals[current_hall_pattern] = last_hall_pattern_change_ticks - previous_hall_pattern_change_ticks ;
-            if (current_hall_pattern == 5) {
+            ticks_intervals[ui8_curr_hall_pattern] = ui16_curr_hall_ticks - ui16_prev_hall_ticks ;
+            if (ui8_curr_hall_pattern == 5) {
                 ticks_intervals_status = 2; // stop filling the intervals (wait the values are sent)
             }    
         } 
@@ -1084,9 +1075,9 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
 
     #define DEBUG_IRQO_TIME (1) // 1 = calculate the time spent in irq0
     #if (DEBUG_IRQO_TIME == (1))
-    if (hall_calib_state == HALL_CALIBRATED) {
+    if (hall_calib_state == HALL_CALIBRATED) {  // we measure only when hall are calibrated to get more realistic values
         uint16_t temp  = XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW) ;
-        temp = temp - current_speed_timer_ticks;
+        temp = temp - ui16_curr_pwm_ticks;
         if (irq0_min > temp) irq0_min = temp; // store the in enlapsed time in the irq
         if (irq0_max < temp) irq0_max = temp; // store the max enlapsed time in the irq
     }
@@ -1311,6 +1302,7 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     //temp1e = temp1e - start_ticks;
     //if (temp1e > debug_time_ccu8_irq1e) debug_time_ccu8_irq1e = temp1e; // store the max enlapsed time in the irq
 
+
         // +++++++++  collect wheel and cadence ticks to further process in 1 msec irq +++++++++++
         // this could be in isr0 or ISR1 (probably best in ISR0)
         collect_wheel_cadence_data();
@@ -1319,11 +1311,9 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
         // ***************************************************************************
         // Old Wheel speed sensor detection
         // 
-        
         static uint16_t ui16_wheel_speed_sensor_ticks_counter;
         static uint8_t ui8_wheel_speed_sensor_ticks_counter_started;
         static uint8_t ui8_wheel_speed_sensor_pin_state_old;
-
         // check wheel speed sensor pin state
         //ui8_temp = WHEEL_SPEED_SENSOR__PORT->IDR & WHEEL_SPEED_SENSOR__PIN; // in tsdz2
         uint8_t ui8_in_speed_pin_state = (uint8_t) XMC_GPIO_GetInput(IN_SPEED_PORT, IN_SPEED_PIN);
@@ -1470,6 +1460,7 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     // ui16_adc_torque_actual_rotation is the max during current rotation
     // ui16_adc_torque_previous_rotation is the max during previous rotation
     // ui8_pas_counter count the number of transition to detect a 360° pedal rotation
+
     /*
     // first reset the values per rotation when requested by ebike_app.c (because cadence is lower than a threshold)
     if (ui8_adc_torque_rotation_reset) {
@@ -1501,7 +1492,7 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
 
 
 void motor_enable_pwm(void) { //set posif with current position & restart the timers
-    get_hall_pattern(); // refresh hall pattern in current_hall_pattern
+    get_hall_pattern(); // refresh hall pattern in ui8_curr_hall_pattern
     
     // one solution to activate is to generate an event that starts all timers in a synchronized way
     // Enable Global Start Control CCU80  in a synchronized way*/
@@ -1524,9 +1515,9 @@ void motor_disable_pwm(void) {
 
 void get_hall_pattern(){  // use to initialise at power on and in motor_enable()
     uint32_t critical_section_value = XMC_EnterCriticalSection();
-    current_hall_pattern = XMC_GPIO_GetInput(IN_HALL0_PORT, IN_HALL0_PIN);// hall 0
-    current_hall_pattern |=  XMC_GPIO_GetInput(IN_HALL1_PORT, IN_HALL1_PIN) << 1;
-    current_hall_pattern |=  XMC_GPIO_GetInput(IN_HALL2_PORT, IN_HALL2_PIN) << 2;
+    ui8_curr_hall_pattern = XMC_GPIO_GetInput(IN_HALL0_PORT, IN_HALL0_PIN);// hall 0
+    ui8_curr_hall_pattern |=  XMC_GPIO_GetInput(IN_HALL1_PORT, IN_HALL1_PIN) << 1;
+    ui8_curr_hall_pattern |=  XMC_GPIO_GetInput(IN_HALL2_PORT, IN_HALL2_PIN) << 2;
     XMC_ExitCriticalSection(critical_section_value);
 }
 

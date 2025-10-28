@@ -71,8 +71,8 @@ extern volatile uint32_t posif_SR0;
 extern volatile uint32_t posif_SR1;
 extern volatile uint32_t posif_print_current_pattern ;
 
-extern volatile uint8_t current_hall_pattern;                   // current hall pattern
-extern uint8_t  previous_hall_pattern; 
+extern volatile uint8_t ui8_curr_hall_pattern;                   // current hall pattern
+extern uint8_t  ui8_prev_hall_pattern; 
 
 extern volatile uint16_t ui16_a ;
 extern volatile uint16_t ui16_b ;
@@ -267,7 +267,7 @@ int main(void)
     // set initial position of hall sensor and first next expected one in shadow and load immediately in real register
     //posif_init_position();
     get_hall_pattern();
-    previous_hall_pattern = 0; // use a different hall pattern to force the angle. 
+    ui8_prev_hall_pattern = 0; // use a different hall pattern to force the angle. 
     XMC_POSIF_Start(HALL_POSIF_HW);
     
     
