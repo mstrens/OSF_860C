@@ -66,6 +66,7 @@ extern volatile uint8_t ui8_battery_SOC_reset_flag;
 // added by ms because used in ebike_app.c
 extern volatile uint8_t ui8_g_foc_angle;
 extern uint8_t ui8_foc_angle_multiplicator;
+extern volatile uint32_t ui32_pwm_ticks_since_last_front ;
 
 // added by mstrens because defined in ebike_app.c and used in motor.c
 extern uint8_t ui8_adc_battery_overcurrent;

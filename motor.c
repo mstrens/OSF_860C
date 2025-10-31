@@ -628,7 +628,8 @@ uint8_t hall_calib_state = HALL_TO_CALIBRATE;
 uint32_t hall_cal_sum[6];
 uint16_t hall_cal_count[6];
 uint16_t hall_cal_total_count;
-inline __attribute__((always_inline)) void hall_collect_calibrate(uint16_t ticks_between_2_hall_fronts, 
+/*
+inline __attribute__((always_inline)) void hall_collect_calibrate(uint16_t ui16_ticks_between_2_hall_fronts, 
                                                                 uint32_t ui32_hall_velocity_q8_8X1024_local){
     switch (hall_calib_state) {
         case HALL_TO_CALIBRATE:  // start calibration if rpm is high enough 
@@ -642,14 +643,14 @@ inline __attribute__((always_inline)) void hall_collect_calibrate(uint16_t ticks
             } 
             break;
         case HALL_CALIBRATING:
-            hall_cal_sum[ui8_prev_sector] += ticks_between_2_hall_fronts ;
+            hall_cal_sum[ui8_prev_sector] += ui16_ticks_between_2_hall_fronts ;
             hall_cal_count[ui8_prev_sector]++;
             hall_cal_total_count--;
             if (hall_cal_total_count == 0) {hall_calib_state = HALL_MEASURED; }
             break; 
     }
 }
-
+*/
 // to debug
 uint16_t base_angle_0;
 uint16_t base_angle_1;
@@ -743,65 +744,49 @@ inline int16_t angle_diff(uint16_t a, uint16_t b) {
 //if (delta == 0 && diff != 0)  delta = (diff > 0) ? 1 : -1;
 //i32_omega_est X256 += delta;
 
-// called when hall pattern change
-inline __attribute__((always_inline)) void synchronise_hall_hybrid(uint16_t ticks_between_2_hall_fronts, 
-                uint32_t ui32_raw_velocity_q8_8X1024 ,
-                uint32_t ui32_hall_velocity_q8_8X1024_local){
-    // switch to Hybrid velocity
-    if ((!ui8_hybrid_position_valid) && (ui32_hall_velocity_q8_8X1024_local > HALL_TO_HYBRID_VELOCITY)) {
-        ui16_hyb_angle_no_ref_no_lead_q8_8 = ui16_curr_base_angle_q8_8; // position estimée = secteur de base du secteur courant
-        
-        ui32_hyb_velocity_q8_8X1024 = ui32_hall_velocity_q8_8X1024_local;              // vitesse from hall  (angle/tick X1024)
-        i16_correction_q8_8 = 0;       // correction progressive restante
-        i16_step_q8_8 = 0;             // step par ISR
-        i8_cnt_steps = 0;             // nombre d’ISR restant pour la correction
-        i16_residual_q8_8 = 0;         // correction résiduelle pour ajustement exact
-        ui8_hybrid_position_valid = 1;
-    } else { // hybrid is valid (because rpm is high enough) so it makes sense to calculate Hybrid position  
-        // Interpolation au front précédent avec vitesse précédente et ticks entre 2 fronts
-        uint16_t ui16_theta_est_at_T1_q8_8 = ui16_prev_base_angle_q8_8 + (uint16_t)((ui32_hyb_velocity_q8_8X1024 * (uint32_t)ticks_between_2_hall_fronts) >> 10);// speed is in x1024 to keep accuracy
-        // Erreur vs base nouveau secteur
-        int16_t i16_err_q8_8 = angle_diff(ui16_curr_base_angle_q8_8 , ui16_theta_est_at_T1_q8_8);
+// called when hall pattern change and // hybrid is valid (because rpm is high enough) so it makes sense to calculate Hybrid position
+inline __attribute__((always_inline)) void synchronise_hall_hybrid(uint16_t ui16_ticks_between_2_hall_fronts,
+                uint32_t ui32_raw_velocity_q8_8X1024  ) {         
+    // Interpolation au front précédent avec vitesse précédente et ticks entre 2 fronts
+    uint16_t ui16_theta_est_at_T1_q8_8 = ui16_prev_base_angle_q8_8 + (uint16_t)((ui32_hyb_velocity_q8_8X1024 * (uint32_t)ui16_ticks_between_2_hall_fronts) >> 10);// speed is in x1024 to keep accuracy
+    // Erreur vs base nouveau secteur
+    int16_t i16_err_q8_8 = angle_diff(ui16_curr_base_angle_q8_8 , ui16_theta_est_at_T1_q8_8);
 
-        // === Vérifier si l'erreur est excessive (supérieure à ±30°) ===
-        if ((i16_err_q8_8 > (int16_t)HALL_ANGLE_OFFSET_30_DEG_Q8_8) || (i16_err_q8_8 < -(int16_t)HALL_ANGLE_OFFSET_30_DEG_Q8_8))  {
-            // --- Réalignement partiel (application immédiate de 75% de la correction) ---
-            int16_t i16_err_immediate_q8_8 = (i16_err_q8_8 * 3) >>2;  // 75%
-            int16_t i16_err_remaining_q8_8 = i16_err_q8_8 - i16_err_immediate_q8_8;  // reste 25%
+    // === Vérifier si l'erreur est excessive (supérieure à ±30°) ===
+    if ((i16_err_q8_8 > (int16_t)HALL_ANGLE_OFFSET_30_DEG_Q8_8) || (i16_err_q8_8 < -(int16_t)HALL_ANGLE_OFFSET_30_DEG_Q8_8))  {
+        // --- Réalignement partiel (application immédiate de 75% de la correction) ---
+        int16_t i16_err_immediate_q8_8 = (i16_err_q8_8 * 3) >>2;  // 75%
+        int16_t i16_err_remaining_q8_8 = i16_err_q8_8 - i16_err_immediate_q8_8;  // reste 25%
 
-            // Appliquer 75% tout de suite (on décale la position estimée)
-            ui16_hyb_angle_no_ref_no_lead_q8_8 = ui16_curr_base_angle_q8_8 - ((uint16_t)i16_err_remaining_q8_8);
+        // Appliquer 75% tout de suite (on décale la position estimée)
+        ui16_hyb_angle_no_ref_no_lead_q8_8 = ui16_curr_base_angle_q8_8 - ((uint16_t)i16_err_remaining_q8_8);
 
-            // Corriger progressivement le reste sur quelques ISR
-            i16_step_q8_8 = i16_err_remaining_q8_8 >> SHIFT_CORR;
-            i8_cnt_steps = (int8_t)(1 << SHIFT_CORR);
-            i16_correction_q8_8 = i16_err_remaining_q8_8;
-            i16_residual_q8_8 = (int16_t)((int32_t)i16_err_remaining_q8_8 -
-                                        (int32_t)i16_step_q8_8 * (int32_t)i8_cnt_steps);
-        } else        
-        {
-            // Préparer correction progressive
-            i16_step_q8_8 = i16_err_q8_8 >> SHIFT_CORR;
-            //if (i16_step_q8_8 == 0 && i16_err_q8_8 != 0) i16_step_q8_8 = (i16_err_q8_8 > 0) ? 1 : -1;
-            i8_cnt_steps = 1 << SHIFT_CORR;                  // nombre d’ISR pour lisser l’erreur
-            i16_correction_q8_8 = i16_err_q8_8;     // correction à appliquer immédiatement
-            i16_residual_q8_8 = i16_err_q8_8 - (i16_step_q8_8 * (int32_t)i8_cnt_steps);
-        }
-        // Vitesse secteur précédent ui32_raw_velocity_q8_8X1024 déjà calculée est utilisée pour les prochaines interpolations après filtrage
-        //uint32_t ui32_hyb_velocity_q8_8X1024_new = (((uint32_t)ui16_sector_angle_q8_8[ui8_prev_sector]) << 8) / (uint32_t) ticks_between_2_hall_fronts;
-        int32_t diff = ui32_raw_velocity_q8_8X1024 - ui32_hyb_velocity_q8_8X1024;
-        int32_t delta = diff >> 2;
-        if (delta == 0 && diff != 0)  delta = (diff > 0) ? 1 : -1;
-        ui32_hyb_velocity_q8_8X1024 += delta;
- 
-        // Préparer pour interpolation suivante
-        //ui16_prev_base_angle_q8_8 = ui16_curr_base_angle_q8_8;
+        // Corriger progressivement le reste sur quelques ISR
+        i16_step_q8_8 = i16_err_remaining_q8_8 >> SHIFT_CORR;
+        i8_cnt_steps = (int8_t)(1 << SHIFT_CORR);
+        i16_correction_q8_8 = i16_err_remaining_q8_8;
+        i16_residual_q8_8 = (int16_t)((int32_t)i16_err_remaining_q8_8 -
+                                    (int32_t)i16_step_q8_8 * (int32_t)i8_cnt_steps);
+    } else        
+    {
+        // Préparer correction progressive
+        i16_step_q8_8 = i16_err_q8_8 >> SHIFT_CORR;
+        //if (i16_step_q8_8 == 0 && i16_err_q8_8 != 0) i16_step_q8_8 = (i16_err_q8_8 > 0) ? 1 : -1;
+        i8_cnt_steps = 1 << SHIFT_CORR;                  // nombre d’ISR pour lisser l’erreur
+        i16_correction_q8_8 = i16_err_q8_8;     // correction à appliquer immédiatement
+        i16_residual_q8_8 = i16_err_q8_8 - (i16_step_q8_8 * (int32_t)i8_cnt_steps);
     }
-    // --- Repli Hall-only si vitesse trop faible ---
-    if (ui32_hall_velocity_q8_8X1024_local < HYBRID_TO_HALL_VELOCITY)
-        ui8_hybrid_position_valid = 0;
-}
+    // Vitesse secteur précédent ui32_raw_velocity_q8_8X1024 déjà calculée est utilisée pour les prochaines interpolations après filtrage
+    //uint32_t ui32_hyb_velocity_q8_8X1024_new = (((uint32_t)ui16_sector_angle_q8_8[ui8_prev_sector]) << 8) / (uint32_t) ui16_ticks_between_2_hall_fronts;
+    int32_t diff = ui32_raw_velocity_q8_8X1024 - ui32_hyb_velocity_q8_8X1024;
+    int32_t delta = diff >> 2;
+    if (delta == 0 && diff != 0)  delta = (diff > 0) ? 1 : -1;
+    ui32_hyb_velocity_q8_8X1024 += delta;
 
+    // --- Repli Hall-only si vitesse trop faible ---
+    if (ui32_raw_velocity_q8_8X1024 < HYBRID_TO_HALL_VELOCITY) ui8_hybrid_position_valid = 0;
+}
+/*
 // ISR PWM : interpolation + correction progressive
 inline __attribute__((always_inline)) void update_hybrid_position(uint16_t compensated_elapsed_ticks){
     if(ui8_hybrid_position_valid) {
@@ -821,7 +806,7 @@ inline __attribute__((always_inline)) void update_hybrid_position(uint16_t compe
         }
     }    
 }
-
+*/
 
 #if (DYNAMIC_LEAD_ANGLE == (1)) // (1) dynamic based on Id and a PID + optimiser
 __RAM_FUNC static inline void calculate_id_part1(){  // to be called in begin of ISR 1 when rotor position has been updated and current are measured
@@ -923,14 +908,16 @@ volatile uint32_t ui32_pwm_ticks_since_last_front = 0; // used to check motor st
 __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting UP (= 1/4 of 19mhz cycles with 1680 ticks at 64mHz and centered aligned)
     static bool valid_curr_hall_ticks = false;
     static bool valid_prev_hall_ticks = false;
-    
+    static bool first_run_in_PWM_ISR = true;
+
     uint32_t ui32_raw_velocity_q8_8X1024 = 0;   // vitesse brutte (non filtrée) entre 2 fronts
     uint16_t ui16_elapsed_ticks = 0;
     uint16_t ui16_compensated_elapsed_ticks = 0;
-    uint16_t ticks_between_2_hall_fronts; 
+    uint16_t ui16_ticks_between_2_hall_fronts; 
+
     static uint16_t ui16_curr_hall_ticks = 0;
     
-    uint8_t ui8_curr_hall_pattern_local = ui8_curr_hall_pattern;
+    uint8_t ui8_curr_hall_pattern_local = ui8_curr_hall_pattern;   // local copy for faster processing
     uint32_t ui32_hall_velocity_q8_8X1024_local = ui32_hall_velocity_q8_8X1024;
     #define DEBUG_IRQ0_INTERVALS (0) // 1 = calculate min and max intervals between 2 irq0
     #if (DEBUG_IRQ0_INTERVALS == (1))
@@ -950,33 +937,37 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     ui16_prev_ISR0_ticks = ui16_curr_ISR0_ticks ;
     #endif
 
-
+    // read irq data before reading current time stamp (to be sure that time now follow the ISR timestamp)
+    hall_sample_t hall_isr_sample_local;
+    bool hall_event_pending_local = hall_event_pending;
+    hall_isr_sample_local.raw = hall_irq_sample.raw;// Lecture atomique (32 bits)
+        
     // get now timestamp
     uint16_t ui16_curr_ISR0_ticks = (uint16_t) (XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW) );
-    if (ui8_curr_hall_pattern_local == 0){
+    
+    // first read for safety
+    if (first_run_in_PWM_ISR){
+        first_run_in_PWM_ISR = false;
         ui8_curr_hall_pattern_local = read_hall_pattern();
         fill_sector_data(ui8_curr_hall_pattern_local);
     }
-    if (hall_event_pending) {
-        hall_sample_t local;
-        local.raw = hall_irq_sample.raw;// Lecture atomique (32 bits)
+    if (hall_event_pending_local) {
         hall_event_pending = false; // reset flag localement
-        // Extraction
-        ui16_curr_hall_ticks = local.ticks;
-        ui8_curr_hall_pattern_local = local.pattern;
-
-
         valid_curr_hall_ticks = true;     
-        fill_sector_data(ui8_curr_hall_pattern_local);
+        
+        ui16_curr_hall_ticks = hall_isr_sample_local.ticks; // Extraction from ISR
+        ui8_curr_hall_pattern_local = hall_isr_sample_local.pattern;
+
+        fill_sector_data(ui8_curr_hall_pattern_local);  // get current and previous sector (and base and angle)
         // start calculate hall velocity (based on elapsed time between 2 fronts and angle of previous sector
         if (valid_prev_hall_ticks) {
-            ticks_between_2_hall_fronts = ui16_curr_hall_ticks - ui16_prev_hall_ticks;
-            if (ticks_between_2_hall_fronts < 417) ticks_between_2_hall_fronts = 417; // 417 is for rpm = 6000 at clock =1Mhz
+            ui16_ticks_between_2_hall_fronts = ui16_curr_hall_ticks - ui16_prev_hall_ticks;
+            if (ui16_ticks_between_2_hall_fronts < 417) ui16_ticks_between_2_hall_fronts = 417; // 417 is for rpm = 6000 at clock =1Mhz
             //highiest speed (about 6000rpm); this avoid exceeding 32 bit.
             // start division (it take 35 cycles, result is read afterwards if it is used to update raw velocity)
             MATH->DIVCON = 0X4 ; // unsigned division, no shift, autostart
             MATH->DVD = (((uint32_t)ui16_prev_sector_angle_q8_8) << 10); // Load the dividend value (<<10 to increase accuracy for low speed)
-            MATH->DVS = (uint32_t) ticks_between_2_hall_fronts; // Load the divisor value, the division begin immediately   
+            MATH->DVS = (uint32_t) ui16_ticks_between_2_hall_fronts; // Load the divisor value, the division begin immediately   
 
             if( ui8_curr_hall_pattern_local != expected_pattern_table[ui8_prev_hall_pattern]) 
             { // Erreur de séquence
@@ -1001,7 +992,7 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
                 }
            
                 // calculate hall velocity after at least 1 rotation
-                if ((ui8_hall_360_ref_valid) && (ticks_between_2_hall_fronts > 80)){ // avoid division by 0 and error in uint if counter would ve to low
+                if ((ui8_hall_360_ref_valid) && (ui16_ticks_between_2_hall_fronts > 80)){ // avoid division by 0 and error in uint if counter would ve to low
                     while(MATH->DIVST); // Wait until DIV is ready (Not busy)
                     ui32_raw_velocity_q8_8X1024 = MATH->QUOT;
                 } else {
@@ -1014,10 +1005,44 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
                 if (delta == 0 && diff != 0)  delta = (diff > 0) ? 1 : -1;
                 ui32_hall_velocity_q8_8X1024_local += delta;
             
-                // if not yet in hybrid mode and speed high enough, initialise hybrid; 
-                // if in hybrid, update hybrid velocity and prepare to spread the error
-                synchronise_hall_hybrid(ticks_between_2_hall_fronts, ui32_raw_velocity_q8_8X1024, ui32_hall_velocity_q8_8X1024_local);
-                hall_collect_calibrate(ticks_between_2_hall_fronts ,  ui32_hall_velocity_q8_8X1024_local); // Appel optionnel pour collecter des statistiques pour calibrer                 
+                // -------  manage hybrid mode synchronisation -------
+                // if in hybrid mode, synchronise with Hybrid and reset to hall mode if speed is too low
+                if (ui8_hybrid_position_valid) {
+                    synchronise_hall_hybrid(ui16_ticks_between_2_hall_fronts,  ui32_raw_velocity_q8_8X1024 );
+                }
+                else if (ui32_hall_velocity_q8_8X1024_local > HALL_TO_HYBRID_VELOCITY)
+                { // if not yet in hybrid mode and speed high enough, initialise hybrid and switch to hybrid
+                    ui16_elapsed_ticks =  ui16_curr_ISR0_ticks - ui16_curr_hall_ticks ; // ticks between now and last pattern change
+                    ui16_compensated_elapsed_ticks = ui16_elapsed_ticks + ui8_hall_counter_offset;
+                    uint32_t ui32_interpolation_temp = ( (((uint32_t) ui16_compensated_elapsed_ticks) *
+                                                (uint32_t)ui32_hall_velocity_q8_8X1024_local ) + 0) >> 10;
+                    ui16_hyb_angle_no_ref_no_lead_q8_8 = ui16_curr_base_angle_q8_8 + (uint16_t) ui32_interpolation_temp; // position estimée = secteur de base du secteur courant
+                    ui32_hyb_velocity_q8_8X1024 = ui32_hall_velocity_q8_8X1024_local;              // vitesse from hall  (angle/tick X1024)
+                    i16_correction_q8_8 = 0;       // correction progressive restante
+                    i16_step_q8_8 = 0;             // step par ISR
+                    i8_cnt_steps = 0;             // nombre d’ISR restant pour la correction
+                    i16_residual_q8_8 = 0;         // correction résiduelle pour ajustement exact
+                    ui8_hybrid_position_valid = 1;
+                }
+                
+                // ++++++ +manage calibration 
+                // start calibration if rpm is high enough // 1000 rpm = 4474; so 2237 = 500 rpm 
+                if ((hall_calib_state == HALL_TO_CALIBRATE) &&
+                         (ui32_hall_velocity_q8_8X1024_local > (uint32_t)(2237))){ 
+                    hall_calib_state = HALL_CALIBRATING;
+                    hall_cal_total_count = 6 * 200; // number of electric rotation
+                    for (uint8_t i=0;i<6;i++){
+                        hall_cal_sum[i] = 0;
+                        hall_cal_count[i] = 0;
+                    }
+                } 
+                if (hall_calib_state == HALL_CALIBRATING){
+                    hall_cal_sum[ui8_prev_sector] += ui16_ticks_between_2_hall_fronts ;
+                    hall_cal_count[ui8_prev_sector]++;
+                    hall_cal_total_count--;
+                    if (hall_cal_total_count == 0) {hall_calib_state = HALL_MEASURED; }
+                }
+
             }   // end valid previous hall ticks           
         } // end valid/ or invalid sequence after an event pending
         ui16_prev_hall_ticks = ui16_curr_hall_ticks;
@@ -1025,8 +1050,8 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
         ui8_prev_hall_pattern = ui8_curr_hall_pattern_local;  // used to check the sequence
         ui32_pwm_ticks_since_last_front = 0;            // reset to avoid timeout    
     } // end hall event pending
-    else 
-    { // no change in hall patern check motor stop, update position
+    else  // +++++++++++++++  no hall transition  ++++++++++++++
+    { // no change in hall patern since some delay (timeout count in PWM cycles)
         ui32_pwm_ticks_since_last_front++; 
         if (ui32_pwm_ticks_since_last_front > RPM_FOR_MOTOR_STOP_PWM_TICKS ){  
             ui32_pwm_ticks_since_last_front = RPM_FOR_MOTOR_STOP_PWM_TICKS ; // avoid that counter increases and wrap.
@@ -1043,7 +1068,7 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
         }
     } // end no change.
 
-    // here in all case, we calculate rotor position
+    //  +++++++++++ here in all cases, we calculate rotor position +++++++++++++
     if (valid_curr_hall_ticks)  {           
         // elapsed time between now and last pattern change (used for interpolation)
         ui16_elapsed_ticks =  ui16_curr_ISR0_ticks - ui16_curr_hall_ticks ; // ticks between now and last pattern change
@@ -1053,28 +1078,40 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
         ui16_compensated_elapsed_ticks = 0;
     }
 
-    ui8_curr_hall_pattern = ui8_curr_hall_pattern_local; // save local variable
+    // save local variables used to copy global variable while increasing cpu performance
+    ui8_curr_hall_pattern = ui8_curr_hall_pattern_local; 
     ui32_hall_velocity_q8_8X1024 = ui32_hall_velocity_q8_8X1024_local;
 
     /****************************************************************************/
-    // - calculate interpolation angle and sine wave table index when speed is known
-    uint32_t ui32_hall_interpolation_angle_q8_8 = 0;  // perhaps better to use 30° in block commutation
-    if (ui8_motor_commutation_type != BLOCK_COMMUTATION) {  // as long as hall patern are OK and motor is running
-        ui32_hall_interpolation_angle_q8_8 = ( (((uint32_t) ui16_compensated_elapsed_ticks) *
+    // - calculate interpolation angle and sine wave table index (when speed is known
+    uint32_t ui32_hall_interpolation_angle_q8_8 = ( (((uint32_t) ui16_compensated_elapsed_ticks) *
                                           (uint32_t)ui32_hall_velocity_q8_8X1024_local ) + 0) >> 10;
         // Saturation à ±80°
         //if (i32_interpolation_angle_q8_8 > HALL_INTERP_MAX_DELTA_Q8_8)  i32_interpolation_angle_q8_8 = HALL_INTERP_MAX_DELTA_Q8_8;        
         //if (i32_interpolation_angle_q8_8 < 0) ui8_error_interpolation_q8_8 = 1;
-    }
+    
     // ------------ Calculate the rotor angle and use it as index in the table----------------- 
     // hall angle position (to be compared with hybrid angle position 
     uint16_t ui16_hall_angle_no_ref_no_lead_q8_8 = ui16_curr_base_angle_q8_8 + (uint16_t)( ui32_hall_interpolation_angle_q8_8 & 0xFFFF);
 
-    // update position calculated by hybrid method if hybrid is valid (velocity high enough) 
-    update_hybrid_position( ui16_compensated_elapsed_ticks);
-    // for debug, calculate difference of position
-    //i16_debug_diff_pos_hall_hyb = angle_diff(ui16_hall_angle_no_ref_no_lead_q8_8, ui16_hyb_angle_no_ref_no_lead_q8_8);
-        
+    // all angle position calculated by hybrid method if hybrid is valid (velocity high enough) 
+    if(ui8_hybrid_position_valid) {
+        // Interpolation linéaire depuis le dernier changement front
+        uint16_t ui16_theta_interp_q8_8 = ui16_curr_base_angle_q8_8 + ((ui32_hyb_velocity_q8_8X1024 * ui16_compensated_elapsed_ticks) >> 10); // >>10 because velocity is scaled by 1024
+        if (i8_cnt_steps > 0) {         // Appliquer correction progressive avec signe correct (soustraction)
+            ui16_hyb_angle_no_ref_no_lead_q8_8 = ui16_theta_interp_q8_8 - i16_correction_q8_8;
+            // Décrémenter correction pour le prochain ISR
+            i16_correction_q8_8 -= i16_step_q8_8;
+            i8_cnt_steps--;
+        }
+        else if (i8_cnt_steps == 0) {        // Appliquer résiduel une seule fois pour convergence exacte
+            ui16_hyb_angle_no_ref_no_lead_q8_8 = ui16_theta_interp_q8_8 - i16_residual_q8_8;
+            i8_cnt_steps--;  // ne plus rentrer ici
+        } else {        // Plus de correction à appliquer
+            ui16_hyb_angle_no_ref_no_lead_q8_8 = ui16_theta_interp_q8_8;
+        }
+    }  // end calculating hybrid position    
+
     uint16_t ui16_angle_no_ref_no_lead_q8_8;
     //ui16_angle_no_ref_no_lead_q8_8 = ui16_hall_angle_no_ref_no_lead_q8_8;
 

@@ -623,6 +623,7 @@ static void ebike_control_motor(void) // is called every 25ms by ebike_app_contr
 		//ui8_duty_cycle_ramp_up_inverse_step = PWM_DUTY_CYCLE_RAMP_UP_INVERSE_STEP_MIN;
 		//ui8_duty_cycle_ramp_down_inverse_step = PWM_DUTY_CYCLE_RAMP_DOWN_INVERSE_STEP_MIN;
 		ui8_fw_hall_counter_offset = 0;
+		ui32_pwm_ticks_since_last_front = 0; //reset timeout counter to detect motor stop (or low)
 		motor_enable_pwm();
 	}
 
