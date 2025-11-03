@@ -32,6 +32,7 @@
 #include "common.h"
 #include "adc.h"
 #include <math.h>
+#include "systick.h"
 
 #include "cy_retarget_io.h"
 //#include "cy_utils.h"
@@ -287,16 +288,16 @@ uint8_t ui8_hall_counter_offset = 14 * 4; // *4 when we changed from 250000 to 1
 
 #if (DYNAMIC_LEAD_ANGLE == (1) ) //1 dynamic based on Id and a PID + optimiser 
 // to calculate Id
-uint8_t ui8_angle_for_id_prev; // position; saved at begin of ISR 0 to match with current iu,Iv,iw measured at begin of ISR 1
+uint16_t ui16_angle_for_id_prev; // position; saved at begin of ISR 0 to match with current iu,Iv,iw measured at begin of ISR 1
 uint16_t ADC_Bias_Iu = 1 << 11; // ADC is 12 bits, 0 = mid point 
 uint16_t ADC_Bias_Iv = 1 << 11; // ADC is 12 bits, 0 = mid point 
 uint16_t ADC_Bias_Iw = 1 << 11; // ADC is 12 bits, 0 = mid point 
 int32_t i32_id_filtr = 0;       // Id filtered (calculated in calculate_id_part1 and 2 ; used to adapt Q31_lead_angle with a pid)
-volatile int32_t i32_id_pid_acc = 0 ;    // accumulate the Id value to be able to calculate the avg
-volatile int32_t i32_id_pid_cnt = 0 ;    // count the Id value in acc to be able to calculate the avg
+//volatile int32_t i32_id_pid_acc = 0 ;    // accumulate the Id value to be able to calculate the avg
+//volatile int32_t i32_id_pid_cnt = 0 ;    // count the Id value in acc to be able to calculate the avg
 
-int32_t q31_lead_angle = 0 ; // lead angle in Q31
-int32_t foc_pid_I_term = 0;  // integral term of foc pid
+//int32_t q31_lead_angle = 0 ; // lead angle in Q31
+//int32_t foc_pid_I_term = 0;  // integral term of foc pid
 
 #define SQRT3                                       (1.732050807569F)       /* √3 */
 #define DIV_SQRT3                                   (591)                  /* ((int16_t)((1/SQRT3) * (1<<SCALE_SQRT3))) */
@@ -337,11 +338,11 @@ uint16_t debug_error_div = 0;
 
 uint16_t hall_pattern_error_counter = 0; // to debug only
 
-// new wheel and cadence variables
+// new wheel and cadence variables : moved to systick.c
 // =============== VARIABLES PARTAGÉES =============== 
-volatile uint32_t ui32_pwm_ticks = 0;          // compteur soft 19kHz
-volatile uint32_t ui32_cadence_last_ticks[6] = {0};   // timestamps pédalage (codes 0..5)
-volatile uint32_t ui32_wheel_last_pwm_ticks = 0; // dernier front roue (ui32_pwm_ticks)
+//volatile uint32_t ui32_pwm_ticks = 0;          // compteur soft 19kHz
+//volatile uint32_t ui32_cadence_last_ticks[6] = {0};   // timestamps pédalage (codes 0..5)
+//volatile uint32_t ui32_wheel_last_pwm_ticks = 0; // dernier front roue (ui32_pwm_ticks)
 
 /****************************************************************************/
 /*
@@ -397,6 +398,7 @@ static inline __attribute__((always_inline))  void collect_wheel_cadence_data(){
         }    
 }
 
+/*
 // this function is called in systick ISR (at 1kHz) 
 // it calculates wheel and cadence ticks using the data collected at 19 kHz; so ticks are at PWM frequency
 // conversion to rpm is done is ebike.app
@@ -520,7 +522,7 @@ void SysTick_Handler(void) {
     ui16_adc_voltage  = (XMC_VADC_GROUP_GetResult(vadc_0_group_1_HW , VADC_VDC_RESULT_REG ) & 0x0FFF) >> 2; // battery gr1 ch6 result 6
 
 } // end systick_handler
-
+*/
 
 
 // used to calculate hall angles based of linear regression of all ticks intervals
@@ -531,6 +533,7 @@ uint8_t ticks_intervals_status; // 0 =  new data can be written; 1 data being wr
 #endif
 
 
+// use in hall irq to capture pattern and timestamp
 typedef union __attribute__((aligned(4))) {
     struct {
         uint16_t ticks;     // timestamp (16 bits)
@@ -628,7 +631,7 @@ uint8_t hall_calib_state = HALL_TO_CALIBRATE;
 uint32_t hall_cal_sum[6];
 uint16_t hall_cal_count[6];
 uint16_t hall_cal_total_count;
-/*
+/* copié dans le corps de ISR0
 inline __attribute__((always_inline)) void hall_collect_calibrate(uint16_t ui16_ticks_between_2_hall_fronts, 
                                                                 uint32_t ui32_hall_velocity_q8_8X1024_local){
     switch (hall_calib_state) {
@@ -730,6 +733,7 @@ void hall_calibrate(){
 // +++++++++++++++  for hybrid hall positioning ++++++++++++++++++++
 // ============================================================
 // === Fonctions utilitaires pour angles et ticks ===
+int16_t debug_angle_diff = 0;
 
 inline int16_t angle_diff(uint16_t a, uint16_t b) {
     int32_t d = (int32_t)a - (int32_t)b;
@@ -744,14 +748,15 @@ inline int16_t angle_diff(uint16_t a, uint16_t b) {
 //if (delta == 0 && diff != 0)  delta = (diff > 0) ? 1 : -1;
 //i32_omega_est X256 += delta;
 
-// called when hall pattern change and // hybrid is valid (because rpm is high enough) so it makes sense to calculate Hybrid position
+// called when hall pattern change and hybrid is valid (because rpm is high enough) so it makes sense to calculate Hybrid position
+// note : initialisation when switching from Hall to hybrid mode is done in code from ISR0
 inline __attribute__((always_inline)) void synchronise_hall_hybrid(uint16_t ui16_ticks_between_2_hall_fronts,
                 uint32_t ui32_raw_velocity_q8_8X1024  ) {         
     // Interpolation au front précédent avec vitesse précédente et ticks entre 2 fronts
     uint16_t ui16_theta_est_at_T1_q8_8 = ui16_prev_base_angle_q8_8 + (uint16_t)((ui32_hyb_velocity_q8_8X1024 * (uint32_t)ui16_ticks_between_2_hall_fronts) >> 10);// speed is in x1024 to keep accuracy
     // Erreur vs base nouveau secteur
     int16_t i16_err_q8_8 = angle_diff(ui16_curr_base_angle_q8_8 , ui16_theta_est_at_T1_q8_8);
-
+    debug_angle_diff = i16_err_q8_8 ;
     // === Vérifier si l'erreur est excessive (supérieure à ±30°) ===
     if ((i16_err_q8_8 > (int16_t)HALL_ANGLE_OFFSET_30_DEG_Q8_8) || (i16_err_q8_8 < -(int16_t)HALL_ANGLE_OFFSET_30_DEG_Q8_8))  {
         // --- Réalignement partiel (application immédiate de 75% de la correction) ---
@@ -786,7 +791,7 @@ inline __attribute__((always_inline)) void synchronise_hall_hybrid(uint16_t ui16
     // --- Repli Hall-only si vitesse trop faible ---
     if (ui32_raw_velocity_q8_8X1024 < HYBRID_TO_HALL_VELOCITY) ui8_hybrid_position_valid = 0;
 }
-/*
+/* moved to ISR0 to avoid inline
 // ISR PWM : interpolation + correction progressive
 inline __attribute__((always_inline)) void update_hybrid_position(uint16_t compensated_elapsed_ticks){
     if(ui8_hybrid_position_valid) {
@@ -807,8 +812,44 @@ inline __attribute__((always_inline)) void update_hybrid_position(uint16_t compe
     }    
 }
 */
-
 #if (DYNAMIC_LEAD_ANGLE == (1)) // (1) dynamic based on Id and a PID + optimiser
+#define SHIFT_BIAS_CURRENT_LPF 3
+volatile int32_t debug_iq_min = 0;
+volatile int32_t debug_id_min = 0;
+volatile int32_t debug_iq_max = 0;
+volatile int32_t debug_id_max = 0;
+
+void capture_3_phase_current_offset(){  // called by main
+    // when motor is blocked since some time, we update first the ADC bias for Iu, iv, iW
+    // when motor is not running (based on ui8_motor_enabled) we reset foc and foc PID
+    // when motor is running we use a PI based on ID (calculated and filtered in ISR) to update FOC angle
+    // in a second step we can calculate a value for foc angle based on rpm and current and apply pid as a correction.
+
+    // first when motor is not running, update adc bias
+    if (ui8_motor_enabled == 0) {
+        //	/* Init ADC bias */
+        // for THREE_SHUNT_SYNC_CONV)
+        uint16_t Iu;
+        uint16_t Iv;
+        uint16_t Iw;
+
+        Iu = XMC_VADC_GROUP_GetResult(VADC_I1_GROUP , VADC_I1_RESULT_REG ) & 0x0FFF;
+        Iw = XMC_VADC_GROUP_GetResult(VADC_I3_GROUP , VADC_I3_RESULT_REG ) & 0x0FFF;
+        Iv = XMC_VADC_GROUP_GetResult(VADC_I2_GROUP , VADC_I2_RESULT_REG ) & 0x0FFF;
+               /* Read Iu ADC bias */
+        ADC_Bias_Iu = (uint32_t) ((ADC_Bias_Iu * (((uint32_t) 1 << SHIFT_BIAS_CURRENT_LPF) - 1U)) + Iu) >> SHIFT_BIAS_CURRENT_LPF;
+        /* Read Iv ADC bias */
+        ADC_Bias_Iv = (uint32_t) ((ADC_Bias_Iv * (((uint32_t) 1 << SHIFT_BIAS_CURRENT_LPF) - 1U)) + Iv) >> SHIFT_BIAS_CURRENT_LPF;
+        /* Read Iw ADC bias */
+        ADC_Bias_Iw = (uint32_t) ((ADC_Bias_Iw * (((uint32_t) 1 << SHIFT_BIAS_CURRENT_LPF) - 1U)) + Iw) >> SHIFT_BIAS_CURRENT_LPF;
+
+        // reset lead angle to 0 and integral term of pid
+        //q31_lead_angle = 0; 
+        //foc_pid_I_term = 0;
+    }
+
+}
+
 __RAM_FUNC static inline void calculate_id_part1(){  // to be called in begin of ISR 1 when rotor position has been updated and current are measured
     // it measure actual currents but angle must be one one that was apply for PWM and so it is the angle from isr 0 before update.
     //static inline void calculate_id_part1(){  // to be called in first ISR when rotor position has been updated  
@@ -841,7 +882,7 @@ __RAM_FUNC static inline void calculate_id_part1(){  // to be called in begin of
         /* Z = φ, Hall rotor angle, or estimated rotor angle of last PWM cycle from PLL */
         //MATH->CORDZ = RotorAngleQ31;
         // to convert an angle from ui8 to Q31, we must first do a cast of uint8 to int8 and then a shift left by 24 
-        MATH->CORDZ = ((int8_t) ui8_angle_for_id_prev) << 24; // we convert angle in 0/255 to Q31 
+        MATH->CORDZ = ((int16_t) ui16_angle_for_id_prev) << 16; // we convert angle in 0/255 to Q31 
     
         /* Y = I_Alpha */
         MATH->CORDY = I_Alpha_1Q31;
@@ -872,6 +913,12 @@ __RAM_FUNC static inline void calculate_id_part1(){  // to be called in begin of
         int32_t i32_id = MATH->CORRY;
         i32_id >>= CORDIC_SHIFT;
         i32_id = (i32_id * 311) >> 8;   // x MPS/K.;
+        
+        if (debug_iq_min > i32_iq) debug_iq_min = i32_iq;
+        if (debug_id_min > i32_id) debug_id_min = i32_id;
+        if (debug_iq_max < i32_iq) debug_iq_max = i32_iq;
+        if (debug_id_max < i32_id) debug_id_max = i32_id;
+        
         // here id should be in the same units as original current (so as with ADC 15 bits because we used ADC12 << 3)
         // 1 step ADC10 = 0,16A
         // 1 step ADC15 = 0,16A / 32 = 0,005 A = 5 mA
@@ -883,13 +930,15 @@ __RAM_FUNC static inline void calculate_id_part1(){  // to be called in begin of
         //i32_id_filtr += (diff * ALPHA_Q15) >> Q15_SHIFT;
         
         // save data to calculate AVG at 100hz (PID) : cnt max = 19000 /100= 190; 190*10000 fit in i32 (so OK)
-        i32_id_pid_acc += i32_id; // accumulate
-        i32_id_pid_cnt++;         // count
+        //i32_id_pid_acc += i32_id; // accumulate
+        //i32_id_pid_cnt++;         // count
+        
         // update of foc angle occurs in 100 hz and not in ISR
     }
 #endif // end (1) dynamic based on Id and a PID + optimiser    
 
-void fill_sector_data(uint8_t ui8_curr_hall_pattern_local){
+// retrieve all parameters related to current sector (sector, previous sector, base angle, base angle previous sector, angle of previous sector)
+__RAM_FUNC  inline __attribute__((always_inline)) void fill_sector_data(uint8_t ui8_curr_hall_pattern_local){
     ui8_curr_sector = hall_to_sector[ui8_curr_hall_pattern_local];               // get current sector
     ui16_curr_base_angle_q8_8 =  ui16_base_sector_q8_8[ui8_curr_sector] ;  // get current base angle
     // get previous sector
@@ -902,6 +951,7 @@ void fill_sector_data(uint8_t ui8_curr_hall_pattern_local){
 
 volatile uint32_t ui32_pwm_ticks_since_last_front = 0; // used to check motor stop or very low speed
                                                     // keep global because it could be updated in ebike_app
+uint16_t ui16_angle_no_ref_no_lead_q8_8;
 
 // ************************************** begin of IRQ *************************
 // *************** irq 0 of ccu8
@@ -1068,6 +1118,8 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
         }
     } // end no change.
 
+    // save previous hall position to calculate Id Iq in ISR1
+    ui16_angle_for_id_prev = ui16_angle_no_ref_no_lead_q8_8 ;
     //  +++++++++++ here in all cases, we calculate rotor position +++++++++++++
     if (valid_curr_hall_ticks)  {           
         // elapsed time between now and last pattern change (used for interpolation)
@@ -1112,7 +1164,7 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
         }
     }  // end calculating hybrid position    
 
-    uint16_t ui16_angle_no_ref_no_lead_q8_8;
+    
     //ui16_angle_no_ref_no_lead_q8_8 = ui16_hall_angle_no_ref_no_lead_q8_8;
 
     if (ui8_hybrid_position_valid == 0) { 
@@ -1122,7 +1174,7 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     }
     // add hall_reference_angle ; set on 66 based on tests with my motor. (note : 64 = 90°)
     uint16_t ui16_angle_no_lead_q8_8 = ui16_angle_no_ref_no_lead_q8_8 + (uint16_t) (hall_reference_angle << 8);
-
+    
     // add lead angle
     uint16_t ui16_SVM_table_index_q8_8 = ui16_angle_no_lead_q8_8 + (uint16_t)(ui8_g_foc_angle<<8);
     uint8_t ui8_lut_index = (uint8_t)(ui16_SVM_table_index_q8_8 >> 8);
@@ -1143,12 +1195,12 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
 
     #define DEBUG_IRQO_TIME (1) // 1 = calculate the time spent in irq0
     #if (DEBUG_IRQO_TIME == (1))
-    //if (hall_calib_state == HALL_CALIBRATED) {  // we measure only when hall are calibrated to get more realistic values
+    if (hall_calib_state == HALL_CALIBRATED) {  // we measure only when hall are calibrated to get more realistic values
         uint16_t temp  = XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW) ;
         temp = temp - ui16_curr_ISR0_ticks;
         if (irq0_min > temp) irq0_min = temp; // store the in enlapsed time in the irq
         if (irq0_max < temp) irq0_max = temp; // store the max enlapsed time in the irq
-    //}
+    }
     #endif
 
     /*
@@ -1191,10 +1243,10 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
 
 } // end of CCU80_0_IRQHandler
 
-#define DEBUG_IRQ1_TIME (0) // 1 = calculate time spent in irq1
+#define DEBUG_IRQ1_TIME (1) // 1 = calculate time spent in irq1
 // ************* irq handler 
 __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting DOWN (= 1/4 of 19mhz cycles)    
-//void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  counting DOWN (= 1/4 of 19mhz cycles)    
+    
     #if (DEBUG_IRQ1_TIME == (1))
     // to debug max time in this iSR
     uint16_t start_ticks  =  XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW);
@@ -1513,12 +1565,6 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
         */ // end cadence
 
         // original perform also a save of some parameters (battery consumption) // to do 
-    #if (DEBUG_IRQ1_TIME == (1))
-    uint16_t temp1  =  XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW);
-    temp1 = temp1 - start_ticks;
-    if (irq1_min > temp1) irq1_min = temp1; // store the min enlapsed time in the irq
-    if (irq1_max < temp1) irq1_max = temp1; // store the min enlapsed time in the irq
-    #endif
     
     // added by mstrens to calculate torque sensor without cyclic effect using the max per current and previous rotation
     // note this code is used only when we do not use SPIDER or katana(1or 2) logic.
@@ -1556,6 +1602,14 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     // update data to get an avg of Id
     calculate_id_part2();
     #endif
+    
+    #if (DEBUG_IRQ1_TIME == (1))
+    uint16_t temp1  =  XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW);
+    temp1 = temp1 - start_ticks;
+    if (irq1_min > temp1) irq1_min = temp1; // store the min enlapsed time in the irq
+    if (irq1_max < temp1) irq1_max = temp1; // store the min enlapsed time in the irq
+    #endif
+    
 }  // end of CCU8_1_IRQ
 
 
@@ -1589,7 +1643,7 @@ void get_hall_pattern(){  // use to initialise at power on and in motor_enable()
     XMC_ExitCriticalSection(critical_section_value);
 }
 
-#if (DYNAMIC_LEAD_ANGLE == (1))
+#if (DYNAMIC_LEAD_ANGLE == (3))  // set on 3 because not used when we first try only to calculate Iq Iq
 // +++++++++++++++++ from here the code to apply a pid+optimiser for lead angle using id +++++++++++++++++++++
 
 //int32_t apply_PID_on_lead_angle(int32_t Id_filt,int32_t q31_lead_angle);
@@ -1626,8 +1680,7 @@ void update_foc_pid() { // this is called from main() every 10 msec, it supposes
     }
     else {
         // apply PI on id
-        //q31_lead_angle = apply_PID_on_lead_angle(i32_id_filtr , q31_lead_angle);
-        //q31_lead_angle = apply_PID_on_lead_angle();
+        
         apply_PID_on_lead_angle();
     }
 }    

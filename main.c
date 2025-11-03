@@ -27,6 +27,7 @@
 
 #include "motor.h"
 #include "ebike_app.h"
+#include "systick.h"
 //#include "eeprom.h"
 
 
@@ -43,8 +44,9 @@
 
 // Variable for keeping track of time 
 uint32_t ui32_last_controller_ms = 0;  // used to call a function every 25 ms (ebbike controller at 40Hz)
-//uint16_t last_foc_pid_ticks = 0;    // used to call a function every 10 msec (update foc pid angle at 100hz)
-//uint16_t last_foc_optimiser_ticks = 0 ; // used to call a function every 200 msec (update of optimizer at 5 hz)
+// used to test capture of 3 phase current
+uint16_t last_foc_pid_ticks = 0;    // used to call a function every 10 msec (update foc pid angle at 100hz)
+uint16_t last_foc_optimiser_ticks = 0 ; // used to call a function every 200 msec (update of optimizer at 5 hz)
 
 
 // maximum duty cycle
@@ -369,7 +371,8 @@ int main(void)
         temp_ticks = ui32_ms_counter; 
         if ( (temp_ticks - last_foc_pid_ticks) > 10){ // 100hz : interval 10000 usec / 4usec = 2500 ticks
             last_foc_pid_ticks = temp_ticks;
-            update_foc_pid();  // this calculate a new FOC angle based on a PI and on the Id current
+            capture_3_phase_current_offset();
+            //update_foc_pid();  // this calculate a new FOC angle based on a PI and on the Id current
         }
         #endif
 
@@ -381,9 +384,26 @@ int main(void)
         
         #if (DYNAMIC_LEAD_ANGLE == (1))
         temp_ticks = ui32_ms_counter;
-        if ( (temp_ticks - last_foc_optimiser_ticks) > 200){ // 200msec =  5 hz
+        if ( (temp_ticks - last_foc_optimiser_ticks) > 1000){ // 200msec =  5 hz
             last_foc_optimiser_ticks = temp_ticks;
-            update_foc_optimiser();  // this performs some checks and update some variable every 25 msec
+            SEGGER_RTT_printf(0, "i-%d\r\n", debug_iq_min);
+           
+            //RTT_LOG("i-", NULL, irq0_min);
+            //RTT_LOG(" i+", NULL, irq0_max);
+            //RTT_LOG(" d-", NULL, debug_id_min);
+            //RTT_LOG(" d+", NULL, debug_id_max);
+            //RTT_LOG(" q-", NULL, debug_iq_min);
+            //RTT_LOG(" q+", "\r\n", debug_iq_max);
+            
+            //debug_iq_min = 0;
+            //debug_id_min = 0;
+            //debug_iq_max = 0;
+            //debug_id_max = 0;
+            //irq0_min = 0XFFFF;
+            //irq1_min = 0xFFFF;
+            //irq0_max = 0;
+            //irq1_max = 0;
+            //update_foc_optimiser();  // this performs some checks and update some variable every 25 msec
         }
         #endif        
         
@@ -398,8 +418,8 @@ int main(void)
         if ((temp_ticks - last_print_ms)  > 100){ // 25 msec
            last_print_ms = temp_ticks;
            
-            RTT_LOG("Min", NULL, irq0_min);
-            RTT_LOG("  Max", "\r\n", irq0_max);
+            //RTT_LOG("Min", NULL, irq0_min);
+            //RTT_LOG("  Max", "\r\n", irq0_max);
            /*
            SEGGER_RTT_printf(0, "ticks same %u   diff %u   state same %u   diff %u  val %x ints %x error %u  time %u\r\n",
             ui32_same_hall_ticks,

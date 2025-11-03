@@ -112,6 +112,13 @@ void update_foc_optimiser(void);
 void hall_calibrate();
 void hall_positions_init();
 
+void capture_3_phase_current_offset();
+
+extern volatile int32_t debug_iq_min ;
+extern volatile int32_t debug_id_min ;
+extern volatile int32_t debug_iq_max ;
+extern volatile int32_t debug_id_max ;
+
 
 
 
