@@ -371,7 +371,7 @@ int main(void)
         temp_ticks = ui32_ms_counter; 
         if ( (temp_ticks - last_foc_pid_ticks) > 10){ // 100hz : interval 10000 usec / 4usec = 2500 ticks
             last_foc_pid_ticks = temp_ticks;
-            capture_3_phase_current_offset();
+        //    capture_3_phase_current_offset();
             //update_foc_pid();  // this calculate a new FOC angle based on a PI and on the Id current
         }
         #endif
@@ -418,8 +418,8 @@ int main(void)
         if ((temp_ticks - last_print_ms)  > 100){ // 25 msec
            last_print_ms = temp_ticks;
            
-            //RTT_LOG("Min", NULL, irq0_min);
-            //RTT_LOG("  Max", "\r\n", irq0_max);
+            RTT_LOG("Min", NULL, irq0_min);
+            RTT_LOG("  Max", "\r\n", irq0_max);
            /*
            SEGGER_RTT_printf(0, "ticks same %u   diff %u   state same %u   diff %u  val %x ints %x error %u  time %u\r\n",
             ui32_same_hall_ticks,

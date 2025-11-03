@@ -66,7 +66,7 @@
 // those rules apply only when rotor rotation speed is fast enough otherwise we use "normal positioning"
 // Normal positionning means that extrapolation is based on each pattern change and on speed on last 360°
 
-#define DYNAMIC_LEAD_ANGLE      (1)   // (0) no dynamic
+#define DYNAMIC_LEAD_ANGLE      (0)   // (0) no dynamic
                                       // (1) dynamic based on Id and a PID + optimiser 
                                       // (2) dynamic based on Idc and a optimiser (= esc) 
 

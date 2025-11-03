@@ -1119,7 +1119,7 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     } // end no change.
 
     // save previous hall position to calculate Id Iq in ISR1
-    ui16_angle_for_id_prev = ui16_angle_no_ref_no_lead_q8_8 ;
+    //ui16_angle_for_id_prev = ui16_angle_no_ref_no_lead_q8_8 ;
     //  +++++++++++ here in all cases, we calculate rotor position +++++++++++++
     if (valid_curr_hall_ticks)  {           
         // elapsed time between now and last pattern change (used for interpolation)
