@@ -20,9 +20,9 @@
 */
 
 #define  PROBE_SCOPE_MAX_CH                     4   /* The maximum number of channels: [1,4].             */
-#define  PROBE_SCOPE_MAX_SAMPLES              500   /* The maximum number of samples per channel.         */
-#define  PROBE_SCOPE_16_BIT_EN                  1   /* The maximum size of each sample is 16-bits: [0,1]. */
-#define  PROBE_SCOPE_32_BIT_EN                  1   /* The maximum size of each sample is 32-bits: [0,1]. */
+#define  PROBE_SCOPE_MAX_SAMPLES              400   /* The maximum number of samples per channel.         */
+#define  PROBE_SCOPE_16_BIT_EN                  (0)   /* The maximum size of each sample is 16-bits: [0,1]. */
+#define  PROBE_SCOPE_32_BIT_EN                  (1)   /* The maximum size of each sample is 32-bits: [0,1]. */ 
 #if defined ( __ICCARM__ )
 #define  PROBE_SCOPE_RAM_FUNC                     __ramfunc
 #elif defined ( __GNUC__ )

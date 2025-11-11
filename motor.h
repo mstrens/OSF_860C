@@ -114,11 +114,25 @@ void hall_positions_init();
 
 void capture_3_phase_current_offset();
 
-extern volatile int32_t debug_iq_min ;
-extern volatile int32_t debug_id_min ;
-extern volatile int32_t debug_iq_max ;
-extern volatile int32_t debug_id_max ;
+extern volatile uint16_t ui16_adc_motor_phase_current; // mstrens: it was uint8 in original code
+extern volatile uint16_t ui16_g_foc_angle_q8_8;
+extern uint32_t ui32_hall_velocity_q8_8X1024;
 
+extern volatile int32_t debug_id ;
+extern volatile int32_t debug_iq ;
 
+extern int32_t debug_Iu;
+extern int32_t debug_Iv;
+extern int32_t debug_Iw;
+extern int32_t debug_Iuvw;
+
+extern int32_t debug_va ; // to debug
+extern int32_t debug_vb ; // to debug
+extern int32_t debug_vc ;  // to debug
+extern int32_t debug_Ialpha;
+extern int32_t debug_Ibeta;
+extern int32_t debug_angle;
+
+extern int32_t debug_foc; 
 
 

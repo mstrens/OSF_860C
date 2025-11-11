@@ -5,7 +5,23 @@
 #include "adc.h"
 #include "xmc_vadc.h"
 
-//ADCType ADC;
+
+// we use 2 groups
+// master is group 1, slave is group 0
+// when an external trigger (based on CCU8 slice 3) occurs, group 1 is triggered
+// Slave (group 0) is synchronize and so one channel of G0 is converted after each conversion of G1
+// Queues are used :  one for G1 and one for G0
+// Sequence is queue g1 is channel 0 and then channel 1; results go respectively in result reg 0 and 1 (of group 1)
+//                   g0 is channel 0 and then channel 1; results go respectively in result reg 0 and 1 (of group 0)
+// even if conversions occur in sequence, goup 1 and 0 perform a sample at the same time.
+// sampling can be as short as 31 nsec (1 clock at 32Mhz) 
+// Alias feature is used; it means that e.g. g1 channel 0 can be connected to différent pins (to measure IU, IV or IW)
+// The values named I1, I2, I3, I4 correspond to the sequence
+// As there is only one result register for e.g. I1, we have to take care of the channel set in G1 alias 0 to know which current it is.
+
+// Throttle in background : XMC_VADC_CHANNEL_CONFIG_t G1_CH7_THROTTLE_P2_5_config , result in Group 1 reg 7
+// Torque in background :   XMC_VADC_CHANNEL_CONFIG_t G0_CH7_TORQUE_P2_2_config; result in Group 0 reg 7
+// Voltage                : XMC_VADC_CHANNEL_CONFIG_t G1_CH6_BATTERY_P2_4_config; result in Group 1 reg 6
 
 
 /*********************************************************************************************************************
@@ -54,7 +70,7 @@ XMC_VADC_GROUP_CONFIG_t VADC_grp0_init =
   },  /* !<ICLASS-0 */
   .class1 =
   {
-    .sample_time_std_conv = 0U,                /*The Sample time is (2*tadci)*/
+    .sample_time_std_conv             = 0U,                /*The Sample time is (1*tadci)*/
     .conversion_mode_standard        = XMC_VADC_CONVMODE_12BIT,     /* 12bit conversion Selected*/
     .sampling_phase_emux_channel     = (uint32_t) 0U,                /*The Sample time is (2*tadci)*/
     .conversion_mode_emux            = XMC_VADC_CONVMODE_12BIT      /* 12bit conversion Selected*/
@@ -87,7 +103,7 @@ XMC_VADC_GROUP_CONFIG_t VADC_grp1_init =
   },  /* !<ICLASS-0 */
   .class1 =
   {
-    .sample_time_std_conv = 0U,                /*The Sample time is (2*tadci)*/
+    .sample_time_std_conv = 0U,                /*The Sample time is (1*tadci)*/
     .conversion_mode_standard        = XMC_VADC_CONVMODE_12BIT,     /* 12bit conversion Selected*/
     .sampling_phase_emux_channel     = (uint32_t) 0U,                /*The Sample time is (2*tadci)*/
     .conversion_mode_emux            = XMC_VADC_CONVMODE_12BIT      /* 12bit conversion Selected*/
@@ -118,9 +134,9 @@ XMC_VADC_BACKGROUND_CONFIG_t VADC_grp_scan_config =
   .load_mode       = (uint32_t) XMC_VADC_SCAN_LOAD_COMBINE,   /*Response from SCAN when a Load event occours.*/
 };
 
-/* Potentiometer ADC channel data configuration */ // will be assign to background (line 479)
+/* Throttle ADC channel data configuration */ // will be assign to background (line 479)
 XMC_VADC_CHANNEL_CONFIG_t VADC_channel_pot_init =
-//XMC_VADC_CHANNEL_CONFIG_t G1_CH7_THROTTLE_P2_5_config =
+//XMC_VADC_CHANNEL_CONFIG_t G1_CH7_THROTTLE_P2_5_config , result in reg 7=
 {
   .alias_channel = -1,  /* -1 = no alias*/
   .result_reg_number = VADC_POT_RESULT_REG,   /* result of conv is stored in this register*/
@@ -132,7 +148,7 @@ XMC_VADC_CHANNEL_CONFIG_t VADC_channel_pot_init =
 // added by mstrens
 /* Torque ADC channel data configuration */ // will be assign to background (line 479)
 XMC_VADC_CHANNEL_CONFIG_t VADC_channel_torque_init =
-//XMC_VADC_CHANNEL_CONFIG_t G1_ = G0_CH7_TORQUE_P2_2_config;
+//XMC_VADC_CHANNEL_CONFIG_t = G0_CH7_TORQUE_P2_2_config; result in Group 0 reg 7
 {
   .alias_channel = -1,  /* -1 = no alias*/
   .result_reg_number = VADC_TORQUE_RESULT_REG,   /* result of conv is stored in this register*/
@@ -145,7 +161,7 @@ XMC_VADC_CHANNEL_CONFIG_t VADC_channel_torque_init =
 
 /* DC voltage ADC channel data configuration */ // will be assigned to background (line 483) 
 XMC_VADC_CHANNEL_CONFIG_t VADC_channel_vdc_init =
-//const XMC_VADC_CHANNEL_CONFIG_t G1_CH6_BATTERY_P2_4_config =
+//const XMC_VADC_CHANNEL_CONFIG_t G1_CH6_BATTERY_P2_4_config; result in group 1, reg 6
 {
   .alias_channel = -1,
   .result_reg_number = VADC_VDC_RESULT_REG,
@@ -180,9 +196,9 @@ XMC_VADC_QUEUE_CONFIG_t VADC_grp_queue_config =
 {
   .conv_start_mode  = (uint8_t) XMC_VADC_STARTMODE_CIR,     /* Conversion start mode WFS/CIR/CNR , Here = Cancel-inject-repeat mode*/
   .req_src_priority = (uint8_t) XMC_VADC_GROUP_RS_PRIORITY_3, /*The queue request source priority, here  = high priority*/
-  .trigger_signal   = (uint8_t) XMC_VADC_REQ_TR_P,      /*Use gate signal as trigger*/
+  .trigger_signal   = (uint8_t) XMC_VADC_REQ_TR_CCU80_SR3, //XMC_VADC_REQ_TR_P, //XMC_VADC_REQ_TR_P,      /*Use gate signal as trigger*/
   .trigger_edge     = (uint8_t) XMC_VADC_TRIGGER_EDGE_RISING,   /*Trigger edge needed if trigger enabled , here trigger on rising edge*/
-  .gate_signal      = (uint32_t) XMC_VADC_REQ_GT_E,            /*CCU80.ST3A signal */
+  .gate_signal      = (uint32_t) XMC_VADC_REQ_GT_A,            /*CCU80.ST3A signal */
   .timer_mode       = (uint32_t) 0,                            /* Disabled equidistant sampling*/
   .external_trigger = (uint32_t) 1            /*External trigger Enabled/Disabled , = Enabled*/
 };
@@ -288,14 +304,14 @@ XMC_VADC_CHANNEL_CONFIG_t VADC_grp0_ch1_init =
 };
 
 /* DC current ADC channel data configuration */
-XMC_VADC_CHANNEL_CONFIG_t VADC_channel_idc_init =
-{
-  .alias_channel = -1,
-  .result_reg_number = VADC_IDC_RESULT_REG,
-  .alternate_reference = XMC_VADC_CHANNEL_REF_INTREF,
-  .channel_priority = 0,
-  .sync_conversion = false
-};
+//XMC_VADC_CHANNEL_CONFIG_t VADC_channel_idc_init =
+//{
+//  .alias_channel = -1,
+//  .result_reg_number = VADC_IDC_RESULT_REG,
+//  .alternate_reference = XMC_VADC_CHANNEL_REF_INTREF,
+//  .channel_priority = 0,
+//  .sync_conversion = false
+//};
 
 /*
 // ***********************************************
@@ -364,10 +380,6 @@ void pmsm_phasecurrent_init(void)
 }
 */
 
-
-
-
-
 void pmsm_adc_module_init(void)
 {
 
@@ -406,7 +418,7 @@ void pmsm_adc_module_init(void)
 
   /* Configuration of VADC_G1 - Q source */
   /* External trigger 1,  refill 1 */
-  XMC_VADC_GROUP_QueueInit(VADC_G1, &VADC_grp_queue_config);
+  XMC_VADC_GROUP_QueueInit(VADC_G1, &VADC_grp_queue_config); // highest priority, trigger by CCU8 SR3 (= mid point)
 
   XMC_VADC_GROUP_QueueFlushEntries(VADC_G1);
 
@@ -415,23 +427,20 @@ void pmsm_adc_module_init(void)
   // added by mstrens to be sure
   XMC_VADC_GROUP_QueueSetGatingMode(VADC_G0, XMC_VADC_GATEMODE_IGNORE); /*IGNORE = External triggers are unconditionally passed*/
 
-  /* Request the LLD to insert the channel */
+  /* Request the LLD to insert the channel */ // Add 2 alias channel to group 1
   XMC_VADC_GROUP_QueueInsertChannel(VADC_G1, VADC_grp1_queue_entry_alias_ch0); // VADC_I1_CHANNEL (0), require a trigger to start conv
-
   XMC_VADC_GROUP_QueueInsertChannel(VADC_G1, VADC_grp1_queue_entry_alias_ch1); // VADC_I3_CHANNEL (1), do not require a trigger to start conv
 
   /* Master group - G1 for Synchronous ADC */
-  /* I1, Result Register RES0 (hard coded)*/
+  /* I1 = first conversion, Result Register group 1 RES0 (hard coded)*/
   XMC_VADC_GROUP_ChannelInit(VADC_I1_GROUP, VADC_I1_CHANNEL, &VADC_grp1_ch0_init); // result in reg 0 of gr 1, alias channel 3
-
-  /* I3, Result Register RES1 (hard coded)*/
+  /* I3 = third conversion, Result Register group 1 RES1 (hard coded)*/
   XMC_VADC_GROUP_ChannelInit(VADC_I3_GROUP, VADC_I3_CHANNEL, &VADC_grp1_ch1_init); // result in reg 1 of gr 1, alias channel 4
 
   /* slave group GO*/ 
-  /* I2, Result Register RES0 (hard coded)*/
+  /* I2 =  second conversion, Result Register group 0 RES0 (hard coded)*/
   XMC_VADC_GROUP_ChannelInit(VADC_I2_GROUP, VADC_I2_CHANNEL, &VADC_grp0_ch0_init); // result in reg 0 of gr 0,  alias channel 3
-
-  /* I4 + Idc, Result Register RES1 (hard coded)*/
+  /* I4 = Idc = fourth conversion , Result Register group 0 RES1 (hard coded)*/
   XMC_VADC_GROUP_ChannelInit(VADC_I4_GROUP, VADC_I4_CHANNEL, &VADC_grp0_ch1_init);  // result in reg 1 of gr 0, alias of channel 1
   // commented by mstrens to keep the conversion via the alias that is synchronised
   //XMC_VADC_GROUP_ChannelInit(VADC_IDC_GROUP, VADC_IDC_CHANNEL, &VADC_channel_idc_init); // result in reg 1 of group 0 , no alias
@@ -439,6 +448,12 @@ void pmsm_adc_module_init(void)
   /* disable power saving*/
   XMC_VADC_GROUP_SetPowerMode(VADC_G0, XMC_VADC_GROUP_POWERMODE_OFF);
   XMC_VADC_GROUP_SetPowerMode(VADC_G1, XMC_VADC_GROUP_POWERMODE_OFF);
+
+ /* Configure the gating mode for queue*/ // mstrens repeated to test
+ XMC_VADC_GROUP_QueueSetGatingMode(VADC_G1, XMC_VADC_GATEMODE_IGNORE); /*IGNORE = External triggers are unconditionally passed*/
+ // added by mstrens to be sure
+ XMC_VADC_GROUP_QueueSetGatingMode(VADC_G0, XMC_VADC_GATEMODE_IGNORE); /*IGNORE = External triggers are unconditionally passed*/
+
 
   /* G0: synchronization slave */
   XMC_VADC_GROUP_SetSyncSlave(VADC_G0, 1U, 0U); /* VADC_G0 = pointer to slave group, 1= master group, 0 = slave group*/
@@ -460,11 +475,12 @@ void pmsm_adc_module_init(void)
   // commented by mstrens - IDC is measured via alias
   //XMC_VADC_GROUP_ScanAddChannelToSequence(VADC_IDC_GROUP,VADC_IDC_CHANNEL); /* add idc channel to the sequence*/
 
-// Added by mstrens to configure the alias
+// Added by mstrens to configure the alias but this is changed dynamically in motor.c
+// here consider that sequence will be IW, IV, IU and IDC
 VADC_G1->ALIAS = (((uint32_t)VADC_IU_G1_CHANNEL << VADC_G_ALIAS_ALIAS1_Pos) | VADC_IW_G1_CHANNEL);
 VADC_G0->ALIAS = (((uint32_t)VADC_IDC_CHANNEL << VADC_G_ALIAS_ALIAS1_Pos) | VADC_IV_G0_CHANNEL);
         
-  //pmsm_adc_dclink_init();  // add conversion of DC voltage to background in group 1 channel 6
+  //pmsm_adc_dclink_init();  // add conversion of DC voltage to background in group 1 channel 6 result in reg G1 6
   /* Initializes the DC Link VADC channel for conversion */
   XMC_VADC_GROUP_ChannelInit(VADC_VDC_GROUP, VADC_VDC_CHANNEL, &VADC_channel_vdc_init);
   XMC_VADC_GLOBAL_BackgroundAddChannelToSequence(VADC,VADC_VDC_GROUP_NO,VADC_VDC_CHANNEL);
@@ -478,12 +494,12 @@ VADC_G0->ALIAS = (((uint32_t)VADC_IDC_CHANNEL << VADC_G_ALIAS_ALIAS1_Pos) | VADC
 #endif
 */
 
-/* Initializes the POT VADC channel for conversion */ // is part of group 1; channel is 7 ; conversion is background
+/* Initializes the POT VADC channel for conversion */ // is part of group 1; channel is 7  result in reg G1 7; conversion is background
   XMC_VADC_GROUP_ChannelInit(VADC_POT_GROUP, VADC_POT_CHANNEL, &VADC_channel_pot_init);
   XMC_VADC_GLOBAL_BackgroundAddChannelToSequence(VADC,VADC_POT_GROUP_NO,VADC_POT_CHANNEL);
 
 //added by mstrens to convert torque
-/* Initializes the Torque VADC channel for conversion */ // is part of group 0; channel is 7 ; conversion is background
+/* Initializes the Torque VADC channel for conversion */ // is part of group 0; channel is 7 ; result in reg G0 7conversion is background
   XMC_VADC_GROUP_ChannelInit(VADC_TORQUE_GROUP, VADC_TORQUE_CHANNEL, &VADC_channel_torque_init);
   XMC_VADC_GLOBAL_BackgroundAddChannelToSequence(VADC,VADC_TORQUE_GROUP_NO,VADC_TORQUE_CHANNEL);
 

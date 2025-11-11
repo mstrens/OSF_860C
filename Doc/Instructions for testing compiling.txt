@@ -223,6 +223,7 @@ In tsdz2 controller v2 on github (in file pin.h) it is mentioned:
  * opamp pins 7, 6 and 5, blue phase resistor measurement, amplification factor 10, 2.5 volts offset
  *
  */
+IRS2005 is the driver used to control the Mosfeet. https://github.com/OpenSourceEBike/TSDZ2_motor_controller_v2/blob/master/Documentation/IRS2005.pdf
 
 // Current shunt: P2.8
 // there is power resistor of 0.003 ohms

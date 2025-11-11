@@ -19,7 +19,7 @@
 
 
 // here some parameters for testing/debugging
-#define DEBUG_ON_JLINK         (1)  // when 1, messages are generated on jlink; best is to connect only 3 wires (grnd + SWO and S???)
+#define DEBUG_ON_JLINK         (0)  // when 1, messages are generated on jlink; best is to connect only 3 wires (grnd + SWO and S???)
 
 #define USE_CONFIG_FROM_COMPILATION (0)  // this should normally be set on 0; Then values defined in configurator and stored in flash are applied
                                         // set to 1 only if you want to give priority to
@@ -49,7 +49,7 @@
 
 #define MY_ENABLED 1
 #define MY_DISABLED 0
-#define uCPROBE_GUI_OSCILLOSCOPE MY_DISABLED // MY_ENABLED
+#define uCPROBE_GUI_OSCILLOSCOPE MY_ENABLED//MY_DISABLED // MY_ENABLED
 
 
 // note when USE_SPIDER_LOGIC_FOR_TORQUE > 0, KATANA logic is not used; to use KATANA, USE_SPIDER must be 0
@@ -82,7 +82,7 @@
 // for CCU4 slice 2
 #define HALL_COUNTER_FREQ                      1000000 //it was 250000U // 250KHz or 4us ; now 1Mhz for more acuuracy
 
-#define PWM_DUTY_CYCLE_MAX                      254     
+#define PWM_DUTY_CYCLE_MAX                      128//254     128 to test hafl power and see if iu, iv, iw are ok
 #define PWM_DUTY_CYCLE_STARTUP	                30    // Initial PWM Duty Cycle at motor startup
 
 

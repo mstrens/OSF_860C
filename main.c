@@ -28,8 +28,8 @@
 #include "motor.h"
 #include "ebike_app.h"
 #include "systick.h"
+#include <xmc_math.h>
 //#include "eeprom.h"
-
 
 /*******************************************************************************
 * Macros
@@ -173,7 +173,21 @@ int main(void)
         CY_ASSERT(0);
     }
     
-    
+    // Configure math cordic and div
+    // Disable bit protection 
+    XMC_MATH_Enable();
+
+    /* Default CORDIC setting so far. No result chaining is selected */
+    MATH->GLBCON = 0x00U;
+
+    /* Setting to rotation Mode */
+    #define CORDIC_ROTATION_MODE_IN_MAIN                       (0x6A)                  /*  CORDIC: Circular Rotation Mode. MPS: Divide by 2 (default).*/
+
+    MATH->CON = CORDIC_ROTATION_MODE_IN_MAIN;
+
+    /* Data control: No Keep*/
+    MATH->STATC = 0x00U; /* Data control: No Keep.*/
+
 
 
     /*
@@ -367,14 +381,14 @@ int main(void)
                 
         uint32_t temp_ticks;
         
-        #if (DYNAMIC_LEAD_ANGLE == (1))
+        //#if (DYNAMIC_LEAD_ANGLE == (1))
         temp_ticks = ui32_ms_counter; 
         if ( (temp_ticks - last_foc_pid_ticks) > 10){ // 100hz : interval 10000 usec / 4usec = 2500 ticks
             last_foc_pid_ticks = temp_ticks;
-        //    capture_3_phase_current_offset();
+            capture_3_phase_current_offset();
             //update_foc_pid();  // this calculate a new FOC angle based on a PI and on the Id current
         }
-        #endif
+        //#endif
 
         temp_ticks = ui32_ms_counter;
         if ((temp_ticks - ui32_last_controller_ms)  > 25){ // 25 msec
@@ -415,12 +429,32 @@ int main(void)
         static uint32_t last_print_ms;
         #if (DEBUG_ON_JLINK == 1)
         temp_ticks = ui32_ms_counter;
-        if ((temp_ticks - last_print_ms)  > 100){ // 25 msec
+        if ((temp_ticks - last_print_ms)  > 1000){ // 25 msec
            last_print_ms = temp_ticks;
            
-            RTT_LOG("Min", NULL, irq0_min);
-            RTT_LOG("  Max", "\r\n", irq0_max);
-           /*
+           //RTT_LOG("la8=", NULL, ui8_g_foc_angle);
+           //RTT_LOG(" la16=", NULL, ui16_g_foc_angle_q8_8);
+           RTT_LOG(" iu=", NULL, debug_Iu);
+           RTT_LOG(" iv=", NULL, debug_Iv);
+           RTT_LOG(" iw=", NULL, debug_Iw);
+           RTT_LOG(" a=", NULL, ui16_a);
+           
+           //RTT_LOG(" ia=", NULL, debug_Ialpha);
+           //RTT_LOG(" ib=", NULL, debug_Ibeta);        
+           //RTT_LOG(" id=", NULL, debug_id_max);
+           //RTT_LOG(" iq=", NULL, debug_iq_max);
+           RTT_LOG(" an=", NULL, debug_angle);
+
+
+           //RTT_LOG(" iw=", NULL, abs(debug_Iw));
+            RTT_LOG(" irq0=", NULL, irq0_max);
+            RTT_LOG(" irq1=", "\r\n", irq1_max);
+            irq0_max = 0;
+            irq1_max = 0;
+            debug_id_max = 0;
+            debug_iq_max = 0;
+             
+            /*
            SEGGER_RTT_printf(0, "ticks same %u   diff %u   state same %u   diff %u  val %x ints %x error %u  time %u\r\n",
             ui32_same_hall_ticks,
             ui32_diff_hall_ticks,
