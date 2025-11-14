@@ -1,4 +1,10 @@
-//test4
+//test5
+// to do : adapt values for overcurrent in motor.c and use flag overcurrent_detected to secure the system.
+// search for best lead angle for different erps and fill table
+// look if adc trigger at another time help; require probably another way to unable the motor
+// set another adc triggering when duty cycle increase (depend on sector)
+// move regulation of duty cycle in systick
+
 /*
  * TongSheng TSDZ2 motor controller firmware/
  *

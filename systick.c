@@ -193,8 +193,9 @@ void SysTick_Handler(void) {
             ui16_g_foc_angle_q8_8 = 0; 
             
         }
-
-
+    
+    update_lead_angle();
+        
 
 } // end systick_handler
 
@@ -208,7 +209,7 @@ void SysTick_Handler(void) {
 
 #define LEAD_STEP_MIN_DEGREE  0.02       // ≈ 0.022°
 #define LEAD_STEP_MAX_DEGREE  0.35       // ≈ 0.35°
-#define MAX_LEAD_CORR_DEGREE 10        // max for correction (in +and min)
+#define MAX_LEAD_CORR_DEGREE 10        // max for correction (in plus and min)
 
 #define LOW_SPEED_RPM        200
 #define SPEED_FILTER_A_Q15   30000  // coeff IIR vitesse (α≈0.9)
@@ -234,9 +235,9 @@ const float lead_base_deg[] = {0.0f, 2.0f, 5.0f, 10.0f, 14.0f, 18.0f};
 // ---------------------------------------------------
 // Tables internes générées au premier passage
 // ---------------------------------------------------
-static uint16_t hall_tab[SPEED_TAB_SIZE];
+static uint16_t velocity_tab[SPEED_TAB_SIZE];
 static uint16_t lead_base_q8_8[SPEED_TAB_SIZE];
-static uint32_t inv_delta_hall_q30[SPEED_TAB_SIZE - 1];
+static uint32_t inv_delta_velocity_q30[SPEED_TAB_SIZE - 1];
 static uint32_t hall_low_speed_threshold = 0;
 static uint8_t tables_initialized = 0;
 
@@ -244,7 +245,7 @@ static uint8_t tables_initialized = 0;
 // Variables dynamiques
 // ---------------------------------------------------
 static uint16_t tick_5ms = 0;
-static int32_t  hall_filt = 0;
+static int32_t  i32_hall_velocity_filt_q8_8X1024 = 0;
 static int32_t  lead_corr_q8_8 = 0;
 static uint16_t lead_base_q8_8_val = 0;
 static uint16_t lead_total_q8_8 = 0;
@@ -259,14 +260,14 @@ static int32_t last_deadband = 0;
 static void init_lead_tables(void)
 {
     for (uint8_t i = 0; i < SPEED_TAB_SIZE; i++) {
-        hall_tab[i] = (uint16_t)(speed_tab[i] * HALL_RATIO + 0.5f);
+        velocity_tab[i] = (uint16_t)(speed_tab[i] * HALL_RATIO + 0.5f);
         lead_base_q8_8[i] = DEG_TO_Q8_8(lead_base_deg[i]);
     }
 
     for (uint8_t i = 0; i < SPEED_TAB_SIZE - 1; i++) {
-        uint32_t delta = (uint32_t)(hall_tab[i + 1] - hall_tab[i]);
+        uint32_t delta = (uint32_t)(velocity_tab[i + 1] - velocity_tab[i]);
         if (delta == 0) delta = 1;
-        inv_delta_hall_q30[i] = Q30_SCALE / delta;
+        inv_delta_velocity_q30[i] = Q30_SCALE / delta;
     }
     hall_low_speed_threshold = (uint32_t)(LOW_SPEED_RPM * HALL_RATIO + 0.5f);
 
@@ -275,27 +276,23 @@ static void init_lead_tables(void)
 
 static uint16_t interpolate_lead_base_from_hall_velocity(uint16_t hall_vel)
 {
-    if (hall_vel <= hall_tab[0])
+    if (hall_vel <= velocity_tab[0])
         return lead_base_q8_8[0];
-    if (hall_vel >= hall_tab[SPEED_TAB_SIZE - 1])
+    if (hall_vel >= velocity_tab[SPEED_TAB_SIZE - 1])
         return lead_base_q8_8[SPEED_TAB_SIZE - 1];
 
     uint8_t idx = 0;
-    while (hall_vel > hall_tab[idx + 1])
+    while (hall_vel > velocity_tab[idx + 1])
         idx++;
 
-    uint32_t delta_hall_vel = hall_vel - hall_tab[idx];
-    uint32_t t_q30 = delta_hall_vel * inv_delta_hall_q30[idx];
+    uint32_t delta_hall_vel = hall_vel - velocity_tab[idx];
+    uint32_t t_q30 = delta_hall_vel * inv_delta_velocity_q30[idx];
     uint32_t delta_angle = (uint32_t)(lead_base_q8_8[idx + 1] - lead_base_q8_8[idx]);
     uint32_t interp = (uint32_t)lead_base_q8_8[idx] + ((t_q30 * delta_angle) >> 30);
 
     return (uint16_t)interp;
 }
 
-static inline int32_t filter_hall_iir(int32_t prev, int32_t new_val)
-{
-    return ( (prev * SPEED_FILTER_A_Q15) + (new_val * SPEED_FILTER_B_Q15) ) >> 15;
-}
 
 static inline int32_t clamp32(int32_t val, int32_t min, int32_t max)
 {
@@ -317,21 +314,33 @@ void update_lead_angle(void)
         return; // update à 200 Hz
     tick_5ms = 0;
 
-    extern int32_t Hall_velocity;  // mesuré
-    extern int32_t Id_filt;
-    extern int32_t Iq_filt;
-    extern void set_lead_angle(uint16_t angle_q8_8);
-
-    // Filtrage Hall (évite le jitter)
-    hall_filt = filter_hall_iir(hall_filt, (int32_t) ui32_hall_velocity_q8_8X1024);
-    int32_t hall_used = hall_filt;
+    
+    
+    // Filtrage Hall velocity (évite le jitter)
+    i32_hall_velocity_filt_q8_8X1024 = filter_i32((int32_t) ui32_hall_velocity_q8_8X1024, i32_hall_velocity_filt_q8_8X1024 , 4);
+    int32_t hall_velocity_used = i32_hall_velocity_filt_q8_8X1024;
 
     // ----------------------
     // Lead base interpolation based on hall velocity
     // ----------------------
-    lead_base_q8_8_val = interpolate_lead_base_from_hall_velocity((uint16_t)hall_used);
+    lead_base_q8_8_val = interpolate_lead_base_from_hall_velocity((uint16_t)hall_velocity_used);
 
     // lead correction based on Id (taking care of Iq and speed)
+    int32_t Id_filt = 0;
+    int32_t Iq_filt = 0;
+    
+    // Here we calculate Id and Iq filtered (based on process in ISR0 or ISR 1) that are used for optimisation of lead angle based on Id    
+    if ( ui8_id_iq_counter == 0 ){    
+        Id_filt = i32_id_sum >> 6; 
+        Iq_filt = i32_iq_sum >> 6;
+        // only for debug
+        debug_id = Iq_filt;
+        debug_id = Iq_filt;
+        i32_id_sum = 0;
+        i32_iq_sum = 0;
+        ui8_id_iq_counter = 64;
+    }
+
     // ----------------------
     // Deadband adaptatif
     // ----------------------
@@ -339,36 +348,36 @@ void update_lead_angle(void)
     int32_t abs_Iq = (Iq_filt < 0) ? -Iq_filt : Iq_filt;
     if (abs_Iq < 1) abs_Iq = 1; // protection
 
-    int32_t Trel = (abs_Iq * K_REL_Q15) >> 15;
-    int32_t T = (Trel > IDABS_DEFAULT) ? Trel : IDABS_DEFAULT;
+    int32_t Trel = (abs_Iq * K_REL_Q15) >> 15; // = 5% of Iq
+    int32_t T = (Trel > IDABS_DEFAULT) ? Trel : IDABS_DEFAULT; // Use 5% of Iq when this is bigger than default (100) 
 
+    // apply hysteresis
     int32_t T_low = (last_deadband == 0) ? T : ((last_deadband * HYST_FACTOR_Q15) >> 15);
-
     if (T > last_deadband)
         last_deadband = T;
     else if (abs_Id < T_low)
         last_deadband = T;
 
-    int32_t Id_effective = (abs_Id < last_deadband) ? 0 : Id_filt;
+    int32_t Id_effective = (abs_Id < last_deadband) ? 0 : Id_filt; // use Id_filter (or 0 when within deadband and hysteresis)
 
     // Reset du correctif si vitesse trop basse
-    if (hall_used < hall_low_speed_threshold) {
+    if (hall_velocity_used < hall_low_speed_threshold) {
         lead_corr_q8_8 = 0;
     } else if (Id_effective != 0) {
         // Step adaptatif proportionnel à |Id/Iq|
         int32_t step_q15 = ( (abs(Id_effective) << 15) / abs_Iq ); // Q15 ratio
         int32_t step = (step_q15 * LEAD_STEP_MAX_Q8_8) >> 15;
-        step = clamp32(step, LEAD_STEP_MIN_Q8_8, LEAD_STEP_MAX_Q8_8); // limit step per iteration
+        step = clamp32(step, LEAD_STEP_MIN_Q8_8, LEAD_STEP_MAX_Q8_8); // limit step per iteration between 0,02° and 0,35°
         if (Id_effective > 0)
             lead_corr_q8_8 -= step;
         else
             lead_corr_q8_8 += step;
         // clamp correction 
-        lead_corr_q8_8 = clamp32(lead_corr_q8_8, -MAX_LEAD_CORR_Q8_8, MAX_LEAD_CORR_Q8_8);
+        lead_corr_q8_8 = clamp32(lead_corr_q8_8, -MAX_LEAD_CORR_Q8_8, MAX_LEAD_CORR_Q8_8); // max = -10° + 10°
     }
  
     // Calcul total
     lead_total_q8_8 = (uint16_t)lead_base_q8_8_val + (uint16_t)lead_corr_q8_8;
 
-    set_lead_angle(lead_total_q8_8);
+    // here we still have to apply lead_total_q8_8 when it will be tested
 }

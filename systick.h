@@ -3,6 +3,7 @@
 #include "cybsp.h"
 #include "SEGGER_RTT.h"
 #include "main.h"
+#include "common.h"
 
 extern volatile uint32_t ui32_ms_counter;
 // new wheel and cadence variables
@@ -15,4 +16,4 @@ extern uint8_t ui8_pas_counter; // counter to detect a full pedal rotation (afte
 
 
 void SysTick_Handler(void) ;
-
+void update_lead_angle(void);

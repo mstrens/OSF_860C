@@ -817,7 +817,17 @@ void init_cycfg_peripherals(void)
     
     XMC_CCU8_SLICE_CompareInit(PHASE_U_TIMER_HW, &PHASE_U_TIMER_compare_config);
     XMC_CCU8_SLICE_SetTimerCompareMatchChannel1(PHASE_U_TIMER_HW, 840U);
-    XMC_CCU8_SLICE_SetTimerCompareMatchChannel2(PHASE_U_TIMER_HW, 0U);
+    XMC_CCU8_SLICE_SetTimerCompareMatchChannel2(PHASE_U_TIMER_HW, 0U); // original code
+// modified by mstrens to get a trigger for VADC based on compare value of channel 2
+//XMC_CCU8_SLICE_SetTimerCompareMatchChannel2(PHASE_U_TIMER_HW, 1678U); // trigger just after mid point (to test)
+// Router cet événement vers le service request 0 (SR0)
+//XMC_CCU8_SLICE_SetInterruptNode(PHASE_U_TIMER_HW,
+//                                XMC_CCU8_SLICE_IRQ_ID_COMPARE_MATCH_DOWN_CH_2,
+//                                XMC_CCU8_SLICE_SR_ID_3);
+// Activer l’événement de compare-match sur CH2 (sur comptage montant)
+//XMC_CCU8_SLICE_EnableEvent(PHASE_U_TIMER_HW, XMC_CCU8_SLICE_IRQ_ID_COMPARE_MATCH_DOWN_CH_2);
+
+
     XMC_CCU8_SLICE_SetTimerPeriodMatch(PHASE_U_TIMER_HW, 1680U);
     XMC_CCU8_SetMultiChannelShadowTransferMode(ccu8_0_HW, XMC_CCU8_MULTI_CHANNEL_SHADOW_TRANSFER_SW_SLICE0);
     XMC_CCU8_EnableShadowTransfer(ccu8_0_HW,XMC_CCU8_SHADOW_TRANSFER_SLICE_0 |XMC_CCU8_SHADOW_TRANSFER_DITHER_SLICE_0 |XMC_CCU8_SHADOW_TRANSFER_PRESCALER_SLICE_0 );
@@ -867,12 +877,18 @@ void init_cycfg_peripherals(void)
     XMC_CCU8_SLICE_ConfigureEvent(PWM_IRQ_TIMER_HW, XMC_CCU8_SLICE_EVENT_1, &PWM_IRQ_TIMER_event1_config);
     XMC_CCU8_SLICE_ConfigureEvent(PWM_IRQ_TIMER_HW, XMC_CCU8_SLICE_EVENT_2, &PWM_IRQ_TIMER_event2_config);
     XMC_CCU8_SLICE_StartConfig(PWM_IRQ_TIMER_HW, XMC_CCU8_SLICE_EVENT_0, XMC_CCU8_SLICE_START_MODE_TIMER_START_CLEAR);
+    // here we trigger SR3 at mid point of PWM cycle; to choose another time, we would have to use a compare in another slice
+    // Still then we can't disable the motor by stopping the PWM slice
+    // we would have to disable the motor by setting all pwm gipo in treestate or at low level
+    // this requires changes in motor enable and motor disable function
     XMC_CCU8_SLICE_SetInterruptNode(PWM_IRQ_TIMER_HW, XMC_CCU8_SLICE_IRQ_ID_PERIOD_MATCH, XMC_CCU8_SLICE_SR_ID_3);
+    
     // do not activate period match and one match simultanously !!!!
     //XMC_CCU8_SLICE_SetInterruptNode(PWM_IRQ_TIMER_HW, XMC_CCU8_SLICE_IRQ_ID_ONE_MATCH, XMC_CCU8_SLICE_SR_ID_2);
     XMC_CCU8_SLICE_SetInterruptNode(PWM_IRQ_TIMER_HW, XMC_CCU8_SLICE_IRQ_ID_COMPARE_MATCH_UP_CH_2, XMC_CCU8_SLICE_SR_ID_0);
     XMC_CCU8_SLICE_SetInterruptNode(PWM_IRQ_TIMER_HW, XMC_CCU8_SLICE_IRQ_ID_COMPARE_MATCH_DOWN_CH_1, XMC_CCU8_SLICE_SR_ID_1);
     XMC_CCU8_SLICE_EnableEvent(PWM_IRQ_TIMER_HW, XMC_CCU8_SLICE_IRQ_ID_PERIOD_MATCH);
+    
     //XMC_CCU8_SLICE_EnableEvent(PWM_IRQ_TIMER_HW, XMC_CCU8_SLICE_IRQ_ID_ONE_MATCH);
     XMC_CCU8_SLICE_EnableEvent(PWM_IRQ_TIMER_HW, XMC_CCU8_SLICE_IRQ_ID_COMPARE_MATCH_UP_CH_2);
     XMC_CCU8_SLICE_EnableEvent(PWM_IRQ_TIMER_HW, XMC_CCU8_SLICE_IRQ_ID_COMPARE_MATCH_DOWN_CH_1);

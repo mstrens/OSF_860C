@@ -118,21 +118,28 @@ extern volatile uint16_t ui16_adc_motor_phase_current; // mstrens: it was uint8 
 extern volatile uint16_t ui16_g_foc_angle_q8_8;
 extern uint32_t ui32_hall_velocity_q8_8X1024;
 
+extern int32_t i32_id_sum ;
+extern int32_t i32_iq_sum ;
+extern uint8_t ui8_id_iq_counter ;
+
+
 extern volatile int32_t debug_id ;
 extern volatile int32_t debug_iq ;
 
-extern int32_t debug_Iu;
-extern int32_t debug_Iv;
-extern int32_t debug_Iw;
-extern int32_t debug_Iuvw;
+extern volatile int32_t debug_Iu;
+extern volatile int32_t debug_Iv;
+extern volatile int32_t debug_Iw;
+extern volatile int32_t debug_Iuvw;
 
-extern int32_t debug_va ; // to debug
-extern int32_t debug_vb ; // to debug
-extern int32_t debug_vc ;  // to debug
-extern int32_t debug_Ialpha;
-extern int32_t debug_Ibeta;
-extern int32_t debug_angle;
+extern volatile int32_t debug_va ; // to debug
+extern volatile int32_t debug_vb ; // to debug
+extern volatile int32_t debug_vc ;  // to debug
+extern volatile int32_t debug_Ialpha;
+extern volatile int32_t debug_Ibeta;
+extern volatile int32_t debug_angle;
 
-extern int32_t debug_foc; 
+extern volatile int32_t debug_foc; 
 
+extern int32_t debug_raw_id;
+extern int32_t debug_raw_iq;
 

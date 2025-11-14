@@ -323,14 +323,13 @@ volatile uint16_t debug_time_ccu8_irq0 = 0;
 //volatile uint16_t debug_time_ccu8_irq1e = 0;
 uint16_t hall_ref_angles_counter = 0;
 
-
-
 // Hall offset for current Hall state; This offset is added in the interpolation process (so based also on the erps)
-// the value is in ticks (1 ticks = 4 usec); we need  55usec/4 : 55 = 39 + 16 (39 = 3/4 of 55usec = delay between measuring and PWM change); 16=delay hall sensor
+// the value is in ticks = usec ; we need  about 60 usec : 
+//     55usec = delay between measuring at begin of ISR0 and applying PWM change at end of PWM cycle;
+//     There is also some delay in hall sensor but it is probably included in hall calibration process
 // based on the regression tests, there should probably be a correction of about 2 depending it is a rising or a falling edge of hall pattern
 // still this should have only a small impact
-uint8_t ui8_hall_counter_offset = 14 * 4; // *4 when we changed from 250000 to 1Mhz 
-
+uint8_t ui8_hall_counter_offset = 60;
 
 //#if (DYNAMIC_LEAD_ANGLE == (1) ) //1 dynamic based on Id and a PID + optimiser 
 // to calculate Id
@@ -884,16 +883,16 @@ void capture_3_phase_current_offset(){  // called by main
     // first when motor is not running, update adc bias
     if (ui8_motor_enabled == 0) {
             //ADC sequences - Iw -> Iv -> Iu  = default sequence set in ISR0
-            //    VADC_G1->ALIAS = (((uint32_t)VADC_IU_G1_CHANNEL << VADC_G_ALIAS_ALIAS1_Pos) | VADC_IW_G1_CHANNEL);
-            //    VADC_G0->ALIAS = (((uint32_t)VADC_IDC_CHANNEL << VADC_G_ALIAS_ALIAS1_Pos) | VADC_IV_G0_CHANNEL); 
-     
+                VADC_G1->ALIAS = (((uint32_t)VADC_IU_G1_CHANNEL << VADC_G_ALIAS_ALIAS1_Pos) | VADC_IW_G1_CHANNEL);
+                VADC_G0->ALIAS = (((uint32_t)VADC_IDC_CHANNEL << VADC_G_ALIAS_ALIAS1_Pos) | VADC_IV_G0_CHANNEL); 
+            // tests on Id Iq shows that Iu=I1, Iv= I2, Iw=I3 for this setting of alias !!!!!
         uint32_t I1 = VADC_I1_GROUP->RES[VADC_I1_RESULT_REG]&0x0FFF; // IW is first measured current based on set up in ISR0
         uint32_t I2 = VADC_I2_GROUP->RES[VADC_I2_RESULT_REG]&0x0FFF; // IV is second one
         uint32_t I3 = VADC_I3_GROUP->RES[VADC_I3_RESULT_REG]&0x0FFF; // IU is third one 
         debug_I1 = I1; debug_I2 = I2; debug_I3 = I3;   
         // Read Iu ADC bias and apply filter
         //uint32_t Iu = ((uint32_t)(XMC_VADC_GROUP_GetResult(VADC_I1_GROUP , VADC_I1_RESULT_REG ) & 0x0FFF)) << 10 ; // << 10 to increase accuracy
-        uint32_t Iu = I3 << ADC_BIAS_SHIFT;
+        uint32_t Iu = I1 << ADC_BIAS_SHIFT;
         ui32_ADC_Bias_Iu =  (uint32_t) ((ui32_ADC_Bias_Iu * (((uint32_t) 1 << SHIFT_BIAS_CURRENT_LPF) - 1U)) + Iu) >> SHIFT_BIAS_CURRENT_LPF;
         ADC_Bias_Iu = (uint16_t) (ui32_ADC_Bias_Iu >> ADC_BIAS_SHIFT) ;
         /* Read Iv ADC bias */
@@ -903,7 +902,7 @@ void capture_3_phase_current_offset(){  // called by main
         ADC_Bias_Iv = (uint16_t) (ui32_ADC_Bias_Iv >> ADC_BIAS_SHIFT) ;
         /* Read Iw ADC bias */
         //uint32_t Iw = ((uint32_t) XMC_VADC_GROUP_GetResult(VADC_I3_GROUP , VADC_I3_RESULT_REG ) & 0x0FFF) << 10;
-        uint32_t Iw = I1 << ADC_BIAS_SHIFT;
+        uint32_t Iw = I3 << ADC_BIAS_SHIFT;
         ui32_ADC_Bias_Iw = (uint32_t) ((ui32_ADC_Bias_Iw * (((uint32_t) 1 << SHIFT_BIAS_CURRENT_LPF) - 1U)) + Iw) >> SHIFT_BIAS_CURRENT_LPF;
         ADC_Bias_Iw = (uint16_t) (ui32_ADC_Bias_Iw >> ADC_BIAS_SHIFT) ;
     }
@@ -912,26 +911,90 @@ void capture_3_phase_current_offset(){  // called by main
 uint8_t ui8_measured_phases; // register which 2 phases (from the 3) have to be used to calculate clarck transform
     
 
-int32_t debug_Iu;
-int32_t debug_Iv;
-int32_t debug_Iw;
-int32_t debug_Iuvw;
-int32_t debug_Ialpha;
-int32_t debug_Ibeta;
-int32_t debug_angle;
-int32_t debug_va ; // to debug
-int32_t debug_vb ; // to debug
-int32_t debug_vc ;  // to debug
-uint8_t cordic_offset =160;
+int32_t volatile debug_Iu;
+int32_t volatile debug_Iv;
+int32_t volatile debug_Iw;
+int32_t volatile debug_Iuvw;
+int32_t volatile debug_Ialpha;
+int32_t volatile debug_Ibeta;
+int32_t volatile debug_angle;
+int32_t volatile debug_va ; // to debug
+int32_t volatile debug_vb ; // to debug
+int32_t volatile debug_vc ;  // to debug
+uint8_t cordic_offset =128;
 int32_t debug_id_accum = 0;
 int32_t debug_iq_accum = 0;
 uint8_t debug_id_filter = 6;
-int32_t i32_id_sum  = 0;
-int32_t i32_id_count = 0;
-int32_t debug_foc = 0;    
+int32_t volatile debug_foc = 0; 
+int32_t debug_cordic_angle = 0;
+int32_t debug_cordic_offset = 0;   
+int32_t debug_raw_id = 0;
+int32_t debug_raw_iq = 0;
+int32_t debug_i32_Iu1;
+int32_t debug_i32_Iv1;
+int32_t debug_i32_Iw1;
+
+int32_t debug_i_avg;
+
+
+
+#define SIN_TABLE_SIZE      256
+#define ANGLE_TO_INDEX_SHIFT 8  // 16 bits Q8.8 → 8 bits d'index (256)
+
+__attribute__((aligned(4), section(".rodata"))) const int16_t sin_table[SIN_TABLE_SIZE] = {
+    0,804,1608,2411,3212,4011,4808,5602,6393,7180,7962,8740,9512,10279,11039,11793,
+12540,13279,14010,14733,15447,16151,16846,17531,18205,18868,19520,20160,20788,21403,22006,22595,
+23170,23732,24279,24812,25330,25833,26320,26791,27246,27684,28106,28511,28899,29269,29622,29957,
+30274,30572,30853,31114,31357,31581,31786,31972,32138,32286,32413,32522,32610,32679,32729,32758,
+32767,32758,32729,32679,32610,32522,32413,32286,32138,31972,31786,31581,31357,31114,30853,30572,
+30274,29957,29622,29269,28899,28511,28106,27684,27246,26791,26320,25833,25330,24812,24279,23732,
+23170,22595,22006,21403,20788,20160,19520,18868,18205,17531,16846,16151,15447,14733,14010,13279,
+12540,11793,11039,10279,9512,8740,7962,7180,6393,5602,4808,4011,3212,2411,1608,804,
+0,-804,-1608,-2411,-3212,-4011,-4808,-5602,-6393,-7180,-7962,-8740,-9512,-10279,-11039,-11793,
+-12540,-13279,-14010,-14733,-15447,-16151,-16846,-17531,-18205,-18868,-19520,-20160,-20788,-21403,-22006,-22595,
+-23170,-23732,-24279,-24812,-25330,-25833,-26320,-26791,-27246,-27684,-28106,-28511,-28899,-29269,-29622,-29957,
+-30274,-30572,-30853,-31114,-31357,-31581,-31786,-31972,-32138,-32286,-32413,-32522,-32610,-32679,-32729,-32758,
+-32768,-32758,-32729,-32679,-32610,-32522,-32413,-32286,-32138,-31972,-31786,-31581,-31357,-31114,-30853,-30572,
+-30274,-29957,-29622,-29269,-28899,-28511,-28106,-27684,-27246,-26791,-26320,-25833,-25330,-24812,-24279,-23732,
+-23170,-22595,-22006,-21403,-20788,-20160,-19520,-18868,-18205,-17531,-16846,-16151,-15447,-14733,-14010,-13279,
+-12540,-11793,-11039,-10279,-9512,-8740,-7962,-7180,-6393,-5602,-4808,-4011,-3212,-2411,-1608,-804
+};
+
+// Multiplication Q15
+__RAM_FUNC static inline int16_t mult_q15(int16_t a, int16_t b)
+{
+    int32_t temp = (int32_t)a * (int32_t)b;
+    temp += 0x4000;  // arrondi
+    return (int16_t)(temp >> 15);
+}
+
+__RAM_FUNC static inline void park_transform_q15(int16_t Ialpha, int16_t Ibeta, uint16_t angle_q8_8,
+                        int16_t *Id, int16_t *Iq)
+{
+    // Index dans la table
+    uint16_t index = (angle_q8_8 >> ANGLE_TO_INDEX_SHIFT) & (SIN_TABLE_SIZE - 1);
+    uint16_t cos_index = (index + (SIN_TABLE_SIZE / 4)) & (SIN_TABLE_SIZE - 1);
+
+    int16_t sin_t = sin_table[index];
+    int16_t cos_t = sin_table[cos_index];
+
+    // Park transform
+    int16_t Id_tmp = mult_q15(Ialpha, cos_t) + mult_q15(Ibeta, sin_t);
+    int16_t Iq_tmp = mult_q15(Ibeta, cos_t) - mult_q15(Ialpha, sin_t);
+
+    *Id = Id_tmp;
+    *Iq = Iq_tmp;
+}
+
+
+uint8_t debug_permutation = 0;
+int32_t i32_id_sum = 0;
+int32_t i32_iq_sum = 0;
+uint8_t ui8_id_iq_counter = 64; // used to filter id & iq ; pwm at 19kHz and systick at 200Hz => 19000/200 = 95 measurements
+
 
 __RAM_FUNC static inline void calculate_id_part1(){  // to be called in begin of ISR 1 when rotor position has been updated and current are measured
-    // it measure actual currents but angle must be one one that was apply for PWM and so it is the angle from isr 0 before update.
+    // it measures actual currents but angle must be one one that was apply for PWM and so it is the angle from isr 0 before update.
     //static inline void calculate_id_part1(){  // to be called in first ISR when rotor position has been updated  
     // read the 3 ADC
     // substact the ADC bias
@@ -945,10 +1008,16 @@ __RAM_FUNC static inline void calculate_id_part1(){  // to be called in begin of
     uint16_t I2 = VADC_I2_GROUP->RES[VADC_I2_RESULT_REG]&0X0FFF; // second conversion = G0 ch 0
     uint16_t I3 = VADC_I3_GROUP->RES[VADC_I3_RESULT_REG]&0X0FFF; // third conversion = G1 ch 1
 
+    // detect overcurrent
+    #define MAX_PHASE_CURRENT 3000
+    bool overcurrent_detected = false;
+    if (( I1 > MAX_PHASE_CURRENT) || ( I2 > MAX_PHASE_CURRENT) || ( I3 > MAX_PHASE_CURRENT)){
+        overcurrent_detected = true;
+    }
     // in case 1, use phase u and v, 2 = phase u and w ,  3 = phase v and w
-    int16_t i16_raw_Iu;
-    int16_t i16_raw_Iv;
-    int16_t i16_raw_Iw;
+    int32_t i32_raw_Iu;
+    int32_t i32_raw_Iv;
+    int32_t i32_raw_Iw;
 
     /*
     switch (ui8_measured_phases){
@@ -978,21 +1047,59 @@ __RAM_FUNC static inline void calculate_id_part1(){  // to be called in begin of
         break;
     }
     */
-
+/*  // this version seems to work but I1 and I3 are inverted and sign with bias are inverted
     i16_raw_Iu = I1;
     i16_raw_Iv = I2;
     i16_raw_Iw = I3;
-    //int16_t i16_raw_Iu = XMC_VADC_GROUP_GetResult(VADC_I1_GROUP , VADC_I1_RESULT_REG ) & 0x0FFF;
-    //int16_t i16_raw_Iw = XMC_VADC_GROUP_GetResult(VADC_I3_GROUP , VADC_I3_RESULT_REG ) & 0x0FFF;
-    //int16_t i16_raw_Iv = XMC_VADC_GROUP_GetResult(VADC_I2_GROUP , VADC_I2_RESULT_REG ) & 0x0FFF;
-
     // note :  in infineon version the sign are reversed ; this is strange
     int32_t i32_Iu = (i16_raw_Iu - ADC_Bias_Iu) << 3; // change from 12 bits to 15 bits to use Q15 in cordic
     int32_t i32_Iv = (i16_raw_Iv - ADC_Bias_Iv) << 3;
     int32_t i32_Iw = (i16_raw_Iw - ADC_Bias_Iw) << 3;
+*/
+// this version is similar to infineon example but use only a sequence IW, IV, IU
+// this code is normally not required because it is already in ADC init and here we use only 1 sequence for this debug
+VADC_G1->ALIAS = (((uint32_t)VADC_IU_G1_CHANNEL << VADC_G_ALIAS_ALIAS1_Pos) | VADC_IW_G1_CHANNEL);
+VADC_G0->ALIAS = (((uint32_t)VADC_IDC_CHANNEL << VADC_G_ALIAS_ALIAS1_Pos) | VADC_IV_G0_CHANNEL);
+
+// normally, we could use case 0 with cordic offset = 128, or case 3 with cordic offset = 42 or case 4 with cordic offset =213
+switch (debug_permutation) {
+    case 0:
+        i32_raw_Iu = (int32_t)I1; i32_raw_Iv = (int32_t)I2; i32_raw_Iw = (int32_t)I3; break; //cordic offset 128
+    case 1:
+        i32_raw_Iu = I1; i32_raw_Iv = I3; i32_raw_Iw = I2; break;
+    case 2:
+        i32_raw_Iu = I2; i32_raw_Iv = I1; i32_raw_Iw = I3; break;
+    case 3:
+        i32_raw_Iu = I2; i32_raw_Iv = I3; i32_raw_Iw = I1; break; // cordic offset 42
+    case 4:
+        i32_raw_Iu = I3; i32_raw_Iv = I1; i32_raw_Iw = I2; break; // cordic offset 213
+    default:
+        i32_raw_Iu = I3; i32_raw_Iv = I2; i32_raw_Iw = I1; break;
+}
+//i16_raw_Iu = I3;
+//i16_raw_Iv = I2;
+//i16_raw_Iw = I1;
+int32_t i32_Iu = (i32_raw_Iu -(int32_t)ADC_Bias_Iu ) << 3; // change from 12 bits to 15 bits to use Q15 in cordic
+int32_t i32_Iv = (i32_raw_Iv - (int32_t)ADC_Bias_Iv ) << 3;
+int32_t i32_Iw = (i32_raw_Iw - (int32_t)ADC_Bias_Iw ) << 3;
+
+int32_t i_avg = (((i32_Iu + i32_Iv + i32_Iw) * (int32_t) DIV_3)) >>  SCALE_DIV_3 ; 
+
+debug_i32_Iu1 = i32_Iu;
+debug_i32_Iv1 = i32_Iv;
+debug_i32_Iw1 = i32_Iw;
+
+debug_i_avg = i_avg;
+
+i32_Iu -= i_avg;
+i32_Iv -= i_avg;
+i32_Iw -= i_avg;
+
 
     int32_t I_Alpha_1Q31;
     int32_t I_Beta_1Q31;
+
+
     /*
     switch (ui8_measured_phases){
         case 1:
@@ -1012,21 +1119,50 @@ __RAM_FUNC static inline void calculate_id_part1(){  // to be called in begin of
             break;
     }
     */                    
+    // pour utilisation de park transform avec table sinus garde les courant en 15 bits
+    //debug_Ialpha = ((i32_Iu << 1) - (i32_Iv + i32_Iw))  ; // to get same units as Iu,Iv,Iw
+    //debug_Ibeta = (i32_Iv - i32_Iw) ;
+    
 
-
+    I_Alpha_1Q31 = (((i32_Iu << 1) - (i32_Iv + i32_Iw)) * (int32_t) DIV_3) >> 14 ; // !! here in uint16 even if less acuurate
+    I_Beta_1Q31 = ((i32_Iv - i32_Iw) * (int32_t) DIV_SQRT3_Q14) >> 14;
+    uint16_t ui16_angle = ui16_angle_for_id_prev_q8_8 + (((uint16_t)cordic_offset) <<8);
+    int16_t i16_id;
+    int16_t i16_iq;
+    park_transform_q15((int16_t) I_Alpha_1Q31, (int16_t) I_Beta_1Q31, ui16_angle,
+        &i16_id, &i16_iq);
+    if (ui8_id_iq_counter){
+        i32_id_sum += i16_id;
+        i32_iq_sum += i16_iq;
+        ui8_id_iq_counter--;
+    } 
+    
+    debug_I1 = I1; debug_I2 = I2; debug_I3 = I3; // 12 bits  
+    debug_Iu = i32_Iu; debug_Iv = i32_Iv; debug_Iw = i32_Iw;// 15 bits
+    debug_Iuvw =  debug_Iu + debug_Iv +debug_Iw;  // so in 15 bits
+    //debug_va = ui16_a; debug_vb = ui16_b; debug_vc = ui16_c; // to debug
+    debug_cordic_offset = (int32_t)(((uint16_t)cordic_offset) <<8);
+    debug_Ialpha = (I_Alpha_1Q31 );  debug_Ibeta = (I_Beta_1Q31 ) ;
+    //debug_id += ((i16_id - debug_id) + ((i16_id - debug_id > 0) ? 1 : (i16_id - debug_id < 0 ? -1 : 0))) >> 4;
+    //debug_iq += ((i16_iq - debug_iq) + ((i16_iq - debug_iq > 0) ? 1 : (i16_iq - debug_iq < 0 ? -1 : 0))) >> 4;
+    debug_angle = (int32_t) ui16_angle_for_id_prev_q8_8 ;
+    debug_raw_id = i16_id; debug_raw_iq = i16_iq; // in 15 bits
+    
+    
+// avec cordic    
     // calculate I alpha and I beta
-    /* I_Alpha = (2 * I_U - (I_V + I_W))/3 */  // ou Ialpha = (2/3) * (Ia - 0.5*Ib - 0.5*Ic)
+    // I_Alpha = (2 * I_U - (I_V + I_W))/3 */  // ou Ialpha = (2/3) * (Ia - 0.5*Ib - 0.5*Ic)
     //HandlePtr->I_Alpha_1Q31 = ((CurrentPhaseU << 1) - (CurrentPhaseV + CurrentPhaseW)) * (DIV_3 << (CORDIC_SHIFT-14));
     // DIV3 = 5461 ; 1/3 = 5461 / (1<<14).; we avoid dividing by 1<<14 in order to get the value from 12 bit to 12+14 = 28 bit
-    I_Alpha_1Q31 = ((i32_Iu << 1) - (i32_Iv + i32_Iw)) * DIV_3 ;
+//    I_Alpha_1Q31 = ((i32_Iu << 1) - (i32_Iv + i32_Iw)) * DIV_3 ;
 
     /*  I_Beta = (I_V - I_W)/√3 in 1Q31 */
     //HandlePtr->I_Beta_1Q31 = (CurrentPhaseV - CurrentPhaseW) * (DIV_SQRT3_Q14 << (CORDIC_SHIFT-14));
     // here also we avoid >>14 in order to get the adc 12 bits +14 bits for better accuracy
-    I_Beta_1Q31 = (i32_Iv - i32_Iw) * DIV_SQRT3_Q14 ;
+//    I_Beta_1Q31 = (i32_Iv - i32_Iw) * DIV_SQRT3_Q14 ;
 
 
-
+/* with cordic
     //debug_Iu = i32_Iu;
     //if (ui8_foc_flag) {
         debug_Iu = i32_Iu>>3; // back from 15 bits to 12 bits
@@ -1040,25 +1176,26 @@ __RAM_FUNC static inline void calculate_id_part1(){  // to be called in begin of
         debug_Ibeta = (I_Beta_1Q31 >> 14) >> 3;
         debug_angle = (int32_t) ui16_angle_for_id_prev_q8_8 ;
         
+        
     //}
-
-    
     // prepare parktransform with cordic
-        /* General control of CORDIC Control Register */
+        // General control of CORDIC Control Register 
     MATH->CON = CORDIC_ROTATION_MODE;
 
-    /* Z = φ, Hall rotor angle, or estimated rotor angle of last PWM cycle from PLL */
+    // Z = φ, Hall rotor angle, or estimated rotor angle of last PWM cycle from PLL 
     //MATH->CORDZ = RotorAngleQ31;
     // to convert an angle from ui8 to Q31, we must first do a cast of uint8 to int8 and then a shift left by 24 
     // It seems that we have to apply an offset of -60° (= 213) for phase A  // does nor seems So with some tests
     uint16_t ui16_angle = ui16_angle_for_id_prev_q8_8 + (((uint16_t)cordic_offset) <<8);
     MATH->CORDZ = (( int32_t) ui16_angle) << 16; // we convert angle in 0/65536 to Q31 
-
-    /* Y = I_Alpha */
+    debug_cordic_angle = (int32_t) ui16_angle;
+    debug_cordic_offset = (int32_t)(((uint16_t)cordic_offset) <<8);
+    // Y = I_Alpha 
     MATH->CORDY = I_Alpha_1Q31;
 
-    /* X = I_Beta. Input CORDX data, and auto start of CORDIC calculation (~62 kernel clock cycles) */
+    // X = I_Beta. Input CORDX data, and auto start of CORDIC calculation (~62 kernel clock cycles) 
     MATH->CORDX = I_Beta_1Q31;
+    */
 }
     
 //    #if (DYNAMIC_LEAD_ANGLE == (1)) // (1) dynamic based on Id and a PID + optimiser
@@ -1086,19 +1223,14 @@ __RAM_FUNC inline void calculate_id_part2(){ // to be called at the end of ISR1 
     i32_id = (i32_id * 311) >> 8;   // x MPS/K.;
     
     // here id and iq are equivalent to 15 bits
+    debug_id = i32_id;
+    debug_iq = i32_iq;
 
-    //i32_id_sum  += i32_id;
-    //i32_id_count++;
-    //debug_id = (i32_id + debug_id) >> 1;
-    debug_id_accum += (((int32_t)i32_id << 16) - debug_id_accum) >> debug_id_filter; // 8 = filter
-    debug_id = debug_id_accum >> 16;  // so in ADC 15 bits units
+    //debug_id_accum += (((int32_t)i32_id << 16) - debug_id_accum) >> debug_id_filter; // 8 = filter
+    //debug_id = debug_id_accum >> 16;  // so in ADC 15 bits units
     // Filtre Id ISR (Q15)
-    //#define ID_FILTER_A      23552   // 0.718 * 32768
-    //#define ID_FILTER_B      (32768 - ID_FILTER_A) // 9216
-    //debug_id = ( (debug_id * ID_FILTER_A) + (i32_id * ID_FILTER_B) ) >> 15;
-
-    debug_iq_accum += (((int32_t)i32_iq << 16) - debug_iq_accum) >> 8; // 8 = filter
-    debug_iq = debug_iq_accum >> 16; // so in ADC 15 bits units
+    //debug_iq_accum += (((int32_t)i32_iq << 16) - debug_iq_accum) >> 8; // 8 = filter
+    //debug_iq = debug_iq_accum >> 16; // so in ADC 15 bits units
     
     
     //if (ui8_foc_flag) {
@@ -1140,6 +1272,7 @@ __RAM_FUNC  inline __attribute__((always_inline)) void fill_sector_data(uint8_t 
 volatile uint32_t ui32_pwm_ticks_since_last_front = 0; // used to check motor stop or very low speed
                                                     // keep global because it could be updated in ebike_app
 uint16_t ui16_angle_no_ref_no_lead_q8_8;
+uint16_t ui16_angle_no_lead_q8_8;  // angle based on Hall or hybrid with ref angle but no lead angle
 uint16_t ui16_hall_angle_no_ref_no_lead_q8_8;
 uint16_t ui16_SVM_table_index_q8_8;
 
@@ -1311,8 +1444,8 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
         }
     } // end no change.
 
-    // save previous hall position to calculate Id Iq in ISR1
-    ui16_angle_for_id_prev_q8_8 = ui16_SVM_table_index_q8_8; //ui16_angle_no_ref_no_lead_q8_8 ;
+    // save previous hall or hybrid position with reference to calculate Id Iq in ISR1; this angle may not include lead angle
+    ui16_angle_for_id_prev_q8_8 = ui16_angle_no_lead_q8_8; //ui16_angle_no_ref_no_lead_q8_8 ;
     //  +++++++++++ here in all cases, we calculate rotor position +++++++++++++
     if (valid_curr_hall_ticks)  {           
         // elapsed time between now and last pattern change (used for interpolation)
@@ -1357,19 +1490,17 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
         }
     }  // end calculating hybrid position    
 
-    
-    //ui16_angle_no_ref_no_lead_q8_8 = ui16_hall_angle_no_ref_no_lead_q8_8;
-
     if (ui8_hybrid_position_valid == 0) { 
         ui16_angle_no_ref_no_lead_q8_8 = ui16_hall_angle_no_ref_no_lead_q8_8;
     } else {
         ui16_angle_no_ref_no_lead_q8_8 = ui16_hyb_angle_no_ref_no_lead_q8_8;
     }
     // add hall_reference_angle ; set on 66 based on tests with my motor. (note : 64 = 90°)
-    uint16_t ui16_angle_no_lead_q8_8 = ui16_angle_no_ref_no_lead_q8_8 + (uint16_t) (hall_reference_angle << 8);
+    ui16_angle_no_lead_q8_8 = ui16_angle_no_ref_no_lead_q8_8 + (uint16_t) (hall_reference_angle << 8);
     
     // add lead angle
 //    uint16_t ui16_SVM_table_index_q8_8 = ui16_angle_no_lead_q8_8 + (uint16_t)(ui8_g_foc_angle<<8);
+    // here ui16_g_foc_angle_q8_8 is just based on hall velocity and a multiplicator (see systick).
     ui16_SVM_table_index_q8_8 = ui16_angle_no_lead_q8_8 + (ui16_g_foc_angle_q8_8);
     uint8_t ui8_lut_index = (uint8_t)(ui16_SVM_table_index_q8_8 >> 8);
 
@@ -1820,7 +1951,7 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
 
     //#if (DYNAMIC_LEAD_ANGLE == (1))
     // update data to get an avg of Id
-    calculate_id_part2();
+//    calculate_id_part2();
     ui8_foc_flag = 0; // to debug in order to have only one debug set of data per rotation
     //#endif
     
@@ -1846,6 +1977,7 @@ void motor_enable_pwm(void) { //set posif with current position & restart the ti
         XMC_SCU_SetCcuTriggerHigh(SCU_GENERAL_CCUCON_GSC80_Msk);
         XMC_SCU_SetCcuTriggerLow(SCU_GENERAL_CCUCON_GSC80_Msk);
     }
+    // Note if we want to use one slice U, V or W to trigger VADC, we should activate the GPIO; see note for disable
 }
 
 void motor_disable_pwm(void) {
@@ -1854,6 +1986,9 @@ void motor_disable_pwm(void) {
     XMC_CCU8_SLICE_StopClearTimer(PHASE_V_TIMER_HW);
     XMC_CCU8_SLICE_StopClearTimer(PHASE_W_TIMER_HW);
     // slice CCU8_3 is not stopped becauses it is required to manage some tasks (speed, torque,...) 
+    // Note: if we want to use slice 1 to manage a VADC trigger based on the channel 2 compare value, we should not stop the timer.
+    //       we should then set all PWM gpio on Thri-state; this is still perhaps less secure
+    // currently, when PWM timers are stopped, levels are set to passive LOW  
 }
 
 void get_hall_pattern(){  // use to initialise at power on and in motor_enable()

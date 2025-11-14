@@ -1,4 +1,4 @@
-//test4
+//test5
 /*
 * Description: This is based on the open source firmware for TSDZ2 motor made by mbrusa
 * It is adapted for TSDZ8 
@@ -167,6 +167,11 @@ int main(void)
         wait_time--;
     }
     /* Initialize the device and board peripherals */
+    // cybsp_init call init_cycfg_all() which call cycfg_config_init() (and empty cycfg_config_reservations()-
+    // cycfg_config_init() call (empty init_cycfg_routing()) ,  init_cycfg_peripherals(), init_cycfg_pins()
+    // init_cycfg_peripherals() initialises CCU4, CCU8, POSIF, UART mais plus VADC
+    // init_cycfg_pins() initialises all gpio's (also with alternate function); PWM pins (low and hih sides) are set on push pull level LOW
+    // note : when motor is disable, all 3 PWM are stopped and so probaly set on level LOW due to CCU8 config with .passive_level_out0 = XMC_CCU8_SLICE_OUTPUT_PASSIVE_LEVEL_LOW,
     result = cybsp_init();
     if (result != CY_RSLT_SUCCESS)
     {

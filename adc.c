@@ -65,14 +65,14 @@ XMC_VADC_GROUP_CONFIG_t VADC_grp0_init =
   {
     .sample_time_std_conv            = 1U,                /*The Sample time is (2*tadci)*/
     .conversion_mode_standard        = XMC_VADC_CONVMODE_12BIT,     /* 12bit conversion Selected*/
-    .sampling_phase_emux_channel     = (uint32_t) 1U,                /*The Sample time is (2*tadci)*/
+    .sampling_phase_emux_channel     = (uint32_t) 4U,                /*The Sample time is (2*tadci)*/
     .conversion_mode_emux            = XMC_VADC_CONVMODE_12BIT      /* 12bit conversion Selected*/
   },  /* !<ICLASS-0 */
   .class1 =
   {
-    .sample_time_std_conv             = 0U,                /*The Sample time is (1*tadci)*/
+    .sample_time_std_conv             = 1U,                /*The Sample time is (1*tadci)*/
     .conversion_mode_standard        = XMC_VADC_CONVMODE_12BIT,     /* 12bit conversion Selected*/
-    .sampling_phase_emux_channel     = (uint32_t) 0U,                /*The Sample time is (2*tadci)*/
+    .sampling_phase_emux_channel     = (uint32_t) 4U,                /*The Sample time is (2*tadci)*/
     .conversion_mode_emux            = XMC_VADC_CONVMODE_12BIT      /* 12bit conversion Selected*/
   }, /* !< ICLASS-1 */
   .boundary0  = 0U,  /* Lower boundary value for Normal comparison mode*/
@@ -98,14 +98,14 @@ XMC_VADC_GROUP_CONFIG_t VADC_grp1_init =
   {
     .sample_time_std_conv            = 1U,                /*The Sample time is (2*tadci)*/
     .conversion_mode_standard        = XMC_VADC_CONVMODE_12BIT,     /* 12bit conversion Selected*/
-    .sampling_phase_emux_channel     = (uint32_t) 1U,                /*The Sample time is (2*tadci)*/
+    .sampling_phase_emux_channel     = (uint32_t) 4U,                /*The Sample time is (2*tadci)*/
     .conversion_mode_emux            = XMC_VADC_CONVMODE_12BIT      /* 12bit conversion Selected*/
   },  /* !<ICLASS-0 */
   .class1 =
   {
-    .sample_time_std_conv = 0U,                /*The Sample time is (1*tadci)*/
+    .sample_time_std_conv            = 1U,                /*The Sample time is (1*tadci)*/
     .conversion_mode_standard        = XMC_VADC_CONVMODE_12BIT,     /* 12bit conversion Selected*/
-    .sampling_phase_emux_channel     = (uint32_t) 0U,                /*The Sample time is (2*tadci)*/
+    .sampling_phase_emux_channel     = (uint32_t) 4U,                /*The Sample time is (2*tadci)*/
     .conversion_mode_emux            = XMC_VADC_CONVMODE_12BIT      /* 12bit conversion Selected*/
   }, /* !< ICLASS-1 */
   .boundary0  = 0U,  /* Lower boundary value for Normal comparison mode*/
@@ -476,7 +476,7 @@ void pmsm_adc_module_init(void)
   //XMC_VADC_GROUP_ScanAddChannelToSequence(VADC_IDC_GROUP,VADC_IDC_CHANNEL); /* add idc channel to the sequence*/
 
 // Added by mstrens to configure the alias but this is changed dynamically in motor.c
-// here consider that sequence will be IW, IV, IU and IDC
+// here consider that sequence will be IW, IV, IU and IDC but tests shows that in fact Iw is I3 and Iu is I1 and not the opposite
 VADC_G1->ALIAS = (((uint32_t)VADC_IU_G1_CHANNEL << VADC_G_ALIAS_ALIAS1_Pos) | VADC_IW_G1_CHANNEL);
 VADC_G0->ALIAS = (((uint32_t)VADC_IDC_CHANNEL << VADC_G_ALIAS_ALIAS1_Pos) | VADC_IV_G0_CHANNEL);
         

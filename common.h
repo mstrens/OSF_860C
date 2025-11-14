@@ -62,6 +62,32 @@ void lights_set_state(uint8_t ui8_state) ; // moved by mstrens from another tsdz
 bool take_action(uint32_t index, uint32_t interval);
 bool take_action_250ms(uint32_t index, uint32_t interval);
 
+static inline int16_t filter_i16(int16_t input, int16_t output, uint8_t N)
+{
+    int16_t diff = input - output;
+    int16_t delta = diff >> N;
+    if (delta != 0) {
+        output += delta;           // EMA classique
+    } else if (diff != 0) {
+        output += (diff > 0) ? 1 : -1;  // petit pas minimum
+    }
+    return output;
+}
+
+
+static inline int32_t filter_i32(int32_t input, int32_t output, uint8_t N)
+{
+    int32_t diff = input - output;
+    int32_t delta = diff >> N;
+    if (delta != 0) {
+        output += delta;
+    } else if (diff != 0) {
+        output += (diff > 0) ? 1 : -1;
+    }
+    return output;
+}
+
+
 void RTT_LogN_Tail(const char *label, unsigned int count, const char *tail, ...);
 
 #define RTT_LOG(label, tail, ...)  \
@@ -73,6 +99,7 @@ void RTT_LogN_TailHex(const char *label, unsigned int count, const char *tail, .
 #define RTT_LOG_HEX(label, tail, ...)  \
   RTT_LogN_TailHex(label, (sizeof((int[]){__VA_ARGS__})/sizeof(int)), tail, __VA_ARGS__)
 
+ 
 
 //void wait_ms(uint32_t time);
 #endif /* COMMON_COMMON_H_ */

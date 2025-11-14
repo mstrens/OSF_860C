@@ -79,6 +79,9 @@ uint8_t ui8_max(uint8_t value_a, uint8_t value_b) {
         return value_b;
 }
 
+
+
+
 uint16_t filter(uint16_t ui16_new_value, uint16_t ui16_old_value, uint8_t ui8_alpha) {
     if (ui8_alpha < 11) {
         uint32_t ui32_temp_new = (uint32_t) ui16_new_value * (uint32_t)(10U - ui8_alpha);
