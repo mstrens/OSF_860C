@@ -209,7 +209,7 @@ void SysTick_Handler(void) {
 
 #define LEAD_STEP_MIN_DEGREE  0.02       // ≈ 0.022°
 #define LEAD_STEP_MAX_DEGREE  0.35       // ≈ 0.35°
-#define MAX_LEAD_CORR_DEGREE 10        // max for correction (in plus and min)
+#define MAX_LEAD_CORR_DEGREE  5        // max for correction (in plus and min)
 
 #define LOW_SPEED_RPM        200
 #define SPEED_FILTER_A_Q15   30000  // coeff IIR vitesse (α≈0.9)
@@ -219,6 +219,9 @@ void SysTick_Handler(void) {
 #define K_REL_Q15            1638      // 0.05 * 32768 (5%)
 #define HYST_FACTOR_Q15      29491     // 0.9 en Q15
 
+#define LEAD_ANGLE_Q8_8_PER_ADC_STEP 17 // = 750 / 45 = 17 : Test showed that for a speed of about 2500 RPM,
+                 // lead angle should varies by about 3° = 750 q8_8 units for a delta of 45 ADC steps
+                 //                           45 = between 10 and 55 ADC current 10 bits 
 
 #define MAX_LEAD_CORR_Q8_8  ((uint16_t)((MAX_LEAD_CORR_DEGREE << 16)/360))  // apply on corection
 #define LEAD_STEP_MIN_Q8_8  ((uint16_t)(LEAD_STEP_MIN_DEGREE * (65536.0f / 360.0f) + 0.5f)) // apply on total   
@@ -227,10 +230,10 @@ void SysTick_Handler(void) {
 // ---------------------------------------------------
 // Tables de base (utilisateur)
 // ---------------------------------------------------
-const uint16_t speed_tab[] = {0, 500, 1000, 2000, 3000, 4700};
+const uint16_t speed_tab[] = {0,     500,  1000, 2000, 3000, 4000};
 #define SPEED_TAB_SIZE (sizeof(speed_tab) / sizeof(speed_tab[0]))
 
-const float lead_base_deg[] = {0.0f, 2.0f, 5.0f, 10.0f, 14.0f, 18.0f};
+const float lead_base_deg[] = {0.0f, 2.0f, 4.0f, 7.5f, 11.0f, 14.0f};
 
 // ---------------------------------------------------
 // Tables internes générées au premier passage
@@ -248,14 +251,17 @@ static uint16_t tick_5ms = 0;
 static int32_t  i32_hall_velocity_filt_q8_8X1024 = 0;
 static int32_t  lead_corr_q8_8 = 0;
 static uint16_t lead_base_q8_8_val = 0;
-static uint16_t lead_total_q8_8 = 0;
-
+uint16_t lead_total_q8_8 = 0;
+static int16_t i16_adc_battery_current_for_lead_base = 0;
 // Deadband adaptatif
 static int32_t last_deadband = 0;
 
 // ---------------------------------------------------
 // Fonctions utilitaires
 // ---------------------------------------------------
+uint8_t debug_tab_index = 0; 
+uint16_t debug_velocity_tab = 0;
+uint16_t debug_lead_base_q8_8 = 0;
 
 static void init_lead_tables(void)
 {
@@ -286,9 +292,9 @@ static uint16_t interpolate_lead_base_from_hall_velocity(uint16_t hall_vel)
         idx++;
 
     uint32_t delta_hall_vel = hall_vel - velocity_tab[idx];
-    uint32_t t_q30 = delta_hall_vel * inv_delta_velocity_q30[idx];
+    uint32_t t_q15 = (delta_hall_vel * inv_delta_velocity_q30[idx])>>15; // >>15 because number can be to big
     uint32_t delta_angle = (uint32_t)(lead_base_q8_8[idx + 1] - lead_base_q8_8[idx]);
-    uint32_t interp = (uint32_t)lead_base_q8_8[idx] + ((t_q30 * delta_angle) >> 30);
+    uint32_t interp = (uint32_t)lead_base_q8_8[idx] + ((t_q15 * delta_angle) >> 15); // >>15 is the remaining part of inv_...q30
 
     return (uint16_t)interp;
 }
@@ -300,6 +306,7 @@ static inline int32_t clamp32(int32_t val, int32_t min, int32_t max)
     if (val > max) return max;
     return val;
 }
+
 
 // ---------------------------------------------------
 // Boucle systick 1kHz
@@ -314,6 +321,9 @@ void update_lead_angle(void)
         return; // update à 200 Hz
     tick_5ms = 0;
 
+    // to debug filling the tab
+    debug_velocity_tab = velocity_tab[debug_tab_index];
+    debug_lead_base_q8_8 = lead_base_q8_8[debug_tab_index];
     
     
     // Filtrage Hall velocity (évite le jitter)
@@ -323,7 +333,11 @@ void update_lead_angle(void)
     // ----------------------
     // Lead base interpolation based on hall velocity
     // ----------------------
-    lead_base_q8_8_val = interpolate_lead_base_from_hall_velocity((uint16_t)hall_velocity_used);
+    uint16_t ui16_lead_base_q8_8_val = interpolate_lead_base_from_hall_velocity((uint16_t)hall_velocity_used);
+    // add more lead angle when current incease
+    i16_adc_battery_current_for_lead_base = filter_i16((int16_t)ui8_adc_battery_current_filtered,i16_adc_battery_current_for_lead_base, 6);
+    lead_base_q8_8_val = ui16_lead_base_q8_8_val + (i16_adc_battery_current_for_lead_base * LEAD_ANGLE_Q8_8_PER_ADC_STEP); 
+    if (lead_base_q8_8_val > (25<<8))lead_base_q8_8_val = (25<<8); // do not exceed 25*360 /256 = 35°
 
     // lead correction based on Id (taking care of Iq and speed)
     int32_t Id_filt = 0;
@@ -334,8 +348,8 @@ void update_lead_angle(void)
         Id_filt = i32_id_sum >> 6; 
         Iq_filt = i32_iq_sum >> 6;
         // only for debug
-        debug_id = Iq_filt;
-        debug_id = Iq_filt;
+        debug_id = Id_filt;
+        debug_iq = Iq_filt;
         i32_id_sum = 0;
         i32_iq_sum = 0;
         ui8_id_iq_counter = 64;
@@ -369,9 +383,9 @@ void update_lead_angle(void)
         int32_t step = (step_q15 * LEAD_STEP_MAX_Q8_8) >> 15;
         step = clamp32(step, LEAD_STEP_MIN_Q8_8, LEAD_STEP_MAX_Q8_8); // limit step per iteration between 0,02° and 0,35°
         if (Id_effective > 0)
-            lead_corr_q8_8 -= step;
-        else
             lead_corr_q8_8 += step;
+        else
+            lead_corr_q8_8 -= step;
         // clamp correction 
         lead_corr_q8_8 = clamp32(lead_corr_q8_8, -MAX_LEAD_CORR_Q8_8, MAX_LEAD_CORR_Q8_8); // max = -10° + 10°
     }
@@ -379,5 +393,4 @@ void update_lead_angle(void)
     // Calcul total
     lead_total_q8_8 = (uint16_t)lead_base_q8_8_val + (uint16_t)lead_corr_q8_8;
 
-    // here we still have to apply lead_total_q8_8 when it will be tested
 }

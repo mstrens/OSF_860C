@@ -930,11 +930,10 @@ int32_t debug_cordic_angle = 0;
 int32_t debug_cordic_offset = 0;   
 int32_t debug_raw_id = 0;
 int32_t debug_raw_iq = 0;
-int32_t debug_i32_Iu1;
-int32_t debug_i32_Iv1;
-int32_t debug_i32_Iw1;
-
-int32_t debug_i_avg;
+int32_t debug_i32_Iu1 = 0;
+int32_t debug_i32_Iv1 = 0;
+int32_t debug_i32_Iw1 = 0;
+int32_t debug_i_avg = 0;
 
 
 
@@ -1061,7 +1060,10 @@ __RAM_FUNC static inline void calculate_id_part1(){  // to be called in begin of
 VADC_G1->ALIAS = (((uint32_t)VADC_IU_G1_CHANNEL << VADC_G_ALIAS_ALIAS1_Pos) | VADC_IW_G1_CHANNEL);
 VADC_G0->ALIAS = (((uint32_t)VADC_IDC_CHANNEL << VADC_G_ALIAS_ALIAS1_Pos) | VADC_IV_G0_CHANNEL);
 
+// for case 0
+i32_raw_Iu = (int32_t)I1; i32_raw_Iv = (int32_t)I2; i32_raw_Iw = (int32_t)I3; 
 // normally, we could use case 0 with cordic offset = 128, or case 3 with cordic offset = 42 or case 4 with cordic offset =213
+/*
 switch (debug_permutation) {
     case 0:
         i32_raw_Iu = (int32_t)I1; i32_raw_Iv = (int32_t)I2; i32_raw_Iw = (int32_t)I3; break; //cordic offset 128
@@ -1076,6 +1078,7 @@ switch (debug_permutation) {
     default:
         i32_raw_Iu = I3; i32_raw_Iv = I2; i32_raw_Iw = I1; break;
 }
+*/
 //i16_raw_Iu = I3;
 //i16_raw_Iv = I2;
 //i16_raw_Iw = I1;
@@ -1085,11 +1088,11 @@ int32_t i32_Iw = (i32_raw_Iw - (int32_t)ADC_Bias_Iw ) << 3;
 
 int32_t i_avg = (((i32_Iu + i32_Iv + i32_Iw) * (int32_t) DIV_3)) >>  SCALE_DIV_3 ; 
 
-debug_i32_Iu1 = i32_Iu;
-debug_i32_Iv1 = i32_Iv;
-debug_i32_Iw1 = i32_Iw;
+//debug_i32_Iu1 = i32_Iu;
+//debug_i32_Iv1 = i32_Iv;
+//debug_i32_Iw1 = i32_Iw;
 
-debug_i_avg = i_avg;
+//debug_i_avg = i_avg;
 
 i32_Iu -= i_avg;
 i32_Iv -= i_avg;
@@ -1137,12 +1140,12 @@ i32_Iw -= i_avg;
         ui8_id_iq_counter--;
     } 
     
-    debug_I1 = I1; debug_I2 = I2; debug_I3 = I3; // 12 bits  
-    debug_Iu = i32_Iu; debug_Iv = i32_Iv; debug_Iw = i32_Iw;// 15 bits
-    debug_Iuvw =  debug_Iu + debug_Iv +debug_Iw;  // so in 15 bits
+    //debug_I1 = I1; debug_I2 = I2; debug_I3 = I3; // 12 bits  
+    //debug_Iu = i32_Iu; debug_Iv = i32_Iv; debug_Iw = i32_Iw;// 15 bits
+    //debug_Iuvw =  debug_Iu + debug_Iv +debug_Iw;  // so in 15 bits
     //debug_va = ui16_a; debug_vb = ui16_b; debug_vc = ui16_c; // to debug
-    debug_cordic_offset = (int32_t)(((uint16_t)cordic_offset) <<8);
-    debug_Ialpha = (I_Alpha_1Q31 );  debug_Ibeta = (I_Beta_1Q31 ) ;
+    //debug_cordic_offset = (int32_t)(((uint16_t)cordic_offset) <<8);
+    //debug_Ialpha = (I_Alpha_1Q31 );  debug_Ibeta = (I_Beta_1Q31 ) ;
     //debug_id += ((i16_id - debug_id) + ((i16_id - debug_id > 0) ? 1 : (i16_id - debug_id < 0 ? -1 : 0))) >> 4;
     //debug_iq += ((i16_iq - debug_iq) + ((i16_iq - debug_iq > 0) ? 1 : (i16_iq - debug_iq < 0 ? -1 : 0))) >> 4;
     debug_angle = (int32_t) ui16_angle_for_id_prev_q8_8 ;
@@ -1501,7 +1504,9 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     // add lead angle
 //    uint16_t ui16_SVM_table_index_q8_8 = ui16_angle_no_lead_q8_8 + (uint16_t)(ui8_g_foc_angle<<8);
     // here ui16_g_foc_angle_q8_8 is just based on hall velocity and a multiplicator (see systick).
-    ui16_SVM_table_index_q8_8 = ui16_angle_no_lead_q8_8 + (ui16_g_foc_angle_q8_8);
+    //ui16_SVM_table_index_q8_8 = ui16_angle_no_lead_q8_8 + (ui16_g_foc_angle_q8_8);
+    // here we use the lead angle based on a table on velocity and a correction to set Id around 0 
+    ui16_SVM_table_index_q8_8 = ui16_angle_no_lead_q8_8 + lead_total_q8_8;
     uint8_t ui8_lut_index = (uint8_t)(ui16_SVM_table_index_q8_8 >> 8);
 
     if (ui8_motor_enabled) {
@@ -1746,13 +1751,13 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
                 if (ui8_g_duty_cycle < PWM_DUTY_CYCLE_STARTUP) {
                     ui8_g_duty_cycle = PWM_DUTY_CYCLE_STARTUP;
                 }	
-                else if (ui8_g_duty_cycle < PWM_DUTY_CYCLE_MAX) {
+                else if (ui8_g_duty_cycle < ui8_pwm_duty_cycle_max) {
                     ui8_g_duty_cycle++;
                 }    
             }
         }
 		else if ((ui8_field_weakening_enabled)
-				&& (ui8_g_duty_cycle == PWM_DUTY_CYCLE_MAX)) {
+				&& (ui8_g_duty_cycle == ui8_pwm_duty_cycle_max)) {
             // reset duty cycle ramp down counter (filter)
             ui8_counter_duty_cycle_ramp_down = 0;
             if (++ui8_counter_duty_cycle_ramp_up > ui8_controller_duty_cycle_ramp_up_inverse_step) {

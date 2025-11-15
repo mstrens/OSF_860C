@@ -13,7 +13,7 @@ extern volatile uint32_t ui32_cadence_last_ticks[6];   // timestamps pédalage (
 extern volatile uint32_t ui32_wheel_last_pwm_ticks; // dernier front roue (ui32_pwm_ticks)
 
 extern uint8_t ui8_pas_counter; // counter to detect a full pedal rotation (after 20 valid transitions)
-
+extern uint16_t lead_total_q8_8; // sum of lead base (from a table based on velocity) and correction (based on Id)
 
 void SysTick_Handler(void) ;
 void update_lead_angle(void);

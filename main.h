@@ -82,13 +82,14 @@
 // *************** from here we have more general parameters 
 
 // this value can be optimized using uc_probe and changing slightly the "global offset angle" in order to get the lowest measured current for a given duty cycle 
-#define DEFAULT_HALL_REFERENCE_ANGLE 66
+#define DEFAULT_HALL_REFERENCE_ANGLE 60 // 60 is the value when 256 = 360°, So it is about 60*360/256 = 86°
+    // value has been reduced from 66 to 60 when lead angle base is calculated with a table depening on velocity
 //#define MID__RISING_FALLING_EDGE_HALL_SENSOR 5 // half difference between first and second 180 ticks interval 
 #define FINE_TUNE_ANGLE_OFFSET 0 // to change a little hall reference angle
 // for CCU4 slice 2
 #define HALL_COUNTER_FREQ                      1000000 //it was 250000U // 250KHz or 4us ; now 1Mhz for more acuuracy
 
-#define PWM_DUTY_CYCLE_MAX                      128//254     128 to test hafl power and see if iu, iv, iw are ok
+#define PWM_DUTY_CYCLE_MAX                      254//254     128 to test hafl power and see if iu, iv, iw are ok
 #define PWM_DUTY_CYCLE_STARTUP	                30    // Initial PWM Duty Cycle at motor startup
 
 

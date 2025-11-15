@@ -260,8 +260,8 @@ static void apply_calibration_assist(void);
 static void apply_throttle(void);
 static void apply_temperature_limiting(void);
 static void apply_speed_limit(void);
-// added by mstrens but repalced by the define
-//uint8_t ui8_pwm_duty_cycle_max = PWM_DUTY_CYCLE_MAX;
+// added by mstrens in order to allow changes in ucPorobe for testing with different speed  and same load
+uint8_t ui8_pwm_duty_cycle_max = PWM_DUTY_CYCLE_MAX;
 // added by mstrens for using testing mode
 uint8_t ui8_test_mode_flag = DEFAULT_TEST_MODE_FLAG ; // can be changed in uc_probe
 uint8_t ui8_battery_current_target_testing = DEFAULT_BATTERY_CURRENT_TARGET_TESTING_A ; // value is in A ; this is a default value that can be changed with uc_probe
@@ -434,8 +434,8 @@ static void ebike_control_motor(void) // is called every 25ms by ebike_app_contr
 		}	
 		// set duty cycle target to the tesing value and check against max
 		ui8_duty_cycle_target = ui8_duty_cycle_target_testing;
-		if (ui8_duty_cycle_target >= PWM_DUTY_CYCLE_MAX ) {
-			ui8_duty_cycle_target = PWM_DUTY_CYCLE_MAX;  
+		if (ui8_duty_cycle_target >= ui8_pwm_duty_cycle_max ) {
+			ui8_duty_cycle_target = ui8_pwm_duty_cycle_max;  
 		}
 		ui8_riding_mode_parameter =  50; // if it is set on 0 , it means that there is no assist and motor stays/goes off in safety checks
 		// todo : check if those fields are ok for 860C version
@@ -573,8 +573,8 @@ static void ebike_control_motor(void) // is called every 25ms by ebike_app_contr
         }
 
         // limit target duty cycle if higher than max value
-        if (ui8_duty_cycle_target > PWM_DUTY_CYCLE_MAX) {
-            ui8_duty_cycle_target = PWM_DUTY_CYCLE_MAX;
+        if (ui8_duty_cycle_target > ui8_pwm_duty_cycle_max) {
+            ui8_duty_cycle_target = ui8_pwm_duty_cycle_max;
         }
 		
         // limit target duty cycle ramp up inverse step if lower than min value (safety)
@@ -797,7 +797,7 @@ static void apply_power_assist(void)
 	
 		// set duty cycle target
 		if (ui8_adc_battery_current_target) {
-			ui8_duty_cycle_target = PWM_DUTY_CYCLE_MAX;
+			ui8_duty_cycle_target = ui8_pwm_duty_cycle_max;
 		}
 		else {
 			ui8_duty_cycle_target = 0;
@@ -860,7 +860,7 @@ static void apply_torque_assist(void)
 		
 		// set duty cycle target
         if (ui8_adc_battery_current_target) {
-            ui8_duty_cycle_target = PWM_DUTY_CYCLE_MAX;
+            ui8_duty_cycle_target = ui8_pwm_duty_cycle_max;
         }
 		else {
             ui8_duty_cycle_target = 0;
@@ -901,7 +901,7 @@ static void apply_cadence_assist(void)
 		
 		// set duty cycle target
         if (ui8_adc_battery_current_target) {
-            ui8_duty_cycle_target = PWM_DUTY_CYCLE_MAX;
+            ui8_duty_cycle_target = ui8_pwm_duty_cycle_max;
         }
 		else {
             ui8_duty_cycle_target = 0;
@@ -978,7 +978,7 @@ static void apply_emtb_assist(void)
 		
         // set duty cycle target
         if (ui8_adc_battery_current_target) {
-            ui8_duty_cycle_target = PWM_DUTY_CYCLE_MAX;
+            ui8_duty_cycle_target = ui8_pwm_duty_cycle_max;
         }
 		else {
             ui8_duty_cycle_target = 0;
@@ -1070,7 +1070,7 @@ static void apply_hybrid_assist(void)
 	
 		// set duty cycle target
 		if (ui8_adc_battery_current_target) {
-			ui8_duty_cycle_target = PWM_DUTY_CYCLE_MAX;
+			ui8_duty_cycle_target = ui8_pwm_duty_cycle_max;
 		}
 		else {
 			ui8_duty_cycle_target = 0;
@@ -1276,7 +1276,7 @@ static void apply_cruise(void)
 			(uint8_t) 0,					// minimum control output from PID
 			(uint8_t) 250,					// maximum control output from PID
 			(uint8_t) 0,					// minimum duty cycle
-			(uint8_t) PWM_DUTY_CYCLE_MAX);	// maximum duty cycle
+			(uint8_t) ui8_pwm_duty_cycle_max);	// maximum duty cycle
 	}
 }
 
@@ -1287,8 +1287,8 @@ static void apply_calibration_assist(void)
     uint8_t ui8_calibration_assist_duty_cycle_target = ui8_riding_mode_parameter;
 
     // limit cadence assist duty cycle target
-    if (ui8_calibration_assist_duty_cycle_target >= PWM_DUTY_CYCLE_MAX) {
-        ui8_calibration_assist_duty_cycle_target = (uint8_t)(PWM_DUTY_CYCLE_MAX-1);
+    if (ui8_calibration_assist_duty_cycle_target >= ui8_pwm_duty_cycle_max) {
+        ui8_calibration_assist_duty_cycle_target = (uint8_t)(ui8_pwm_duty_cycle_max-1);
     }
 
     // set motor acceleration / deceleration
@@ -1371,7 +1371,7 @@ static void apply_throttle(void)
 				}
 
 				// set duty cycle target
-				ui8_duty_cycle_target = PWM_DUTY_CYCLE_MAX;
+				ui8_duty_cycle_target = ui8_pwm_duty_cycle_max;
 			}
 		}
 		ui8_adc_throttle_assist = 0;
@@ -2590,7 +2590,7 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		// PWM duty_cycle
 		// convert duty-cycle to 0 - 100 %
 		ui16_temp = (uint16_t) ui8_g_duty_cycle;
-		ui16_temp = (ui16_temp * 100) / PWM_DUTY_CYCLE_MAX;
+		ui16_temp = (ui16_temp * 100) / ui8_pwm_duty_cycle_max;
 		ui8_tx_buffer[15] = (uint8_t) ui16_temp;
 		
 		// motor speed in ERPS 
