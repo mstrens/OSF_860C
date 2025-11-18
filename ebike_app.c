@@ -13,6 +13,7 @@
 #include "motor.h"
 #include "common.h"
 #include "adc.h"
+#include "systick.h"
 
 //#include "uart.h"
 
@@ -495,33 +496,10 @@ static void ebike_control_motor(void) // is called every 25ms by ebike_app_contr
 	// For 10 A, TSDZ8 shoud give 10*24,576 steps
 	// to convert TSDZ8 steps in the same units as TSDZ2, we shoud take ADC *62/245,76 = 0,25 and divide by 4 (or >>2)
 	// current is available in gr0 ch1 result 8 in queue 0 p2.8 and/or in gr0 ch0 result in 12 (p2.8)
-	// here we take the average of the 2 conversions and so we should use >>3 instead of >>2
-	// Still due to IIR filtering, we have to add >>2 because it is returned in 14 bits instead of 12
 	
-	//uint8_t ui8_temp_adc_current = ((XMC_VADC_GROUP_GetResult(vadc_0_group_0_HW , 15 ) & 0xFFFF) +
-	//								(XMC_VADC_GROUP_GetResult(vadc_0_group_1_HW , 15 ) & 0xFFFF)) >>5  ;  // >>2 for IIR, >>2 for ADC12 to ADC10 , >>1 for averaging		
-	// changed by mstrens to take care of infineon init for vadc (result 12bits and in reg 1)
-	uint16_t ui16_temp_adc_current = (XMC_VADC_GROUP_GetResult(vadc_0_group_0_HW , VADC_I4_RESULT_REG ) & 0xFFFF) >> 2;// from 12 to 10bits 
-	//if ( ui8_temp_adc_current > ui8_adc_battery_overcurrent){ // 112+50 in tsdz2 (*0,16A) => 26A
-	//	ui8_error_battery_overcurrent = ERROR_BATTERY_OVERCURRENT ;
-	//} 
-	  
-    	/*
-		// Read in assembler to ensure data consistency (conversion overrun)
-		// E07 (E04 blinking for XH18)
-		#ifndef __CDT_PARSER__ // avoid Eclipse syntax check
-		__asm
-			ld a, 0x53eb // ADC1->DB5RL
-			cp a, _ui8_adc_battery_overcurrent
-			jrc 00011$
-			mov _ui8_error_battery_overcurrent+0, #ERROR_BATTERY_OVERCURRENT
-		00011$:
-		__endasm;
-		#endif
-		*/
-	// modified by mstrens (a reset was missing)
+	// modified by mstrens (a reset was missing; we use the filtered value (based on moving average))
 	if (ui8_battery_overcurrent_delay > 0) {  // OVERCURRENT_DELAY
-		if ( ui16_temp_adc_current > (uint16_t) ui8_adc_battery_overcurrent){ // 112+50 in tsdz2 (*0,16A) => 26A
+		if ( ui8_adc_battery_current_filtered > ui8_adc_battery_overcurrent){ // 112+50 in tsdz2 (*0,16A) => 26A
 			ui8_error_battery_overcurrent_counter++;
 		} else {
 			ui8_error_battery_overcurrent_counter = 0;
@@ -531,7 +509,9 @@ static void ebike_control_motor(void) // is called every 25ms by ebike_app_contr
 			ui8_m_system_state |= ERROR_BATTERY_OVERCURRENT ; 
 		}
 	}
-	
+	// added by mstrens to use also checks done in motor.c (in ISR) that are only to protect controller (does not take care of user parameter in congig or 860c setup)
+	if (fault_phase_current_peak || fault_idc_fast) ui8_m_system_state |= ERROR_BATTERY_OVERCURRENT ;
+
 	// for debug
 	// calculate an average in mA (to find parameters giving lowest current)
 	//ui32_current_1_rotation_ma = (ui32_adc_battery_current_1_rotation_15b * 10 * BATTERY_CURRENT_PER_10_BIT_ADC_STEP_X100) >> 5;
@@ -609,7 +589,7 @@ static void ebike_control_motor(void) // is called every 25ms by ebike_app_contr
 			|| (ui8_m_system_state & ERROR_FATAL)
 			|| ((ui16_motor_speed_erps == 0u)
 				&& (ui8_adc_battery_current_target == 0u)
-				&& (ui8_g_duty_cycle == 0u)))) {
+				&& (ui16_g_duty_cycle == 0u)))) {
         ui8_motor_enabled = 0;
         motor_disable_pwm();
     }
@@ -618,8 +598,7 @@ static void ebike_control_motor(void) // is called every 25ms by ebike_app_contr
 			&& (ui16_motor_speed_erps < ERPS_SPEED_OF_MOTOR_REENABLING) // enable the motor only if it rotates slowly or is stopped
 			&& (ui8_adc_battery_current_target > 0U)) {
 		ui8_motor_enabled = 1;
-		ui8_g_duty_cycle = 0;
-		//ui8_g_duty_cycle = PWM_DUTY_CYCLE_STARTUP;
+		ui16_g_duty_cycle = 0;
 		//ui8_duty_cycle_ramp_up_inverse_step = PWM_DUTY_CYCLE_RAMP_UP_INVERSE_STEP_MIN;
 		//ui8_duty_cycle_ramp_down_inverse_step = PWM_DUTY_CYCLE_RAMP_DOWN_INVERSE_STEP_MIN;
 		ui8_fw_hall_counter_offset = 0;
@@ -2499,12 +2478,13 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 
 			// set max battery current
 			ui8_adc_battery_current_max = ui8_min(ui8_adc_battery_current_max_temp_1, ui8_adc_battery_current_max_temp_2);
+			
 			// set max motor phase current
 			ui16_temp = (uint16_t)(ui8_adc_battery_current_max * ADC_10_BIT_MOTOR_PHASE_CURRENT_MAX);
 			ui16_adc_motor_phase_current_max = (ui16_temp / ADC_10_BIT_BATTERY_CURRENT_MAX);
 			// limit max motor phase current if higher than configured hardware limit (safety)
 			if (ui16_adc_motor_phase_current_max > ADC_10_BIT_MOTOR_PHASE_CURRENT_MAX) {
-			ui16_adc_motor_phase_current_max = ADC_10_BIT_MOTOR_PHASE_CURRENT_MAX;
+				ui16_adc_motor_phase_current_max = ADC_10_BIT_MOTOR_PHASE_CURRENT_MAX;
 			}
 			// set limit battery overcurrent
 			ui8_adc_battery_overcurrent = ui8_adc_battery_current_max + ADC_10_BIT_BATTERY_EXTRACURRENT;
@@ -2589,7 +2569,7 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		
 		// PWM duty_cycle
 		// convert duty-cycle to 0 - 100 %
-		ui16_temp = (uint16_t) ui8_g_duty_cycle;
+		ui16_temp = (uint16_t) (ui16_g_duty_cycle >> 8); // avoid exceeding max in next line
 		ui16_temp = (ui16_temp * 100) / ui8_pwm_duty_cycle_max;
 		ui8_tx_buffer[15] = (uint8_t) ui16_temp;
 		
@@ -2598,7 +2578,7 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		ui8_tx_buffer[17] = (uint8_t) (ui16_motor_speed_erps >> 8);
 		
 		// FOC angle
-		ui8_tx_buffer[18] = ui8_g_foc_angle;
+		ui8_tx_buffer[18] = (uint8_t)(ui16_lead_total_q8_8 >> 8);
 
 		// system state
 		ui8_tx_buffer[19] = ui8_m_system_state;
@@ -2662,6 +2642,7 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		
 		//ui8_motor_inductance_x1048576
 		// motor inductance & cruise pid parameter
+		/* mstrens not used anymore due to optimised lead angle
 		if (ui8_motor_type == 0) {
 			// 48 V motor
 			ui8_foc_angle_multiplicator = FOC_ANGLE_MULTIPLIER; // mstrens : for TSDZ8, we do not take care of the motor type
@@ -2670,7 +2651,7 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 			// 36 V motor
 			ui8_foc_angle_multiplicator = FOC_ANGLE_MULTIPLIER; // mstrens : for TSDZ8, we do not take care of the motor type
 		}
-		
+		*/
 		// startup boost
 		ui16_startup_boost_factor_array[0] = (uint16_t) ui8_rx_buffer[10] << 1;
 		ui8_startup_boost_cadence_step = ui8_rx_buffer[11];
@@ -2776,7 +2757,7 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		// coast brake threshold
 		ui8_coaster_brake_torque_threshold = ui8_rx_buffer[81];
 		// modified by mstrens to allow to change foc calculation
-		ui8_foc_angle_multiplicator = ui8_rx_buffer[81];
+		//ui8_foc_angle_multiplicator = ui8_rx_buffer[81]; // not used anymore with optimised lead angle in systick.c
 			
 		//ui8_m_adc_lights_current_offset = (uint16_t) ui8_rx_buffer[82];
 		// lights configuration

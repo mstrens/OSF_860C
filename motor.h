@@ -25,7 +25,7 @@ extern volatile uint8_t ui8_controller_duty_cycle_ramp_down_inverse_step;
 extern volatile uint16_t ui16_adc_voltage_cut_off;
 extern volatile uint8_t ui8_adc_battery_current_filtered;
 extern volatile uint8_t ui8_controller_adc_battery_current_target;
-extern volatile uint8_t ui8_g_duty_cycle;
+extern volatile uint16_t ui16_g_duty_cycle;
 extern volatile uint8_t ui8_fw_hall_counter_offset;
 extern volatile uint8_t ui8_fw_hall_counter_offset_max;
 extern volatile uint8_t ui8_field_weakening_enabled;
@@ -64,8 +64,8 @@ extern volatile uint8_t ui8_battery_SOC_reset_flag;
 // end of code copied from TSDZ2
 
 // added by ms because used in ebike_app.c
-extern volatile uint8_t ui8_g_foc_angle;
-extern uint8_t ui8_foc_angle_multiplicator;
+//extern volatile uint8_t ui8_g_foc_angle;
+//extern uint8_t ui8_foc_angle_multiplicator;
 extern volatile uint32_t ui32_pwm_ticks_since_last_front ;
 
 // added by mstrens because defined in ebike_app.c and used in motor.c
@@ -115,12 +115,22 @@ void hall_positions_init();
 void capture_3_phase_current_offset();
 
 extern volatile uint16_t ui16_adc_motor_phase_current; // mstrens: it was uint8 in original code
-extern volatile uint16_t ui16_g_foc_angle_q8_8;
+//extern volatile uint16_t ui16_g_foc_angle_q8_8; // not used anymore with optimised lead angle in systick.c
 extern uint32_t ui32_hall_velocity_q8_8X1024;
 
 extern int32_t i32_id_sum ;
 extern int32_t i32_iq_sum ;
 extern uint8_t ui8_id_iq_counter ;
+
+// for security checks ; shared with systicks
+extern volatile uint32_t ui32_Iu_rms_2_filt;
+extern volatile uint32_t ui32_Iv_rms_2_filt;
+extern volatile uint32_t ui32_Iw_rms_2_filt;
+extern volatile uint32_t ui32_Imotor_rms_2_filt;
+// Flags fault shared with ebike_app.c
+extern volatile bool fault_phase_current_peak;
+extern volatile bool fault_idc_fast;
+
 
 
 extern volatile int32_t debug_id ;

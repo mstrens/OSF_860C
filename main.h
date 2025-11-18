@@ -3,7 +3,12 @@
 // search for best lead angle for different erps and fill table
 // look if adc trigger at another time help; require probably another way to unable the motor
 // set another adc triggering when duty cycle increase (depend on sector)
-// move regulation of duty cycle in systick
+// check validity of sum of I1,I2,I3 when duty is near 100% (to see if triggering at mid point is still OK)
+// try to reduce ramp up for throttle and see if it is more responsive
+// measure time elapsed in ISR0 and ISR1
+// move last calculation about PWM in ISR1 after duty has been calculated (only if we are sure this is done before end of PWM cycle)
+// check if using cordic for park transform would save cpu time
+//
 
 /*
  * TongSheng TSDZ2 motor controller firmware/
@@ -373,6 +378,21 @@ HALL_COUNTER_OFFSET_UP:    29 -> 44
 #define WALK_ASSIST_DUTY_CYCLE_STARTUP			50
 #define WALK_ASSIST_DUTY_CYCLE_MAX              130
 #define WALK_ASSIST_ADC_BATTERY_CURRENT_MAX     40
+
+// security checks added by mstrens (see use in systick.c and motor.c)
+#define PHASE_PEAK_ADC_NOMINAL     (800.0)     // not sure about the value; I do not know the shunt, gain of amp.
+                                              // // ADC is 12 bit = max 4096; offset is about 2048; So max is about 2048
+#define PHASE_PEAK_TRIP_RATIO       (2.2)      // disable the motor when this limit is reached (need a power off to reset)
+#define PHASE_RMS_WARN_RATIO       (1.8)       // reduce power during RAMP_UP_DELAY_TICKS (e.g. 2 sec)
+#define IMOTOR_RMS_WARN_RATIO       (1.5)      // reduce power during RAMP_UP_DELAY_TICKS (e.g. 2 sec)
+
+#define IDC_NOMINAL_AMPERE          (13.0)     // Amp
+#define IDC_FAST_TRIP_RATIO         (2.5)      // disable the motor when this limit is reached (need a power off to reset)
+#define IDC_SLOW_WARN_RATIO         (1.5)      // reduce power during RAMP_UP_DELAY_TICKS (e.g. 2 sec)
+
+#define RAMP_UP_DELAY_TICKS 2000  // 2000 ms Timer anti ramp up (avoid ramp up when soft error occured for some ms)
+
+// note : Systick.c contains also some set up for lead angle (table, steps, RPM, ...)
 
 #endif // _MAIN_H_
 

@@ -431,8 +431,9 @@ int main(void)
         #endif
         
 
-        static uint32_t last_print_ms;
+        
         #if (DEBUG_ON_JLINK == 1)
+        static uint32_t last_print_ms = 0;
         temp_ticks = ui32_ms_counter;
         if ((temp_ticks - last_print_ms)  > 1000){ // 25 msec
            last_print_ms = temp_ticks;

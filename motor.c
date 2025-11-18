@@ -1,13 +1,11 @@
 //branch test 4---
-// TO do : try to calculate hal_velocity every 60° instead of every 360°, so there would be only one division when pattern change
-// use math div to save time for division when calculating velocity
-// Avoid interpolating hall position when Hybrid is valid (save some cpu) 
+
+
 
 // for cadence, adapt ui16_cadence_sensor_ticks_counter_min in ebike_app.c in order to take care that counter runs at 1kHz instead of 19kHz
 //             then remove the division by 19 in motor ; this avoid a division in the ISR
 // for cadence activate     ui8_pas_new_transition = 0x80; // used in mspider logic for torque sensor
 // for cadence activate     ui8_pas_new_transition = 1; // mspider logic for torque sensor;mark for one of the 20 transitions per rotation
-// change code to use ms_counter à la place de system_tick
 // !!!! quand on change la fréquence du timer hall_speed de 250000 à 1mHz, il y a aussi des changements dans main 
 // !!! aussi à uint16_t last_clock_ticks = 0;  // used to call a function every 25 ms (ebbike controller at 40Hz)
 //uint16_t last_foc_pid_ticks = 0;    // used to call a function every 10 msec (update foc pid angle at 100hz)
@@ -231,10 +229,10 @@ volatile uint16_t ui16_hall_counter_total = 0xffff; // number of tim3 ticks betw
 volatile uint8_t ui8_controller_duty_cycle_ramp_up_inverse_step = PWM_DUTY_CYCLE_RAMP_UP_INVERSE_STEP_DEFAULT; // 194
 volatile uint8_t ui8_controller_duty_cycle_ramp_down_inverse_step = PWM_DUTY_CYCLE_RAMP_DOWN_INVERSE_STEP_DEFAULT; // 73
 volatile uint16_t ui16_adc_voltage_cut_off = 300*100/BATTERY_VOLTAGE_PER_10_BIT_ADC_STEP_X1000; // 30Volt default value =  300*100/87 in TSDZ2
-volatile uint8_t ui8_adc_battery_current_filtered = 0; // current in adc10 bits units (average on 1 rotation)
+volatile uint8_t ui8_adc_battery_current_filtered = 0; // current in adc10 bits units (= moving average on 64 PWM cycles)
 volatile uint32_t ui32_adc_battery_current_1_rotation_15b = 0; // value in 12 +2 +1 = 15 bits (ADC + IIR + average)
 volatile uint8_t ui8_controller_adc_battery_current_target = 0;
-volatile uint8_t ui8_g_duty_cycle = 0;
+volatile uint16_t ui16_g_duty_cycle = 0;
 volatile uint8_t ui8_controller_duty_cycle_target = 0;
 // Field Weakening Hall offset (added during interpolation)
 volatile uint8_t ui8_fw_hall_counter_offset = 0;
@@ -242,15 +240,15 @@ volatile uint8_t ui8_fw_hall_counter_offset_max = 0;
 volatile uint8_t ui8_field_weakening_enabled = 0;
 
 // Duty cycle ramp up
-static uint8_t ui8_counter_duty_cycle_ramp_up = 0;
-static uint8_t ui8_counter_duty_cycle_ramp_down = 0;
+//static uint8_t ui8_counter_duty_cycle_ramp_up = 0; // replaced by step up and down in systick
+//static uint8_t ui8_counter_duty_cycle_ramp_down = 0;
 
 // FOC angle
 //static uint8_t ui8_foc_angle_accumulated = 0;
-uint8_t ui8_foc_flag = 0;
-volatile uint8_t ui8_g_foc_angle = 0;
-uint8_t ui8_foc_angle_multiplicator = 0;
-volatile uint16_t ui16_g_foc_angle_q8_8 = 0; 
+//uint8_t ui8_foc_flag = 0; // not used anymore with optimised lead angle in systick.c
+//volatile uint8_t ui8_g_foc_angle = 0; // not used anymore with optimised lead angle in systick.c
+//uint8_t ui8_foc_angle_multiplicator = 0; // not used anymore with optimised lead angle in systick.c
+//volatile uint16_t ui16_g_foc_angle_q8_8 = 0; // not used anymore with optimised lead angle in systick.c
 //static uint8_t ui8_foc_angle_multiplier = FOC_ANGLE_MULTIPLIER; //39 for 48V motor
 //static uint8_t ui8_adc_foc_angle_current = 0; // use a ui16 inside the irq
 
@@ -908,7 +906,7 @@ void capture_3_phase_current_offset(){  // called by main
     }
 }
 
-uint8_t ui8_measured_phases; // register which 2 phases (from the 3) have to be used to calculate clarck transform
+//uint8_t ui8_measured_phases; // register which 2 phases (from the 3) have to be used to calculate clarck transform
     
 
 int32_t volatile debug_Iu;
@@ -985,6 +983,17 @@ __RAM_FUNC static inline void park_transform_q15(int16_t Ialpha, int16_t Ibeta, 
     *Iq = Iq_tmp;
 }
 
+// for security checks ; shared with systicks
+volatile uint32_t ui32_Iu_rms_2_filt = 0;
+volatile uint32_t ui32_Iv_rms_2_filt = 0;
+volatile uint32_t ui32_Iw_rms_2_filt = 0;
+volatile uint32_t ui32_Imotor_rms_2_filt = 0;
+
+// Flags fault
+volatile bool fault_phase_current_peak = false;
+volatile bool fault_idc_fast = false;
+
+
 
 uint8_t debug_permutation = 0;
 int32_t i32_id_sum = 0;
@@ -1007,12 +1016,6 @@ __RAM_FUNC static inline void calculate_id_part1(){  // to be called in begin of
     uint16_t I2 = VADC_I2_GROUP->RES[VADC_I2_RESULT_REG]&0X0FFF; // second conversion = G0 ch 0
     uint16_t I3 = VADC_I3_GROUP->RES[VADC_I3_RESULT_REG]&0X0FFF; // third conversion = G1 ch 1
 
-    // detect overcurrent
-    #define MAX_PHASE_CURRENT 3000
-    bool overcurrent_detected = false;
-    if (( I1 > MAX_PHASE_CURRENT) || ( I2 > MAX_PHASE_CURRENT) || ( I3 > MAX_PHASE_CURRENT)){
-        overcurrent_detected = true;
-    }
     // in case 1, use phase u and v, 2 = phase u and w ,  3 = phase v and w
     int32_t i32_raw_Iu;
     int32_t i32_raw_Iv;
@@ -1082,11 +1085,11 @@ switch (debug_permutation) {
 //i16_raw_Iu = I3;
 //i16_raw_Iv = I2;
 //i16_raw_Iw = I1;
-int32_t i32_Iu = (i32_raw_Iu -(int32_t)ADC_Bias_Iu ) << 3; // change from 12 bits to 15 bits to use Q15 in cordic
-int32_t i32_Iv = (i32_raw_Iv - (int32_t)ADC_Bias_Iv ) << 3;
-int32_t i32_Iw = (i32_raw_Iw - (int32_t)ADC_Bias_Iw ) << 3;
+    int32_t i32_Iu = (i32_raw_Iu -(int32_t)ADC_Bias_Iu ) << 3; // change from 12 bits to 15 bits to use Q15 in cordic
+    int32_t i32_Iv = (i32_raw_Iv - (int32_t)ADC_Bias_Iv ) << 3;
+    int32_t i32_Iw = (i32_raw_Iw - (int32_t)ADC_Bias_Iw ) << 3;
 
-int32_t i_avg = (((i32_Iu + i32_Iv + i32_Iw) * (int32_t) DIV_3)) >>  SCALE_DIV_3 ; 
+    int32_t i_avg = (((i32_Iu + i32_Iv + i32_Iw) * (int32_t) DIV_3)) >>  SCALE_DIV_3 ; 
 
 //debug_i32_Iu1 = i32_Iu;
 //debug_i32_Iv1 = i32_Iv;
@@ -1094,15 +1097,12 @@ int32_t i_avg = (((i32_Iu + i32_Iv + i32_Iw) * (int32_t) DIV_3)) >>  SCALE_DIV_3
 
 //debug_i_avg = i_avg;
 
-i32_Iu -= i_avg;
-i32_Iv -= i_avg;
-i32_Iw -= i_avg;
-
+    i32_Iu -= i_avg;
+    i32_Iv -= i_avg;
+    i32_Iw -= i_avg;
 
     int32_t I_Alpha_1Q31;
     int32_t I_Beta_1Q31;
-
-
     /*
     switch (ui8_measured_phases){
         case 1:
@@ -1199,6 +1199,40 @@ i32_Iw -= i_avg;
     // X = I_Beta. Input CORDX data, and auto start of CORDIC calculation (~62 kernel clock cycles) 
     MATH->CORDX = I_Beta_1Q31;
     */
+
+    //security checks: could be moved earlier if cordic is used
+    // RMS IIR phase (32 bits suffisent)
+
+    // carrés des phases
+    uint32_t i32_Iu2 = (i32_Iu >> 3) * (i32_Iu >> 3); // reduce to 12 * 12 bits to avoid overflow in i32 in systicks
+    uint32_t i32_Iv2 = (i32_Iv >> 3) * (i32_Iv >> 3);
+    uint32_t i32_Iw2 = (i32_Iw >> 3) * (i32_Iw >> 3);
+
+    // Phase current Peak protection
+    if(i32_Iu2 > PHASE_PEAK_TRIP2 || i32_Iv2 > PHASE_PEAK_TRIP2 || i32_Iw2 > PHASE_PEAK_TRIP2) {
+        fault_phase_current_peak = true;
+        motor_disable_pwm();
+        ui8_motor_enabled = 0;
+    }
+
+    // RMS IIR phase (assembleur-like)
+    int32_t diff;
+    diff = (int32_t)i32_Iu2 - (int32_t)ui32_Iu_rms_2_filt;
+    ui32_Iu_rms_2_filt += diff >> PHASE_RMS_ALPHA;
+    diff = (int32_t)i32_Iv2 - (int32_t)ui32_Iv_rms_2_filt;
+    ui32_Iv_rms_2_filt += diff >> PHASE_RMS_ALPHA;
+    diff = (int32_t)i32_Iw2 - (int32_t)ui32_Iw_rms_2_filt;
+    ui32_Iw_rms_2_filt += diff >> PHASE_RMS_ALPHA;
+
+    // RMS moteur (somme carrés)
+    ui32_Imotor_rms_2_filt = ui32_Iu_rms_2_filt + ui32_Iv_rms_2_filt + ui32_Iw_rms_2_filt; 
+
+    // Idc fast
+    if(ui32_adc_battery_current_15b > IDC_FAST_TRIP) {
+        fault_idc_fast = true;
+        motor_disable_pwm();
+        ui8_motor_enabled = 0;
+    }
 }
     
 //    #if (DYNAMIC_LEAD_ANGLE == (1)) // (1) dynamic based on Id and a PID + optimiser
@@ -1363,12 +1397,12 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
                     ui8_hall_360_ref_valid = 1;
                     previous_360_ref_ticks = ui16_curr_hall_ticks;
                 }
-                if (ui8_curr_hall_pattern_local == 0x02) {  // exemple rotor à 150°
+                //if (ui8_curr_hall_pattern_local == 0x02) {  // exemple rotor à 150°
                     //debug_id = i32_id_sum / i32_id_count;
                     //i32_id_sum  = 0;
                     //i32_id_count = 0;
-                    ui8_foc_flag = 1; // sert à mettre à jour le lead angle dans FOC
-                }
+                //    ui8_foc_flag = 1; // sert à mettre à jour le lead angle dans FOC
+                //}
            
                 // calculate hall velocity after at least 1 rotation
                 if ((ui8_hall_360_ref_valid) && (ui16_ticks_between_2_hall_fronts > 80)){ // avoid division by 0 and error in uint if counter would ve to low
@@ -1436,7 +1470,7 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
             ui32_pwm_ticks_since_last_front = RPM_FOR_MOTOR_STOP_PWM_TICKS ; // avoid that counter increases and wrap.
             // value must be choosen also to avoid that number of ticks on 360° exceeds uint16 max 
             ui8_motor_commutation_type = BLOCK_COMMUTATION; // 0
-            ui8_g_foc_angle = 0;
+            //ui8_g_foc_angle = 0; // not used anymore with optimised lead angle in systick.c
             ui8_hall_360_ref_valid = 0;
             ui32_hall_velocity_q8_8X1024_local = 0;
             ui16_hall_counter_total = 0xffff;
@@ -1506,16 +1540,18 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     // here ui16_g_foc_angle_q8_8 is just based on hall velocity and a multiplicator (see systick).
     //ui16_SVM_table_index_q8_8 = ui16_angle_no_lead_q8_8 + (ui16_g_foc_angle_q8_8);
     // here we use the lead angle based on a table on velocity and a correction to set Id around 0 
-    ui16_SVM_table_index_q8_8 = ui16_angle_no_lead_q8_8 + lead_total_q8_8;
+    ui16_SVM_table_index_q8_8 = ui16_angle_no_lead_q8_8 + ui16_lead_total_q8_8;
     uint8_t ui8_lut_index = (uint8_t)(ui16_SVM_table_index_q8_8 >> 8);
 
+    /*
     if (ui8_motor_enabled) {
         ui8_measured_phases = ui8_LUT_SECTOR_CASE[ui8_lut_index];
     } else {
         // take care that this must be the same sequence as used to calibrate the ADC offset (done when motor is not enabled)
         ui8_measured_phases = 3; // use default config for bias when motor is off
     }
-    uint8_t ui8_measured_phases = ui8_LUT_SECTOR_CASE[ui8_lut_index];
+    */
+    
     /*
     // in case 1, use phase u and v, 2 = phase u and w ,  3 = phase v and w
     switch (ui8_measured_phases){
@@ -1546,9 +1582,10 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     int16_t svm_B = i16_LUT_SINUS[ui8_lut_index_B];
     int16_t svm_C = i16_LUT_SINUS[ui8_lut_index_C];
     
-    ui16_a = (uint16_t) (MIDDLE_SVM_TABLE + (( svm_A * (int16_t) ui8_g_duty_cycle)>>8)); // >>8 because duty_cycle 100% is 256
-    ui16_b = (uint16_t) (MIDDLE_SVM_TABLE + (( svm_B * (int16_t) ui8_g_duty_cycle)>>8)); // >>8 because duty_cycle 100% is 256
-    ui16_c = (uint16_t) (MIDDLE_SVM_TABLE + (( svm_C * (int16_t) ui8_g_duty_cycle)>>8)); // >>8 because duty_cycle 100% is 256  
+    uint16_t temp_duty_cycle = (ui16_g_duty_cycle + 0x80) >> 8; // rounding
+    ui16_a = (uint16_t) (MIDDLE_SVM_TABLE + (( svm_A * temp_duty_cycle)>>8)); // >>8 because duty_cycle 100% is 256
+    ui16_b = (uint16_t) (MIDDLE_SVM_TABLE + (( svm_B * temp_duty_cycle)>>8)); // >>8 because duty_cycle 100% is 256
+    ui16_c = (uint16_t) (MIDDLE_SVM_TABLE + (( svm_C * temp_duty_cycle)>>8)); // >>8 because duty_cycle 100% is 256  
  
 
     #define DEBUG_IRQO_TIME (1) // 1 = calculate the time spent in irq0
@@ -1679,19 +1716,22 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
             
         }
         ui8_foc_flag = 0;
-*/ //end moved to systicks
+        
         // get brake state-
         ui8_brake_state = XMC_GPIO_GetInput(IN_BRAKE_PORT, IN_BRAKE_PIN) == 0; // Low level means that brake is on
         
+*/ //end moved to systicks
+        
+        /*  // replaced by some security checks ; some disable immediately PWM, some reduce the duty cycle (in systick.c)
         // added by mstrens to detect overcurrent and to decrase immediatelu the duty cycle
         //uint8_t ui8_temp_adc_current = ((XMC_VADC_GROUP_GetResult(vadc_0_group_0_HW , 15 ) & 0xFFFF) +
 	    //								(XMC_VADC_GROUP_GetResult(vadc_0_group_1_HW , 15 ) & 0xFFFF)) >>5  ;  // >>2 for IIR, >>2 for ADC12 to ADC10 , >>1 for averaging		
 	    // changed by mstrens to take care of infineon init for vadc (result 12bits and in reg 1)
 	    uint8_t ui8_temp_adc_current = (XMC_VADC_GROUP_GetResult(vadc_0_group_0_HW , VADC_I4_RESULT_REG ) & 0xFFFF) >> 2;// from 12 to 10bits 
 	    if ( ui8_temp_adc_current > ui8_adc_battery_overcurrent){ // 112+50 in tsdz2 (*0,16A) => 26A
-            ui8_g_duty_cycle -= (ui8_g_duty_cycle >> 2); // reduce immediately dutycycle by 25% to avoid overcurrent in next pwm 
+            ui16_g_duty_cycle -= (ui16_g_duty_cycle >> 2); // reduce immediately dutycycle by 25% to avoid overcurrent in next pwm 
         }    
-		
+		*/
 
     // to debug
     //uint16_t temp1d  =  XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW);
@@ -1719,6 +1759,7 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
         //  - ui8_controller_duty_cycle_ramp_up_inverse_step
         //  - ui8_controller_duty_cycle_ramp_down_inverse_step
         // Furthermore,  when ebyke_app_controller start pwm, g_duty_cycle is first set on 30 (= 12%)
+        /*
         if ((ui8_controller_duty_cycle_target < ui8_g_duty_cycle)                     // requested duty cycle is lower than actual
           || (ui8_controller_adc_battery_current_target < ui8_adc_battery_current_filtered)  // requested current is lower than actual
 		  || (ui16_adc_motor_phase_current >  ui16_adc_motor_phase_current_max)               // motor phase is to high
@@ -1773,6 +1814,7 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
             ui8_counter_duty_cycle_ramp_up = 0;
             ui8_counter_duty_cycle_ramp_down = 0;
         }
+        */    
     // to debug
     //uint16_t temp1e  =  XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW);
     //temp1e = temp1e - start_ticks;
@@ -1957,7 +1999,7 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
     //#if (DYNAMIC_LEAD_ANGLE == (1))
     // update data to get an avg of Id
 //    calculate_id_part2();
-    ui8_foc_flag = 0; // to debug in order to have only one debug set of data per rotation
+    //ui8_foc_flag = 0; // to debug in order to have only one debug set of data per rotation
     //#endif
     
     #if (DEBUG_IRQ1_TIME == (1))

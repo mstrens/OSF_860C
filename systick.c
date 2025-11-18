@@ -16,7 +16,6 @@
 
 
 
-#define PWM_HZ           19000UL
 volatile uint32_t ui32_ms_counter = 0;
 
 // new wheel and cadence variables
@@ -140,22 +139,32 @@ void SysTick_Handler(void) {
     }
     ui16_adc_torque_filtered = ui16_adc_torque_new_filtered;
     
-    //      4) get the voltage
+    //      4) get the voltage 
      //ui16_adc_voltage  = (XMC_VADC_GROUP_GetResult(vadc_0_group_1_HW , 4 ) & 0x0FFF) >> 2; // battery gr1 ch6 result 4
     // changed to take care of infineon VADC init (result in reg 6)
     ui16_adc_voltage  = (XMC_VADC_GROUP_GetResult(vadc_0_group_1_HW , VADC_VDC_RESULT_REG ) & 0x0FFF) >> 2; // battery gr1 ch6 result 6
 
+    //      5) get ui16_g_motor_phase_current (used to reduced duty cycle in systick and to get an error in ebike_app.c)
+    if (ui16_g_duty_cycle > 0) {
+        // calculate phase current.
+        if (ui16_g_duty_cycle > (2<<8)) {
+            ui16_adc_motor_phase_current = (uint16_t)((uint16_t)(((uint16_t)ui8_adc_battery_current_filtered) << 8)) / (ui16_g_duty_cycle >> 8);
+        } else {
+            ui16_adc_motor_phase_current = (uint16_t)ui8_adc_battery_current_filtered;
+        }
+    } else {
+        ui16_adc_motor_phase_current = 0;
+    }
+
+    //     6) get brake state-
+    ui8_brake_state = XMC_GPIO_GetInput(IN_BRAKE_PORT, IN_BRAKE_PIN) == 0; // Low level means that brake is on
+        
+    /*
     //     5) get lead angle 
     static uint32_t ui32_foc_angle_accum = 0; // use more bits for better accuracy in IIR
     // update foc_angle and adc_motor_phase_current
         // foc_angle is added to the position given by hall sensor + interpolation )
-        if (ui8_g_duty_cycle > 0) {
-            // calculate phase current.
-            if (ui8_g_duty_cycle > 2) {
-                ui16_adc_motor_phase_current = (uint16_t)((uint16_t)(((uint16_t)ui8_adc_battery_current_filtered) << 8)) / ui8_g_duty_cycle;
-            } else {
-                ui16_adc_motor_phase_current = (uint16_t)ui8_adc_battery_current_filtered;
-            }
+        
 //            if (ui8_foc_flag) { // is set on 1 when rotor is at 150° so once per electric rotation
 				//uint16_t ui16_adc_foc_angle_current = ((uint16_t)(ui8_adc_battery_current_filtered ) + (ui16_adc_motor_phase_current )) >> 1;
                 // mstrens : added 128 for better rounding
@@ -174,29 +183,16 @@ void SysTick_Handler(void) {
             // filtre iir convergent
             ui32_foc_angle_accum = ui32_foc_angle_accum - (ui32_foc_angle_accum >> 4) + (ui32_foc);
             ui16_g_foc_angle_q8_8 = (uint16_t)(ui32_foc_angle_accum >> 4);
-            
-                
-                //ui8_foc_flag = 0;
-                // added by mstrens
-//                ui8_g_foc_angle = ui8_foc_flag ;
-//            }
         } else { // duty cycle = 0
             ui16_adc_motor_phase_current = 0;
             ui32_foc_angle_accum = 0; // reset accumulator (used for accuracy)
-            // removed by mstrens
-            //if (ui8_foc_flag) {
-            //    ui8_foc_angle_accumulated = ui8_foc_angle_accumulated - (ui8_foc_angle_accumulated >> 4);
-            //    ui8_g_foc_angle = ui8_foc_angle_accumulated >> 4;
-            //    ui8_foc_flag = 0;
-            //}
-            // added by mstrens
-            ui16_g_foc_angle_q8_8 = 0; 
-            
+            ui16_g_foc_angle_q8_8 = 0;             
         }
-    
-    update_lead_angle();
-        
+    */
 
+    update_lead_angle();
+    systick_security_checks(); // this must be before update_duty_cycle() because it can change the way duty cycle is calculated
+    update_duty_cycle();    // apply ramp up/down on duty cycle    
 } // end systick_handler
 
 
@@ -205,21 +201,21 @@ void SysTick_Handler(void) {
 // ---------------------------------------------------
 #define Q30_SCALE           (1UL << 30)
 #define DEG_TO_Q8_8(x)      ((uint16_t)((x) * (65536.0f / 360.0f) + 0.5f))
-#define HALL_RATIO          4.474f
+#define HALL_VELOCITY_RATIO          (4.474f)      // ratio between RPM and hall velocity_q8_8x1024
 
-#define LEAD_STEP_MIN_DEGREE  0.02       // ≈ 0.022°
-#define LEAD_STEP_MAX_DEGREE  0.35       // ≈ 0.35°
-#define MAX_LEAD_CORR_DEGREE  5        // max for correction (in plus and min)
+#define LEAD_STEP_MIN_DEGREE  (0.02)       // ≈ 0.022° // lead angle correction is updated per small steps; varies between min and max
+#define LEAD_STEP_MAX_DEGREE  (0.35)       // ≈ 0.35°
+#define MAX_LEAD_CORR_DEGREE  (5)        // max for correction (in plus and min)
 
-#define LOW_SPEED_RPM        200
-#define SPEED_FILTER_A_Q15   30000  // coeff IIR vitesse (α≈0.9)
+#define LOW_SPEED_RPM        (200)       // below this speed, lead angle is set on 0
+#define SPEED_FILTER_A_Q15   (30000)  // coeff IIR vitesse (α≈0.9)
 #define SPEED_FILTER_B_Q15   (32768 - SPEED_FILTER_A_Q15)
 
-#define IDABS_DEFAULT        100       // seuil absolu min en ADC units
-#define K_REL_Q15            1638      // 0.05 * 32768 (5%)
-#define HYST_FACTOR_Q15      29491     // 0.9 en Q15
+#define IDABS_DEFAULT        (100)       // seuil absolu min en ADC units ;  Dead band adaptatif; this is the min ; it applies on Id
+#define K_REL_Q15            (1638)      // 0.05 * 32768 (5%)
+#define HYST_FACTOR_Q15      (29491)     // 0.9 en Q15
 
-#define LEAD_ANGLE_Q8_8_PER_ADC_STEP 17 // = 750 / 45 = 17 : Test showed that for a speed of about 2500 RPM,
+#define LEAD_ANGLE_Q8_8_PER_ADC_STEP (17) // = 750 / 45 = 17 : Test showed that for a speed of about 2500 RPM,
                  // lead angle should varies by about 3° = 750 q8_8 units for a delta of 45 ADC steps
                  //                           45 = between 10 and 55 ADC current 10 bits 
 
@@ -251,7 +247,7 @@ static uint16_t tick_5ms = 0;
 static int32_t  i32_hall_velocity_filt_q8_8X1024 = 0;
 static int32_t  lead_corr_q8_8 = 0;
 static uint16_t lead_base_q8_8_val = 0;
-uint16_t lead_total_q8_8 = 0;
+uint16_t ui16_lead_total_q8_8 = 0;
 static int16_t i16_adc_battery_current_for_lead_base = 0;
 // Deadband adaptatif
 static int32_t last_deadband = 0;
@@ -266,7 +262,7 @@ uint16_t debug_lead_base_q8_8 = 0;
 static void init_lead_tables(void)
 {
     for (uint8_t i = 0; i < SPEED_TAB_SIZE; i++) {
-        velocity_tab[i] = (uint16_t)(speed_tab[i] * HALL_RATIO + 0.5f);
+        velocity_tab[i] = (uint16_t)(speed_tab[i] * HALL_VELOCITY_RATIO + 0.5f);
         lead_base_q8_8[i] = DEG_TO_Q8_8(lead_base_deg[i]);
     }
 
@@ -275,7 +271,7 @@ static void init_lead_tables(void)
         if (delta == 0) delta = 1;
         inv_delta_velocity_q30[i] = Q30_SCALE / delta;
     }
-    hall_low_speed_threshold = (uint32_t)(LOW_SPEED_RPM * HALL_RATIO + 0.5f);
+    hall_low_speed_threshold = (uint32_t)(LOW_SPEED_RPM * HALL_VELOCITY_RATIO + 0.5f);
 
     tables_initialized = 1;
 }
@@ -391,6 +387,173 @@ void update_lead_angle(void)
     }
  
     // Calcul total
-    lead_total_q8_8 = (uint16_t)lead_base_q8_8_val + (uint16_t)lead_corr_q8_8;
+    ui16_lead_total_q8_8 = (uint16_t)lead_base_q8_8_val + (uint16_t)lead_corr_q8_8;
 
+}
+
+
+
+// security checks in systick
+// Timer / persistance 
+static uint16_t t_phase_rms_persist = 0;
+static uint16_t t_motor_rms_persist = 0;
+static uint16_t t_idc_slow_persist = 0;
+// Timer anti ramp up (avoid ramp up when soft error occured for some ms)
+static uint16_t t_ramp_up_delay = 0; // compteur en ticks de SysTick (1 tick = 1 ms par exemple)
+static bool duty_limit_active = false;
+static bool fault_phase_rms = false;
+static bool fault_motor_rms = false;
+static bool fault_Idc_slow = false;
+
+void systick_security_checks(void){
+    duty_limit_active = false; // reset the general flag
+ 
+    // --- Phase RMS protection (sans sqrt) ---
+    // find max of filtered values
+    uint32_t ui32_Iphase_max2 = ui32_Iu_rms_2_filt;
+    if(ui32_Iv_rms_2_filt > ui32_Iphase_max2) ui32_Iphase_max2 = ui32_Iv_rms_2_filt;
+    if(ui32_Iw_rms_2_filt > ui32_Iphase_max2) ui32_Iphase_max2 = ui32_Iw_rms_2_filt;
+
+    // Check on max of each phase rms
+    if(ui32_Iphase_max2 > PHASE_RMS_WARN2) {
+        t_phase_rms_persist++;
+        if(t_phase_rms_persist > 20){
+            t_phase_rms_persist--;
+            fault_phase_rms = true;
+            duty_limit_active = true;
+            t_ramp_up_delay = RAMP_UP_DELAY_TICKS; // bloque le ramp-up
+        } 
+    } else t_phase_rms_persist = 0;
+
+    // --- Motor RMS protection --- motor rms = sum of the 3 phase rms
+    if(ui32_Imotor_rms_2_filt > IMOTOR_RMS_WARN2) {
+        t_motor_rms_persist++;
+        if(t_motor_rms_persist > 100) {
+            t_motor_rms_persist--;
+            fault_motor_rms = true;
+            duty_limit_active = true;
+            t_ramp_up_delay = RAMP_UP_DELAY_TICKS; // bloque le ramp-up
+        }
+    } else t_motor_rms_persist = 0;
+
+    // Idc slow
+    if( ((uint16_t) ui8_adc_battery_current_filtered) > IDC_SLOW_WARN) {
+        t_idc_slow_persist++;
+        if(t_idc_slow_persist > 100){
+            t_idc_slow_persist--;
+            fault_Idc_slow = true;
+            duty_limit_active = true;
+            t_ramp_up_delay = RAMP_UP_DELAY_TICKS; // bloque le ramp-up
+        }
+    } else t_idc_slow_persist = 0;
+
+    // --- décrémente le timer anti-ramp-up si actif ---
+    if(t_ramp_up_delay > 0) {
+        t_ramp_up_delay--;
+        if (t_ramp_up_delay == 0){ //reset the reasons
+            fault_phase_rms = false;
+            fault_motor_rms = false;
+            duty_limit_active = false;         
+        }
+    }    
+}
+
+
+        /****************************************************************************/
+// PWM duty_cycle controller:
+// - limit battery undervolt
+// - limit battery max current
+// - limit motor max phase current
+// - limit motor max ERPS
+// - ramp up/down PWM duty_cycle and/or field weakening angle value
+
+// check if to decrease, increase or maintain duty cycle
+//note:
+// ui8_adc_battery_current_filtered is calculated just here above
+// ui16_adc_motor_phase_current_max = 135 per default for TSDZ2 (13A *100/16) *187/112 = battery_current convert to ADC10bits *and ratio between adc max for phase and for battery
+//        is initiaded in void ebike_app_init(void) in ebyke_app.c
+
+
+// every 25ms ebike_app_controller fills
+//  - ui8_controller_adc_battery_current_target
+//  - ui8_controller_duty_cycle_target // is usually filled with 255 (= 100%)
+//  - ui8_controller_duty_cycle_ramp_up_inverse_step
+//  - ui8_controller_duty_cycle_ramp_down_inverse_step
+// Furthermore,  when ebyke_app_controller start pwm, g_duty_cycle is first set on 30 *256 (= 12%)
+
+uint8_t ui8_controller_duty_cycle_ramp_down_inverse_step_prev= 0;
+uint8_t ui8_controller_duty_cycle_ramp_up_inverse_step_prev= 0;
+uint16_t ui16_controller_duty_cycle_ramp_up_step= 0;
+uint16_t ui16_controller_duty_cycle_ramp_down_step= 0;
+uint16_t ui16_fw_hall_counter_offset = 0;
+
+
+void update_duty_cycle(void){
+    // update ramp steps when they change
+    if (ui8_controller_duty_cycle_ramp_up_inverse_step_prev != ui8_controller_duty_cycle_ramp_up_inverse_step) {
+        if (ui8_controller_duty_cycle_ramp_up_inverse_step == 0) ui8_controller_duty_cycle_ramp_up_inverse_step = 10;  // éviter division par zéro
+        ui16_controller_duty_cycle_ramp_up_step = ((((uint32_t)PWM_CYCLES_SECOND)/1000) << 8) / ui8_controller_duty_cycle_ramp_up_inverse_step;
+        ui8_controller_duty_cycle_ramp_up_inverse_step_prev = ui8_controller_duty_cycle_ramp_up_inverse_step;
+    }
+    
+    if (ui8_controller_duty_cycle_ramp_down_inverse_step_prev != ui8_controller_duty_cycle_ramp_down_inverse_step) {
+        if (ui8_controller_duty_cycle_ramp_down_inverse_step == 0) ui8_controller_duty_cycle_ramp_down_inverse_step = 10;  // éviter division par zéro
+        ui16_controller_duty_cycle_ramp_down_step = ((((uint32_t)PWM_CYCLES_SECOND)/1000) << 8) / ui8_controller_duty_cycle_ramp_down_inverse_step;
+        ui8_controller_duty_cycle_ramp_down_inverse_step_prev = ui8_controller_duty_cycle_ramp_down_inverse_step;
+    }
+
+    // --- Application duty en fonction protection ---
+    if(fault_phase_current_peak || fault_idc_fast) {
+        ui16_g_duty_cycle = 0;
+        return;
+    }
+    if(duty_limit_active) {
+        ui16_g_duty_cycle -= ui16_g_duty_cycle >> 3 ; // reduce duty_cycle by 1/8
+        return;
+    }     
+    
+    if ((ui8_controller_duty_cycle_target < (ui16_g_duty_cycle >> 8))                     // requested duty cycle is lower than actual
+            || (ui8_controller_adc_battery_current_target < ui8_adc_battery_current_filtered)  // requested current is lower than actual
+            || (ui16_adc_motor_phase_current >  ui16_adc_motor_phase_current_max)               // motor phase is to high
+    //      || (ui16_hall_counter_total < (HALL_COUNTER_FREQ / MOTOR_OVER_SPEED_ERPS))        // Erps is to high
+            || (ui16_adc_voltage < ui16_adc_voltage_cut_off)                                  // voltage is to low
+            || (ui8_brake_state)
+            ) {                                                           // brake is ON
+        //  first decrement field weakening angle if set or duty cycle if not
+        if (ui16_fw_hall_counter_offset > 0) {
+            if(ui16_fw_hall_counter_offset > ui16_controller_duty_cycle_ramp_down_step){
+                ui16_fw_hall_counter_offset -= ui16_controller_duty_cycle_ramp_down_step;
+            } else {
+                ui16_fw_hall_counter_offset = 0;
+            }        
+        }   else {
+            if (ui16_g_duty_cycle > ui16_controller_duty_cycle_ramp_down_step) {
+                    ui16_g_duty_cycle  -= ui16_controller_duty_cycle_ramp_down_step;
+            } else {
+                ui16_g_duty_cycle = 0;
+            }
+        }
+    } else if(t_ramp_up_delay == 0) { // ramp up but only if not delayed due to a security check
+        if ((ui8_controller_duty_cycle_target > (ui16_g_duty_cycle >> 8))                     // requested duty cycle is higher than actual
+                && (ui8_controller_adc_battery_current_target > ui8_adc_battery_current_filtered)) { //Requested current is higher than actual
+            uint32_t temp_duty = ui16_g_duty_cycle + ui16_controller_duty_cycle_ramp_up_step;
+            // increment duty cycle
+            if (temp_duty < (PWM_DUTY_CYCLE_STARTUP << 8)) {
+                temp_duty = PWM_DUTY_CYCLE_STARTUP << 8;
+            }	
+            else if (temp_duty > ((uint32_t)ui8_pwm_duty_cycle_max << 8)) {
+                temp_duty = ((uint32_t)ui8_pwm_duty_cycle_max << 8);
+            }
+            ui16_g_duty_cycle = temp_duty;
+        }
+        else if ((ui8_field_weakening_enabled) && (ui16_g_duty_cycle == (ui8_pwm_duty_cycle_max << 8))) {
+            // increment field weakening angle
+            uint32_t temp_fw = ui16_fw_hall_counter_offset + ui16_controller_duty_cycle_ramp_up_step;        
+            // clamp
+            if (temp_fw > (ui8_fw_hall_counter_offset_max << 8)) {
+                temp_fw = (ui8_fw_hall_counter_offset_max << 8);
+            }
+            ui16_fw_hall_counter_offset = temp_fw;
+        }
+    }    
 }
