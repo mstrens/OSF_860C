@@ -1168,15 +1168,16 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 1300 c
     uint16_t start_ticks  =  XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW);
     #endif
 
-    debug_isr1_timer_start = XMC_CCU8_SLICE_GetTimerValue(PWM_IRQ_TIMER_HW);
-    debug_isr1_timer_start++;
+//    debug_isr1_timer_start = XMC_CCU8_SLICE_GetTimerValue(PWM_IRQ_TIMER_HW); // to know when ISR start running (at about timer 1200 when compare is set on 1300)
+//    debug_isr1_timer_start++;
+
 // collect wheel and cadence ticks to further process in 1 msec irq +++++++++++
     // this could be in isr0 or ISR1 (probably best in ISR0)
     collect_wheel_cadence_data();
 
 // for debugging ; check when ADC conversion is done
-    ui32_adc_conversion_gr1 = ((VADC_G1->VFR) & 0xFF) ;
-    ui32_adc_conversion_gr0 = ((VADC_G0->VFR) & 0xFF) ;
+//    ui32_adc_conversion_gr1 = ((VADC_G1->VFR) & 0xFF) ;
+//    ui32_adc_conversion_gr0 = ((VADC_G0->VFR) & 0xFF) ;
 
 // Enable shadow transfer for slice 0,1,2 for CCU80 Kernel
     ccu8_0_HW->GCSS = ((uint32_t)XMC_CCU8_SHADOW_TRANSFER_SLICE_0 |
@@ -1205,7 +1206,6 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 1300 c
     // Here we use permutation 0 (see below) so Iu = I1, Iv=I2 , Iw = I3(with cordic offset = 128)
     i32_raw_Iu = (int32_t)I1; i32_raw_Iv = (int32_t)I2; i32_raw_Iw = (int32_t)I3; 
     
-
     // Whe have also to take care that there are 6 permutations of I1, I2, I3 with Iu, Iv, IW
     // It seems that 3 could be used but each of them requires a different cordic offset to get valid Id, Iq (at park transform)
     /*
@@ -1269,9 +1269,9 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 1300 c
     i32_Iw -= i_avg;
     // here we have the 3 phase currents without offset in 15 bits
 
-    //debug_i32_Iu1 = i32_Iu;
-    //debug_i32_Iv1 = i32_Iv;
-    //debug_i32_Iw1 = i32_Iw;
+    debug_i32_Iu1 = i32_Iu;
+    debug_i32_Iv1 = i32_Iv;
+    debug_i32_Iw1 = i32_Iw;
     //debug_i_avg = i_avg;
 
 // measure IDC
