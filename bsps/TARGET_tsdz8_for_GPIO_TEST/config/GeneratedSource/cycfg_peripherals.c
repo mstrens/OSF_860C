@@ -868,35 +868,33 @@ void init_cycfg_peripherals(void)
     XMC_CCU8_SLICE_SetTimerValue(PHASE_W_TIMER_HW, 0U);
     
     XMC_CCU8_SLICE_CompareInit(PWM_IRQ_TIMER_HW, &PWM_IRQ_TIMER_compare_config);
-    XMC_CCU8_SLICE_SetTimerCompareMatchChannel1(PWM_IRQ_TIMER_HW, 1500U); // it was first 840; max is 1680; this is about 2.5 usec after mid point
-    XMC_CCU8_SLICE_SetTimerCompareMatchChannel2(PWM_IRQ_TIMER_HW, 3U); // it was first 840
+    XMC_CCU8_SLICE_SetTimerCompareMatchChannel1(PWM_IRQ_TIMER_HW, 1679); // trigger ADC just before mid point // should be 1679
+    XMC_CCU8_SLICE_SetTimerCompareMatchChannel2(PWM_IRQ_TIMER_HW, 1300U); //  call ISR1 about 5 usec after mid point (when ADC conversions are done)
     XMC_CCU8_SLICE_SetTimerPeriodMatch(PWM_IRQ_TIMER_HW, 1680U);
     XMC_CCU8_SetMultiChannelShadowTransferMode(ccu8_0_HW, XMC_CCU8_MULTI_CHANNEL_SHADOW_TRANSFER_SW_SLICE3);
     XMC_CCU8_EnableShadowTransfer(ccu8_0_HW,XMC_CCU8_SHADOW_TRANSFER_SLICE_3 |XMC_CCU8_SHADOW_TRANSFER_DITHER_SLICE_3 |XMC_CCU8_SHADOW_TRANSFER_PRESCALER_SLICE_3 );
-    XMC_CCU8_SLICE_ConfigureEvent(PWM_IRQ_TIMER_HW, XMC_CCU8_SLICE_EVENT_0, &PWM_IRQ_TIMER_event0_config);
+    XMC_CCU8_SLICE_ConfigureEvent(PWM_IRQ_TIMER_HW, XMC_CCU8_SLICE_EVENT_0, &PWM_IRQ_TIMER_event0_config); // synchronised start
     XMC_CCU8_SLICE_ConfigureEvent(PWM_IRQ_TIMER_HW, XMC_CCU8_SLICE_EVENT_1, &PWM_IRQ_TIMER_event1_config);
     XMC_CCU8_SLICE_ConfigureEvent(PWM_IRQ_TIMER_HW, XMC_CCU8_SLICE_EVENT_2, &PWM_IRQ_TIMER_event2_config);
     XMC_CCU8_SLICE_StartConfig(PWM_IRQ_TIMER_HW, XMC_CCU8_SLICE_EVENT_0, XMC_CCU8_SLICE_START_MODE_TIMER_START_CLEAR);
-    // here we trigger SR3 at mid point of PWM cycle; to choose another time, we would have to use a compare in another slice
-    // Still then we can't disable the motor by stopping the PWM slice
-    // we would have to disable the motor by setting all pwm gipo in treestate or at low level
-    // this requires changes in motor enable and motor disable function
-    XMC_CCU8_SLICE_SetInterruptNode(PWM_IRQ_TIMER_HW, XMC_CCU8_SLICE_IRQ_ID_PERIOD_MATCH, XMC_CCU8_SLICE_SR_ID_3);
+    
+    // here we trigger SR3 nearly at mid point of PWM cycle; to choose another time, Perhaps could be changed based on duty cycle and sector
     
     // do not activate period match and one match simultanously !!!!
-    //XMC_CCU8_SLICE_SetInterruptNode(PWM_IRQ_TIMER_HW, XMC_CCU8_SLICE_IRQ_ID_ONE_MATCH, XMC_CCU8_SLICE_SR_ID_2);
-    XMC_CCU8_SLICE_SetInterruptNode(PWM_IRQ_TIMER_HW, XMC_CCU8_SLICE_IRQ_ID_COMPARE_MATCH_UP_CH_2, XMC_CCU8_SLICE_SR_ID_0);
-    XMC_CCU8_SLICE_SetInterruptNode(PWM_IRQ_TIMER_HW, XMC_CCU8_SLICE_IRQ_ID_COMPARE_MATCH_DOWN_CH_1, XMC_CCU8_SLICE_SR_ID_1);
-    XMC_CCU8_SLICE_EnableEvent(PWM_IRQ_TIMER_HW, XMC_CCU8_SLICE_IRQ_ID_PERIOD_MATCH);
+    //XMC_CCU8_SLICE_SetInterruptNode(PWM_IRQ_TIMER_HW, XMC_CCU8_SLICE_IRQ_ID_PERIOD_MATCH, XMC_CCU8_SLICE_SR_ID_3);
+    XMC_CCU8_SLICE_SetInterruptNode(PWM_IRQ_TIMER_HW, XMC_CCU8_SLICE_IRQ_ID_ONE_MATCH, XMC_CCU8_SLICE_SR_ID_0); // call ISR0 at begin of cycle
+    XMC_CCU8_SLICE_SetInterruptNode(PWM_IRQ_TIMER_HW, XMC_CCU8_SLICE_IRQ_ID_COMPARE_MATCH_UP_CH_1, XMC_CCU8_SLICE_SR_ID_3); // trigger ADC
+    XMC_CCU8_SLICE_SetInterruptNode(PWM_IRQ_TIMER_HW, XMC_CCU8_SLICE_IRQ_ID_COMPARE_MATCH_DOWN_CH_2, XMC_CCU8_SLICE_SR_ID_1); // call ISR1 after ADC conv
     
-    //XMC_CCU8_SLICE_EnableEvent(PWM_IRQ_TIMER_HW, XMC_CCU8_SLICE_IRQ_ID_ONE_MATCH);
-    XMC_CCU8_SLICE_EnableEvent(PWM_IRQ_TIMER_HW, XMC_CCU8_SLICE_IRQ_ID_COMPARE_MATCH_UP_CH_2);
-    XMC_CCU8_SLICE_EnableEvent(PWM_IRQ_TIMER_HW, XMC_CCU8_SLICE_IRQ_ID_COMPARE_MATCH_DOWN_CH_1);
+    //XMC_CCU8_SLICE_EnableEvent(PWM_IRQ_TIMER_HW, XMC_CCU8_SLICE_IRQ_ID_PERIOD_MATCH);
+    XMC_CCU8_SLICE_EnableEvent(PWM_IRQ_TIMER_HW, XMC_CCU8_SLICE_IRQ_ID_ONE_MATCH);
+    XMC_CCU8_SLICE_EnableEvent(PWM_IRQ_TIMER_HW, XMC_CCU8_SLICE_IRQ_ID_COMPARE_MATCH_UP_CH_1);
+    XMC_CCU8_SLICE_EnableEvent(PWM_IRQ_TIMER_HW, XMC_CCU8_SLICE_IRQ_ID_COMPARE_MATCH_DOWN_CH_2);
     //XMC_CCU8_EnableClock(ccu8_0_HW, PWM_IRQ_TIMER_NUM);
     XMC_CCU8_SLICE_SetTimerValue(PWM_IRQ_TIMER_HW, 0U);
 
     XMC_POSIF_Enable(HALL_POSIF_HW);
-     XMC_POSIF_SetMode(HALL_POSIF_HW, XMC_POSIF_MODE_HALL_SENSOR);
+    XMC_POSIF_SetMode(HALL_POSIF_HW, XMC_POSIF_MODE_HALL_SENSOR);
     XMC_POSIF_Init(HALL_POSIF_HW, &HALL_POSIF_config);
     XMC_POSIF_HSC_Init(HALL_POSIF_HW, &HALL_POSIF_HSC_InitHandle);
 // mstrens - commented when using a capture instead of an irq to read the ccu4 running timer
@@ -917,8 +915,9 @@ void init_cycfg_peripherals(void)
     //XMC_WDT_Start();
 }
 
+
 // removed by mstrens to test another vadc init
-void VADC_init(){
+void VADC_initxxx(){
 /* Update group input classes configuration. */
 vadc_0_group0_init_config.class0 = vadc_0_0_iclass_0;
 vadc_0_group1_init_config.class0 = vadc_0_1_iclass_0;

@@ -1412,9 +1412,9 @@ static void apply_speed_limit(void)
 static void calc_wheel_speed(void)
 {
     // calc wheel speed (km/h x10)
-    if (ui16_wheel_speed_sensor_ticks) {
-		uint16_t ui16_tmp = ui16_wheel_speed_sensor_ticks; // copy the value from isr
-        // rps = PWM_CYCLES_SECOND / ui16_wheel_speed_sensor_ticks (rev/sec)
+	uint16_t ui16_tmp = ui16_wheel_speed_sensor_ticks; // copy the value from isr    
+    if (ui16_tmp) {
+		// rps = PWM_CYCLES_SECOND / ui16_wheel_speed_sensor_ticks (rev/sec)
         // km/h*10 = rps * ui16_wheel_perimeter * ((3600 / (1000 * 1000)) * 10)
         // !!!warning if PWM_CYCLES_SECOND is not a multiple of 1000
         ui16_wheel_speed_x10 = (uint16_t)(((uint32_t) ui16_wheel_perimeter * ((PWM_CYCLES_SECOND/1000)*36U)) / ui16_tmp);

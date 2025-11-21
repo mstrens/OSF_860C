@@ -61,12 +61,12 @@
 #define VADC_I4_RESULT_REG    (1U)
 
 /* VADC Group 0 Alias channel 0 and channel 1 */
-#define VADC_G0_CHANNEL_ALIAS0  VADC_IV_G0_CHANNEL
-#define VADC_G0_CHANNEL_ALIAS1  VADC_IDC_CHANNEL
+#define VADC_G0_CHANNEL_ALIAS0  VADC_IV_G0_CHANNEL  //3
+#define VADC_G0_CHANNEL_ALIAS1  VADC_IDC_CHANNEL    // 1
 
 /* VADC Group 1 Alias channel 0 and channel 1 */
-#define VADC_G1_CHANNEL_ALIAS0  VADC_IW_G1_CHANNEL
-#define VADC_G1_CHANNEL_ALIAS1  VADC_IU_G1_CHANNEL
+#define VADC_G1_CHANNEL_ALIAS0  VADC_IW_G1_CHANNEL  // 3
+#define VADC_G1_CHANNEL_ALIAS1  VADC_IU_G1_CHANNEL  //4
 
 // DC link voltage VADC define 
 #define VADC_VDC_GROUP        VADC_G1
@@ -78,7 +78,7 @@
 //TSDZ8 uses pin 2.8 for total current; it is group 0 ch 1 or group 1 ch 0
 #define VADC_IDC_GROUP        VADC_G0
 #define VADC_IDC_GROUP_NO     (0U)
-#define VADC_IDC_CHANNEL      (1U)       /* P2.8 VADC group0 channel 1 */
+#define VADC_IDC_CHANNEL      (1U)       /* P2.8 VADC group0 channel 1 */ 
 #define VADC_IDC_RESULT_REG   (1U)
 
 

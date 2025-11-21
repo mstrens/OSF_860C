@@ -105,7 +105,7 @@ void SysTick_Handler(void) {
     }
      
     // --------- 2) Wheel --------- 
-    uint32_t ui32_wheel_pwm_tick = ui32_wheel_last_pwm_ticks;
+    uint32_t ui32_wheel_pwm_tick = ui32_wheel_last_pwm_ticks; // ui32_wheel_last_pwm_ticks = pwm ticks of last rising edge
     if (ui32_wheel_pwm_tick != ui32_prev_wheel_pwm_tick) {
         uint32_t ui32_wheel_delta_ticks;
         if (ui32_prev_wheel_pwm_tick == 0) {
@@ -113,11 +113,15 @@ void SysTick_Handler(void) {
         } else {
             ui32_wheel_delta_ticks = (ui32_wheel_pwm_tick - ui32_prev_wheel_pwm_tick);
         }
-        ui32_prev_wheel_pwm_tick = ui32_wheel_pwm_tick;
-        ui32_last_wheel_ms = ui32_ms_counter;
+        ui32_prev_wheel_pwm_tick = ui32_wheel_pwm_tick; // save for next comparison
+        ui32_last_wheel_ms = ui32_ms_counter;           // used to detect when wheel stopped (time out)
         if (ui32_wheel_delta_ticks > 0) {
-            // set the value used in ebike_app.c to wheel speed
-            ui16_wheel_speed_sensor_ticks = ui32_wheel_delta_ticks ; // ticks are based on PWM frequency
+            if (ui32_wheel_delta_ticks > 600) { // 600 at 19Khz => 2000mm/1000000(km) * 19000kHz/600 * 3600sec = 228 km/h
+                // set the value used in ebike_app.c to wheel speed when speed is not to high
+                ui16_wheel_speed_sensor_ticks = ui32_wheel_delta_ticks ; // ticks are based on PWM frequency
+            } else {
+                // nothing :  discard the value and keep previous speed
+            }    
         }
     }
 
@@ -142,7 +146,7 @@ void SysTick_Handler(void) {
     //      4) get the voltage 
      //ui16_adc_voltage  = (XMC_VADC_GROUP_GetResult(vadc_0_group_1_HW , 4 ) & 0x0FFF) >> 2; // battery gr1 ch6 result 4
     // changed to take care of infineon VADC init (result in reg 6)
-    ui16_adc_voltage  = (XMC_VADC_GROUP_GetResult(vadc_0_group_1_HW , VADC_VDC_RESULT_REG ) & 0x0FFF) >> 2; // battery gr1 ch6 result 6
+    ui16_adc_voltage = (XMC_VADC_GROUP_GetResult(vadc_0_group_1_HW , VADC_VDC_RESULT_REG ) & 0x0FFF) >> 2; // battery gr1 ch6 result 6
 
     //      5) get ui16_g_motor_phase_current (used to reduced duty cycle in systick and to get an error in ebike_app.c)
     if (ui16_g_duty_cycle > 0) {
@@ -348,7 +352,7 @@ void update_lead_angle(void)
         debug_iq = Iq_filt;
         i32_id_sum = 0;
         i32_iq_sum = 0;
-        ui8_id_iq_counter = 64;
+        ui8_id_iq_counter = ID_IQ_COUNTER; // 64 Reset counter
     }
 
     // ----------------------
@@ -453,6 +457,7 @@ void systick_security_checks(void){
         if (t_ramp_up_delay == 0){ //reset the reasons
             fault_phase_rms = false;
             fault_motor_rms = false;
+            fault_Idc_slow = false;
             duty_limit_active = false;         
         }
     }    

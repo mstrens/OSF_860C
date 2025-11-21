@@ -8,7 +8,7 @@
 // measure time elapsed in ISR0 and ISR1
 // move last calculation about PWM in ISR1 after duty has been calculated (only if we are sure this is done before end of PWM cycle)
 // check if using cordic for park transform would save cpu time
-//
+// at start up, test if using an offset of 30° helps when there is not yet an interpolation
 
 /*
  * TongSheng TSDZ2 motor controller firmware/

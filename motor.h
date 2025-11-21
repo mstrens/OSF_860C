@@ -19,6 +19,8 @@
 #define HALL_CALIBRATION_ERROR    4
 #define HALL_CALIBRATED     5
 
+#define ID_IQ_COUNTER (64)
+
 // power variables
 extern volatile uint8_t ui8_controller_duty_cycle_ramp_up_inverse_step;
 extern volatile uint8_t ui8_controller_duty_cycle_ramp_down_inverse_step;
