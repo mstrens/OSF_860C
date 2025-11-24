@@ -119,6 +119,7 @@ void SysTick_Handler(void) {
             if (ui32_wheel_delta_ticks > 600) { // 600 at 19Khz => 2000mm/1000000(km) * 19000kHz/600 * 3600sec = 228 km/h
                 // set the value used in ebike_app.c to wheel speed when speed is not to high
                 ui16_wheel_speed_sensor_ticks = ui32_wheel_delta_ticks ; // ticks are based on PWM frequency
+                ++ui32_wheel_speed_sensor_ticks_total; // used only in 860C version to calculate the distance in 860c
             } else {
                 // nothing :  discard the value and keep previous speed
             }    
@@ -562,3 +563,4 @@ void update_duty_cycle(void){
         }
     }    
 }
+

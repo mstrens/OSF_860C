@@ -897,7 +897,7 @@ __RAM_FUNC void CCU80_0_IRQHandler(){ // called when ccu8 Slice 3 reaches 840  c
         ui8_curr_hall_pattern_local = read_hall_pattern();
         fill_sector_data(ui8_curr_hall_pattern_local);
     }
-    if (hall_event_pending_local) {
+    if (hall_event_pending_local) {  //set on true in hall ISR when a new hall pattern occured
         hall_event_pending = false; // reset flag localement
         valid_curr_hall_ticks = true;     
         
@@ -1204,7 +1204,7 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 1300 c
     
     int32_t i32_raw_Iu; int32_t i32_raw_Iv; int32_t i32_raw_Iw;
     // Here we use permutation 0 (see below) so Iu = I1, Iv=I2 , Iw = I3(with cordic offset = 128)
-    i32_raw_Iu = (int32_t)I1; i32_raw_Iv = (int32_t)I2; i32_raw_Iw = (int32_t)I3; 
+    i32_raw_Iu = (int32_t)I1; i32_raw_Iv = (int32_t)I2; i32_raw_Iw = (int32_t)I3; // here ADC in 12 bits
     
     // Whe have also to take care that there are 6 permutations of I1, I2, I3 with Iu, Iv, IW
     // It seems that 3 could be used but each of them requires a different cordic offset to get valid Id, Iq (at park transform)
@@ -1290,7 +1290,7 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 1300 c
     ui32_adc_battery_current_15b = ui32_temp_adc_battery_current_15b;
 
     uint32_t ui32_adc_battery_current_15b_moving_average = update_moving_average(ui32_temp_adc_battery_current_15b);
-    if (ui32_adc_battery_current_15b_moving_average > (255 << 5)) { // clamp for safety
+    if (ui32_adc_battery_current_15b_moving_average > (255 << 5)) { // clamp for safety ; << 5 because in TSDZ2 current is in ADC10 bits and max is 255
         ui32_adc_battery_current_15b_moving_average = 255 << 5;
     }  
     ui8_adc_battery_current_filtered = ui32_adc_battery_current_15b_moving_average  >> 5;
@@ -1333,9 +1333,9 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 1300 c
 // calculate clack transform 
     int32_t I_Alpha_1Q31;
     int32_t I_Beta_1Q31;
-    // when we use the 3 phase currents
-    I_Alpha_1Q31 = (((i32_Iu << 1) - (i32_Iv + i32_Iw)) * (int32_t) DIV_3) >> 14 ; // !! here in 15 bits even if less accurate
-    I_Beta_1Q31 = ((i32_Iv - i32_Iw) * (int32_t) DIV_SQRT3_Q14) >> 14;
+    // when we use the 3 phase currents; I32_Ix is in 15 bits
+    I_Alpha_1Q31 = (((i32_Iu << 1) - (i32_Iv + i32_Iw)) * (int32_t) DIV_3) >> SCALE_DIV_3 ; // !! here in 15 bits even if less accurate
+    I_Beta_1Q31 = ((i32_Iv - i32_Iw) * (int32_t) DIV_SQRT3_Q14) >> SCALE_DIV_3;
     //debug_Ialpha = I_Alpha_1Q31  ; // to get same units as Iu,Iv,Iw
     //debug_Ibeta = I_Beta_1Q31 ;
 
@@ -1367,7 +1367,7 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 1300 c
     int16_t i16_iq;
     // get Id, Iq with table
     park_transform_q15((int16_t) I_Alpha_1Q31, (int16_t) I_Beta_1Q31, ui16_angle, &i16_id, &i16_iq);
-    if (ui8_id_iq_counter){ //used to filter id & iq ; pwm at 19kHz and systick at 200Hz => 19000/200 = 95 measurements
+    if (ui8_id_iq_counter){ //used to filter id & iq ; pwm at 19kHz and systick at 200Hz => 19000/200 = 95 measurements; here we take 64 measurements
         i32_id_sum += i16_id;
         i32_iq_sum += i16_iq;
         ui8_id_iq_counter--;
