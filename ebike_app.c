@@ -286,14 +286,14 @@ void ebike_app_controller(void) // is called every 25ms by main()
 	// > 0X8000 = >32000 ; *4 usec = 0,131 sec per electric rotation ; for TSDZ2 * 8 = 1 sec per rotation = 60 rotations mecanical /sec
 	// normally this should not happens because there is already a check in motor.c that set ui16_hall_counter_total = 0xffff when enlapsed time is more than a value
 	// So, we should not exceed a uint16_t variable
-	if ((ui16_hall_counter_total >= 0xF000 ) || (ui16_hall_counter_total < 10)) {
-        ui16_motor_speed_erps = 0;  // speed is 0 if number of ticks is to high
-    }
-	else 
-	{
+	
+	//if ((ui16_hall_counter_total >= 0xF000 ) || (ui16_hall_counter_total < 10)) {
+    //    ui16_motor_speed_erps = 0;  // speed is 0 if number of ticks is to high
+    //} else {
         //ui16_motor_speed_erps = (uint16_t)(HALL_COUNTER_FREQ >> 2) / (uint16_t)(ui16_tmp >> 2); // 250000/nrOfTicks; so in sec
-		ui16_motor_speed_erps = ((uint32_t) HALL_COUNTER_FREQ) / ui16_hall_counter_total; // 250000/nrOfTicks; so rotation in sec
-	}
+	//	ui16_motor_speed_erps = ((uint32_t) HALL_COUNTER_FREQ) / ui16_hall_counter_total; // 250000/nrOfTicks; so rotation in sec
+	//}
+	ui16_motor_speed_erps = pll_get_erps(); // speed is calculated in PLL based on interval between 2 hall front (usually with pll correction)
 	// calculate the wheel speed
 	calc_wheel_speed();
 	
@@ -514,7 +514,6 @@ static void ebike_control_motor(void) // is called every 25ms by ebike_app_contr
 
 	// for debug
 	// calculate an average in mA (to find parameters giving lowest current)
-	//ui32_current_1_rotation_ma = (ui32_adc_battery_current_1_rotation_15b * 10 * BATTERY_CURRENT_PER_10_BIT_ADC_STEP_X100) >> 5;
 	ui32_current_1_rotation_ma = (ui8_adc_battery_current_filtered * 10 * BATTERY_CURRENT_PER_10_BIT_ADC_STEP_X100) ;
 	
 	ui32_battery_current_mA_acc += ui32_current_1_rotation_ma;
@@ -601,8 +600,8 @@ static void ebike_control_motor(void) // is called every 25ms by ebike_app_contr
 		ui16_g_duty_cycle = 0;
 		//ui8_duty_cycle_ramp_up_inverse_step = PWM_DUTY_CYCLE_RAMP_UP_INVERSE_STEP_MIN;
 		//ui8_duty_cycle_ramp_down_inverse_step = PWM_DUTY_CYCLE_RAMP_DOWN_INVERSE_STEP_MIN;
-		ui8_fw_hall_counter_offset = 0;
-		ui32_pwm_ticks_since_last_front = 0; //reset timeout counter to detect motor stop (or low)
+		ui8_fw_hall_counter_offset = 0; // field weakening
+		reset_pll_timeout(); // reset timeout for hall sensor
 		motor_enable_pwm();
 	}
 

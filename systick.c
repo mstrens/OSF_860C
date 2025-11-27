@@ -14,9 +14,16 @@
 #include "ProbeScope/probe_scope.h"
 #endif
 
-
-
 volatile uint32_t ui32_ms_counter = 0;
+
+// cadence sensor
+//#define NO_PAS_REF 5
+volatile uint16_t ui16_cadence_sensor_ticks = 0;
+
+// wheel speed sensor
+volatile uint16_t ui16_wheel_speed_sensor_ticks = 0;
+volatile uint32_t ui32_wheel_speed_sensor_ticks_total = 0;
+
 
 // new wheel and cadence variables
 // =============== VARIABLES PARTAGÉES =============== 
@@ -25,6 +32,44 @@ volatile uint32_t ui32_cadence_last_ticks[6] = {0};   // timestamps pédalage (c
 volatile uint32_t ui32_wheel_last_pwm_ticks = 0; // dernier front roue (ui32_pwm_ticks)
 
 uint8_t lead_angle_multiplicator = 64;
+
+// battery current variables
+volatile uint16_t ui16_adc_motor_phase_current = 0; // mstrens: it was uint8 in original code
+
+// ADC Values
+volatile uint16_t ui16_adc_voltage = 0;
+
+//Torque added by mstrens
+volatile uint16_t ui16_adc_torque_filtered = 0 ; // filtered adc torque
+
+// brakes
+volatile uint8_t ui8_brake_state = 0;
+
+
+// battery soc
+volatile uint8_t ui8_battery_SOC_saved_flag = 0;
+volatile uint8_t ui8_battery_SOC_reset_flag = 0;
+
+// to manage torque sensor using the logic of mspider in https://github.com/TSDZ2-ESP32/TSDZ2-Smart-EBike
+// 1 = one of 1/20 of a rotation occured (= 4 state transitions )
+// 0x80  = reverse rotation  or timeout detected (stop)-> reset
+volatile uint8_t ui8_pas_new_transition = 0; // use also in ebike_app.c and main.c
+
+volatile uint8_t ui8_controller_duty_cycle_ramp_up_inverse_step = PWM_DUTY_CYCLE_RAMP_UP_INVERSE_STEP_DEFAULT; // 194
+volatile uint8_t ui8_controller_duty_cycle_ramp_down_inverse_step = PWM_DUTY_CYCLE_RAMP_DOWN_INVERSE_STEP_DEFAULT; // 73
+
+// voltage check
+volatile uint16_t ui16_adc_voltage_cut_off = 300*100/BATTERY_VOLTAGE_PER_10_BIT_ADC_STEP_X1000; // 30Volt default value =  300*100/87 in TSDZ2
+
+volatile uint8_t ui8_controller_adc_battery_current_target = 0;
+volatile uint16_t ui16_g_duty_cycle = 0;
+volatile uint8_t ui8_controller_duty_cycle_target = 0;
+
+// Field Weakening Hall offset (added during interpolation)
+volatile uint8_t ui8_fw_hall_counter_offset = 0;
+volatile uint8_t ui8_fw_hall_counter_offset_max = 0;
+volatile uint8_t ui8_field_weakening_enabled = 0;
+
 
 //uint16_t ui16_debug_fw_cnt= 0;
 //int8_t i8_debug_idx_ref = -2;
@@ -43,6 +88,7 @@ void SysTick_Handler(void) {
     static uint32_t ui32_prev_cadence_tick = 0;
     static uint32_t ui32_last_cadence_ms = 0;
     static uint32_t ui32_prev_cadence_tick_max = 0;          // pour détecter un vrai nouveau front
+    static uint8_t ui8_pas_counter = 0; // counter to detect a full pedal rotation (after 20 valid transitions)
 
 //  ========= only for documentation if we have to use pwm ticks
 //static inline uint32_t read_ui32_pwm_ticks_atomic(void) {
@@ -194,7 +240,6 @@ void SysTick_Handler(void) {
             ui16_g_foc_angle_q8_8 = 0;             
         }
     */
-
     update_lead_angle();
     systick_security_checks(); // this must be before update_duty_cycle() because it can change the way duty cycle is calculated
     update_duty_cycle();    // apply ramp up/down on duty cycle    
@@ -249,7 +294,7 @@ static uint8_t tables_initialized = 0;
 // Variables dynamiques
 // ---------------------------------------------------
 static uint16_t tick_5ms = 0;
-static int32_t  i32_hall_velocity_filt_q8_8X1024 = 0;
+static int32_t  i32_pll_velocity_filt_q8_8X1024 = 0;
 static int32_t  lead_corr_q8_8 = 0;
 static uint16_t lead_base_q8_8_val = 0;
 uint16_t ui16_lead_total_q8_8 = 0;
@@ -323,18 +368,20 @@ void update_lead_angle(void)
     tick_5ms = 0;
 
     // to debug filling the tab
-    debug_velocity_tab = velocity_tab[debug_tab_index];
-    debug_lead_base_q8_8 = lead_base_q8_8[debug_tab_index];
+    //debug_velocity_tab = velocity_tab[debug_tab_index];
+    //debug_lead_base_q8_8 = lead_base_q8_8[debug_tab_index];
     
-    
+    // get PLL velocity
+    uint32_t ui32_pll_velocity_q8_8X1024 = pll_get_velocity();
+
     // Filtrage Hall velocity (évite le jitter)
-    i32_hall_velocity_filt_q8_8X1024 = filter_i32((int32_t) ui32_hall_velocity_q8_8X1024, i32_hall_velocity_filt_q8_8X1024 , 4);
-    int32_t hall_velocity_used = i32_hall_velocity_filt_q8_8X1024;
+    i32_pll_velocity_filt_q8_8X1024 = filter_i32((int32_t) ui32_pll_velocity_q8_8X1024, i32_pll_velocity_filt_q8_8X1024 , 4);
+    int32_t pll_velocity_used = i32_pll_velocity_filt_q8_8X1024;
 
     // ----------------------
-    // Lead base interpolation based on hall velocity
+    // Lead base interpolation based on pll velocity
     // ----------------------
-    uint16_t ui16_lead_base_q8_8_val = interpolate_lead_base_from_hall_velocity((uint16_t)hall_velocity_used);
+    uint16_t ui16_lead_base_q8_8_val = interpolate_lead_base_from_hall_velocity((uint16_t)pll_velocity_used);
     // add more lead angle when current incease
     i16_adc_battery_current_for_lead_base = filter_i16((int16_t)ui8_adc_battery_current_filtered,i16_adc_battery_current_for_lead_base, 6);
     lead_base_q8_8_val = ui16_lead_base_q8_8_val + (i16_adc_battery_current_for_lead_base * LEAD_ANGLE_Q8_8_PER_ADC_STEP); 
@@ -376,7 +423,7 @@ void update_lead_angle(void)
     int32_t Id_effective = (abs_Id < last_deadband) ? 0 : Id_filt; // use Id_filter (or 0 when within deadband and hysteresis)
 
     // Reset du correctif si vitesse trop basse
-    if (hall_velocity_used < hall_low_speed_threshold) {
+    if (pll_velocity_used < hall_low_speed_threshold) {
         lead_corr_q8_8 = 0;
     } else if (Id_effective != 0) {
         // Step adaptatif proportionnel à |Id/Iq|
