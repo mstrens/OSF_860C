@@ -597,12 +597,7 @@ static void ebike_control_motor(void) // is called every 25ms by ebike_app_contr
 			&& (ui16_motor_speed_erps < ERPS_SPEED_OF_MOTOR_REENABLING) // enable the motor only if it rotates slowly or is stopped
 			&& (ui8_adc_battery_current_target > 0U)) {
 		ui8_motor_enabled = 1;
-		ui16_g_duty_cycle = 0;
-		//ui8_duty_cycle_ramp_up_inverse_step = PWM_DUTY_CYCLE_RAMP_UP_INVERSE_STEP_MIN;
-		//ui8_duty_cycle_ramp_down_inverse_step = PWM_DUTY_CYCLE_RAMP_DOWN_INVERSE_STEP_MIN;
-		ui8_fw_hall_counter_offset = 0; // field weakening
-		reset_pll_timeout(); // reset timeout for hall sensor
-		motor_enable_pwm();
+		motor_enable_pwm(); // other actions are done here like reset pll timeout, reset fw, reset duty cycle 
 	}
 
 	/*  is not in 860C tsdz2 version ?????

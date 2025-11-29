@@ -540,6 +540,7 @@ uint16_t ui16_controller_duty_cycle_ramp_up_step= 0;
 uint16_t ui16_controller_duty_cycle_ramp_down_step= 0;
 uint16_t ui16_fw_hall_counter_offset = 0;
 
+uint32_t debug_duty_limit_active_cnt = 0;
 
 void update_duty_cycle(void){
     // update ramp steps when they change
@@ -562,6 +563,7 @@ void update_duty_cycle(void){
     }
     if(duty_limit_active) {
         ui16_g_duty_cycle -= ui16_g_duty_cycle >> 3 ; // reduce duty_cycle by 1/8
+        debug_duty_limit_active_cnt++;
         return;
     }     
     

@@ -94,7 +94,7 @@
 // for CCU4 slice 2
 #define HALL_COUNTER_FREQ                      1000000 //it was 250000U // 250KHz or 4us ; now 1Mhz for more acuuracy
 
-#define PWM_DUTY_CYCLE_MAX                      254//254     128 to test hafl power and see if iu, iv, iw are ok
+#define PWM_DUTY_CYCLE_MAX                      50//254     128 to test hafl power and see if iu, iv, iw are ok
 #define PWM_DUTY_CYCLE_STARTUP	                30    // Initial PWM Duty Cycle at motor startup
 
 

@@ -82,11 +82,11 @@ void capture_3_phase_current_offset();
 
 void pll_init(void);
 void pll_on_pwm_tick(void);
-void pll_on_hall_event(uint16_t dt_us, uint16_t hall_phase_q8_8, bool seq_ok);
+void pll_on_hall_event(uint16_t dt_us, uint16_t hall_phase_q8_8, uint16_t ui16_angle_between_2_hall_fronts_q8_8,bool seq_ok);
 uint16_t pll_get_angle_q8_8(void);
 uint16_t pll_get_erps(void);
 uint32_t pll_get_velocity(void);
-void reset_pll_timeout();
+uint32_t pll_get_rpm(void);
 
 //extern volatile uint16_t ui16_g_foc_angle_q8_8; // not used anymore with optimised lead angle in systick.c
 extern uint32_t ui32_hall_velocity_q8_8X1024;
