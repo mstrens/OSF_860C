@@ -48,8 +48,8 @@
 #define HALLS_PER_ELEC_REV 6
 #define HALLS_PER_MECH_REV (HALLS_PER_ELEC_REV * MOTOR_POLE_PAIRS)
 
-#define KP_Q11   (160)     // 160 >> 11 => environ 0,1
-#define KI_Q11   (16)      // 16 >> 11 =>  environ 0,01
+#define KP_Q11   (1000)     // 160 >> 11 => environ 0,1 ; 1000= environ 50%
+#define KI_Q11   (100)      // 16 >> 11 =>  environ 0,01
 
 #define DEG_TO_Q8_8(d) ((int32_t)((d) * 65536 / 360))
 #define HALL_OFFSET_DEG (30)
@@ -67,11 +67,11 @@
 #define MIN_SPEED_Q8_16  (0)
 #define PWM_TICK_US     (1000000u / PWM_HZ)
 
-#define RPM_LOW_SPEED   (500)   // below this speed, at each hall front, rotor position = hall centered (+ no interpolation)
+#define RPM_LOW_SPEED   (300)   // below this speed, at each hall front, rotor position = hall centered (+ no interpolation)
                                 // just above, at each hall front, rotor position = hall (+ interpolation based only on previous sector speed
-#define RPM_START_PLL_SPEED   (2000)   // above this speed, at each front position, rotor position is partly corrected (bend) when hall is in advance more than a threshold
+#define RPM_START_PLL_SPEED   (500)   // above this speed, at each front position, rotor position is partly corrected (bend) when hall is in advance more than a threshold
                                     // interpolation is done with speed pll correction 
-#define RPM_HIGH_SPEED   (2500)  // above high, rotor position is not corrected at each front
+#define RPM_HIGH_SPEED   (1000)  // above high, rotor position is not corrected at each front
                                 // interpolation is done with speed pll correction
 #define RPM_MAX_SPEED   (6000)  // above high, rotor position is not corrected at each front
 
@@ -1196,7 +1196,7 @@ void get_curr_hall_pattern(){  // use to initialise at power on and in motor_ena
 volatile uint16_t g_pll_phase_q8_8 = 0; // is best position
 
 volatile int32_t debug_pll_angle = 0;
-
+volatile int32_t debug_hall_angle= 0;
 /* ---------------- PLL state ---------------- */
 typedef struct {
     uint32_t phase_acc_q8_16;
@@ -1209,7 +1209,7 @@ typedef struct {
 
     uint16_t last_hall_phase_q8_8;
     //uint16_t prev_hall_phase_q8_8; 
-   
+    uint32_t phase_hall_acc_q8_16;
     uint8_t  hall_transition_count;
 } pll_state_t;
 
@@ -1242,6 +1242,7 @@ void pll_init(void)
     g_pll_phase_q8_8 = init_phase_q8_8;
     pll.pwm_counter = 0;
     pll.last_hall_pwm_count = 0;
+    pll.phase_hall_acc_q8_16 = pll.phase_acc_q8_16;  // use to debug and compare hall angle and pll angle
 }
 
 
@@ -1268,16 +1269,51 @@ inline void pll_on_pwm_tick(void)
         debug_pll_timeout_cnt++;
     }
     
+/* si smoothing
+if (pll.smoothing_needed) {
+    int32_t step = pll.smoothing_total_step_q8_16 / SMOOTHING_STEPS; // répartir sur N PWM
+    pll.phase_hall_acc_q8_16 += step;   // appliquer au Hall accumulé
+    //pll.phase_acc_q8_16 += step;        // appliquer aussi au PLL ; non à mon avis
+    pll.smoothing_counter++;
+    if (pll.smoothing_counter >= SMOOTHING_STEPS) {
+        pll.smoothing_needed = 0;
+    }
+}
+*/    
+    // apply step on pll phase
     if (pll.pll_step_q8_16 < 0) pll.pll_step_q8_16 = 0;
     pll.phase_acc_q8_16 += (uint32_t)pll.pll_step_q8_16;
 
     if (pll.phase_acc_q8_16 > pll.phase_acc_max_q8_16) pll.phase_acc_q8_16 = pll.phase_acc_max_q8_16;
+    // apply step on hall
+    pll.phase_hall_acc_q8_16 += (uint32_t) pll.measured_step_q8_16;
+ 
+/* si priorité change pendant PWM (et pas seulement au front)    
+// si écart hall vs pll < seuil1 => hall prioritaire
+// si écart > seuil2 => pll prioritaire
+// entre les seuils => blend proportionnel
+int32_t diff_q8_16 = phase_diff_q8_8(pll.phase_hall_acc_q8_16 >> SPEED_FRAC_BITS, pll.phase_acc_q8_16 >> SPEED_FRAC_BITS) << SPEED_FRAC_BITS;
+if (diff_q8_16 < BLEND_LOW_Q8_16) {
+    g_pll_phase_q8_8 = pll.phase_acc_q8_16 >> SPEED_FRAC_BITS; // apply pll
+} else if (diff_q8_16 > BLEND_HIGH_Q8_16) {
+    g_pll_phase_q8_8 = pll.phase_hall_acc_q8_16 >> SPEED_FRAC_BITS; // apply hall
+} else {
+    // blend proportionnel   // !!!!!!!!! a optimiser pour éviter la division. Précalcuer et appliquer shift
+    int32_t alpha = (diff_q8_16 - BLEND_LOW_Q8_16) * 256 / (BLEND_HIGH_Q8_16 - BLEND_LOW_Q8_16); // alpha 0..256
+    g_pll_phase_q8_8 = ((pll.phase_acc_q8_16 * alpha + pll.phase_hall_acc_q8_16 * (256 - alpha)) >> 8) >> SPEED_FRAC_BITS;
+}
+*/
     // next lines are not required because we already checked that pll_step is > 0
     //uint32_t phase_acc_min = ((uint32_t)pll.last_hall_phase_q8_8) << SPEED_FRAC_BITS; 
     //if (pll.phase_acc_q8_16 < phase_acc_min) pll.phase_acc_q8_16 = (uint32_t)phase_acc_min;
-
+// a retirer si on gère des priorités hall/pll/blend à chaque PWM
     g_pll_phase_q8_8 = pll.phase_acc_q8_16 >> SPEED_FRAC_BITS;
+
+    
     debug_pll_angle = (uint16_t)(pll.phase_acc_q8_16 >> SPEED_FRAC_BITS);
+
+    // to compare hall interpolation with pll_interpolation
+    debug_hall_angle = (uint16_t)(pll.phase_hall_acc_q8_16 >> SPEED_FRAC_BITS);
 }
 
 volatile uint32_t debug_dt_us_is_0_cnt = 0;
@@ -1289,6 +1325,10 @@ volatile uint8_t debug_pll_phase_acc = 0;
 volatile int32_t debug_pll_phase_error = 0;
 volatile int32_t debug_p_term = 0;
 volatile int32_t debug_i_term = 0;
+volatile int32_t debug_angle_correction = 0;
+volatile int32_t debug_speed_correction_q8_8_per_us = 0;
+volatile int32_t debug_step_correction_q8_16 = 0;
+volatile uint8_t debug_pll_phase_acc_max = 0;                
         
 // ---------------- Hall event from ISR PWM (dt_us already computed) ---------------- 
 // called when a hall front occurs, update phase_acc, speed to be used by ISR0; (keep also integrator for pll)
@@ -1306,6 +1346,27 @@ inline void pll_on_hall_event(uint16_t dt_us, uint16_t hall_phase_q8_8, uint16_t
     //pll.prev_hall_phase_q8_8 = pll.last_hall_phase_q8_8;
     pll.last_hall_phase_q8_8 = hall_phase_q8_8;
 
+/* si smoothing   
+// calcul de l'écart entre Hall et PWM pour le smoothing
+int32_t hall_pwm_diff_q8_16 = phase_diff_q8_8(hall_phase_q8_8, g_pll_phase_q8_8) << SPEED_FRAC_BITS;
+?????? pouréviter le saut, il faut aligner hall sur g_pll_phase mais ce n est pas si simple car dépend sans doute des cas ci-dessous
+????? sans doute le faire si PLL est actif (vitesse assez élevée)
+mais alors le smoothing devrait seulement être fait dans ce cas aussi
+????? comment gérer l'intégrateur pll en cas de priorité au hall dans PWM (bloqué ou remettre à 0???)
+// si l'écart dépasse un seuil, on demande du smoothing
+if (abs(hall_pwm_diff_q8_16) > HALL_SMOOTH_THRESHOLD_Q8_16) {
+    pll.smoothing_needed = 1;
+    pll.smoothing_total_step_q8_16 = hall_pwm_diff_q8_16 / SMOOTHING_STEPS; // a convertir en shift.
+    pll.smoothing_counter = 0;
+} else {
+    pll.smoothing_needed = 0;
+}
+// réaligner phase_acc avec la position réelle de PWM qui peut avoir été extraite du hall , pll, ou un mixte
+pll.phase_acc_q8_16 = ((uint32_t)g_pll_phase_q8_8) << SPEED_FRAC_BITS;
+*/
+    
+    
+    
     // --- update pwm counter to avoid timeout
     pll.last_hall_pwm_count = pll.pwm_counter;
 
@@ -1320,6 +1381,9 @@ inline void pll_on_hall_event(uint16_t dt_us, uint16_t hall_phase_q8_8, uint16_t
         pll.integrator_q8_19 = 0;
         pll.hall_transition_count++;
         debug_pll_case = 0;
+        pll.phase_hall_acc_q8_16 = pll.phase_acc_q8_16; // to debug
+        pll.measured_step_q8_16 = 0;
+        debug_pll_phase_acc_max = pll.phase_acc_max_q8_16;
         return;
     }
     // calculate measured speed based on previous sector
@@ -1348,25 +1412,13 @@ inline void pll_on_hall_event(uint16_t dt_us, uint16_t hall_phase_q8_8, uint16_t
         pll.phase_acc_max_q8_16 = pll.phase_acc_q8_16 + ( (uint32_t)MAX_ANGLE_BETWEEN_HALL_Q8_8 << SPEED_FRAC_BITS );
         pll.pll_step_q8_16 = measured_step_q8_16;
         pll.integrator_q8_19 = 0;
+        debug_pll_case = 6;
+        pll.phase_hall_acc_q8_16 = pll.phase_acc_q8_16;
+        debug_pll_phase_acc_max = pll.phase_acc_max_q8_16;
+
     } else 
     {
-        // apply pll on speed and select which step and phase are applied
-        // at low speed, 
-        if (dt_us > DT_US_LOW_SPEED) { // very low speed  = use only hall position (centered)
-            uint16_t hall_center_q8_8 = hall_phase_q8_8 + HALL_OFFSET_Q8_8; 
-            pll.phase_acc_q8_16 = ((uint32_t)hall_center_q8_8) << SPEED_FRAC_BITS;
-            pll.phase_acc_max_q8_16 = pll.phase_acc_q8_16 + ( (uint32_t)MAX_ANGLE_BETWEEN_HALL_Q8_8 << SPEED_FRAC_BITS );
-            pll.pll_step_q8_16 = 0;
-            pll.integrator_q8_19 = 0;
-            debug_pll_case = 1;
-        } else if (dt_us > DT_US_START_PLL_SPEED) { // speed is less than required for PLL: use hall position with interpolation based on last sector speed
-            pll.phase_acc_q8_16 = ((uint32_t)hall_phase_q8_8) << SPEED_FRAC_BITS;
-            pll.phase_acc_max_q8_16 = pll.phase_acc_q8_16 + ( (uint32_t)MAX_ANGLE_BETWEEN_HALL_Q8_8 << SPEED_FRAC_BITS );
-            pll.pll_step_q8_16 = measured_step_q8_16; 
-            pll.integrator_q8_19 = 0;
-            debug_pll_case = 2;
-        } else {
-            //  next line (commented) gives normal code if we should not take care to increase precision of cumulative I term
+        //  next line (commented) gives normal code if we should not take care to increase precision of cumulative I term
             //int32_t p_term_q8_8 = (e_q8_8 * (int32_t) KP_Q11) >> 11; // Si KP = 160 => 160/2048 = environ 0,1:
             int32_t p_term_q8_19 = (e_q8_8 * (int32_t) KP_Q11) ; // here we keep the value *2048 for better accuracy in the sum
             
@@ -1382,25 +1434,60 @@ inline void pll_on_hall_event(uint16_t dt_us, uint16_t hall_phase_q8_8, uint16_t
             int32_t angle_correction_q8_8 = (p_term_q8_19 + pll.integrator_q8_19) >> 11; // angle correction is now in q8.8 = same units as angle interval
             // apply the same ratios as for measured step
             int32_t speed_correction_q8_8_per_us_q10 = ( angle_correction_q8_8 * (int32_t) inverse_dt_us_q24) >> 14; // >>14 to keep precision but avoid overflow in next mult
-            int32_t step_correction_q8_16 = (speed_correction_q8_8_per_us_q10 * US_PER_PWM_Q0_7) >> 9; //step is speed (per us) * 52,6 (= 1000000/19000 *128); * 128 to get step in q8.16
+            int32_t step_correction_q8_16 = (speed_correction_q8_8_per_us_q10 * (int32_t) US_PER_PWM_Q0_7) >> 9; //step is speed (per us) * 52,6 (= 1000000/19000 *128); * 128 to get step in q8.16
             // calculate total step (including pll correction)
             int32_t total_pll_step_q8_16 = measured_step_q8_16 + step_correction_q8_16 ; 
             // clamp to max and positive
-            if (total_pll_step_q8_16 > MAX_SPEED_Q8_16) total_pll_step_q8_16 = MAX_SPEED_Q8_16; // step when speed is more than 6000 rpm
-            else if (total_pll_step_q8_16 < 0) total_pll_step_q8_16 = 0; // we avoid to turn backwards
+            if (total_pll_step_q8_16 > MAX_SPEED_Q8_16) {
+                total_pll_step_q8_16 = MAX_SPEED_Q8_16; // step when speed is more than 6000 rpm
+            }else if (total_pll_step_q8_16 < 0) total_pll_step_q8_16 = 0; // we avoid to turn backwards
+            
+                debug_p_term = p_term_q8_19 ;
+                debug_i_term = pll.integrator_q8_19 ;
+                debug_pll_speed = total_pll_step_q8_16;
+                debug_angle_correction = angle_correction_q8_8;
+                debug_speed_correction_q8_8_per_us = speed_correction_q8_8_per_us_q10;
+                debug_step_correction_q8_16 = step_correction_q8_16;
+                   
+        
+        // apply pll on speed and select which step and phase are applied
+        // at low speed, 
+        if (dt_us > DT_US_LOW_SPEED) { // very low speed  = use only hall position (centered)
+            uint16_t hall_center_q8_8 = hall_phase_q8_8 + HALL_OFFSET_Q8_8; 
+            pll.phase_acc_q8_16 = ((uint32_t)hall_center_q8_8) << SPEED_FRAC_BITS;
+            pll.phase_acc_max_q8_16 = pll.phase_acc_q8_16 + ( (uint32_t)MAX_ANGLE_BETWEEN_HALL_Q8_8 << SPEED_FRAC_BITS );
+            pll.pll_step_q8_16 = 0;
+            pll.integrator_q8_19 = 0;
+            debug_pll_case = 1;
+            pll.phase_hall_acc_q8_16 = pll.phase_acc_q8_16; // to debug
+            pll.measured_step_q8_16 = 0; // discard iterpolation
+            debug_pll_phase_acc_max = pll.phase_acc_max_q8_16;
 
-            debug_p_term = p_term_q8_19 ;
-            debug_i_term = pll.integrator_q8_19 ;
-            debug_pll_speed = total_pll_step_q8_16;
-                
+        } else if (dt_us > DT_US_START_PLL_SPEED) { // speed is less than required for PLL: use hall position with interpolation based on last sector speed
+            pll.phase_acc_q8_16 = ((uint32_t)hall_phase_q8_8) << SPEED_FRAC_BITS;
+            pll.phase_acc_max_q8_16 = pll.phase_acc_q8_16 + ( (uint32_t)MAX_ANGLE_BETWEEN_HALL_Q8_8 << SPEED_FRAC_BITS );
+            pll.pll_step_q8_16 = measured_step_q8_16; 
+            pll.integrator_q8_19 = 0;
+            debug_pll_case = 2;
+            pll.phase_hall_acc_q8_16 = pll.phase_acc_q8_16;
+            debug_pll_phase_acc_max = pll.phase_acc_max_q8_16;
+
+        } else {
+            
+            pll.phase_hall_acc_q8_16 = ((uint32_t)hall_phase_q8_8) << SPEED_FRAC_BITS; // to debug
+            pll.phase_acc_max_q8_16 = pll.phase_acc_q8_16 + ( (uint32_t)MAX_ANGLE_BETWEEN_HALL_Q8_8 << SPEED_FRAC_BITS );
+            
             pll.pll_step_q8_16 = total_pll_step_q8_16;
+            debug_pll_phase_acc_max = pll.phase_acc_max_q8_16;
+
             if (dt_us > DT_US_HIGH_SPEED) { // speed is less than high speed : blend phase if error is above a threshold, interpolate speed with correction
-                int32_t e_q8_16 = (int32_t)e_q8_8 << SPEED_FRAC_BITS;
-                if (e_q8_16 > BLEND_THRESHOLD_Q8_16) {  // only when positive (when hall is in advance)
-                    pll.phase_acc_q8_16 += (uint32_t)(e_q8_16 >> BLEND_SHIFT);
-                    pll.phase_acc_max_q8_16 = pll.phase_acc_q8_16 + ( (uint32_t)MAX_ANGLE_BETWEEN_HALL_Q8_8 << SPEED_FRAC_BITS );
-                    debug_pll_case = 3;
-                }
+                //int32_t e_q8_16 = (int32_t)e_q8_8 << SPEED_FRAC_BITS;
+                //if (e_q8_16 > BLEND_THRESHOLD_Q8_16) {  // only when positive (when hall is in advance)
+                //    pll.phase_acc_q8_16 += (uint32_t)(e_q8_16 >> BLEND_SHIFT);
+                //    pll.phase_acc_max_q8_16 = pll.phase_acc_q8_16 + ( (uint32_t)MAX_ANGLE_BETWEEN_HALL_Q8_8 << SPEED_FRAC_BITS );
+                //    debug_pll_case = 3;
+                //}
+                debug_pll_case = 3;
             } else {
                 debug_pll_case = 5;
             }   
