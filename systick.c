@@ -75,6 +75,10 @@ volatile uint8_t ui8_field_weakening_enabled = 0;
 //int8_t i8_debug_idx_ref = -2;
 //uint32_t ui32_debug_delta_ticks = 0;
 
+volatile uint32_t debug_rpm = 0;
+volatile uint32_t debug_erps = 0;
+
+
 // this function is called in systick ISR (at 1kHz) 
 // it calculates wheel and cadence ticks using the data collected at 19 kHz; so ticks are at PWM frequency
 // conversion to rpm is done is ebike.app
@@ -210,7 +214,7 @@ void SysTick_Handler(void) {
     //     6) get brake state-
     ui8_brake_state = XMC_GPIO_GetInput(IN_BRAKE_PORT, IN_BRAKE_PIN) == 0; // Low level means that brake is on
         
-    /*
+    /*  Has been commented for testing PLL; to be activated later on !!!!!!!!!!!!!!!!!!!!!!
     //     5) get lead angle 
     static uint32_t ui32_foc_angle_accum = 0; // use more bits for better accuracy in IIR
     // update foc_angle and adc_motor_phase_current
@@ -242,7 +246,10 @@ void SysTick_Handler(void) {
     */
     update_lead_angle();
     systick_security_checks(); // this must be before update_duty_cycle() because it can change the way duty cycle is calculated
-    update_duty_cycle();    // apply ramp up/down on duty cycle    
+    update_duty_cycle();    // apply ramp up/down on duty cycle   
+    debug_rpm = pll_get_rpm();
+    debug_erps = pll_get_erps();
+         
 } // end systick_handler
 
 

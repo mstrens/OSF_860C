@@ -33,7 +33,7 @@
 // end of those test parameters
 
 // ---------------- DEFINE for PLL ---------------- 
-#define DEBUG_PLL
+//#define DEBUG_PLL
 
 #define NB_SECTORS      6
 #define MOTOR_POLE_PAIRS          4UL      // nombre de paires de pôles moteur
@@ -422,7 +422,7 @@ uint8_t ticks_intervals_status; // 0 =  new data can be written; 1 data being wr
 
 
 
-inline uint32_t update_moving_average(uint32_t new_value){
+inline __attribute__((always_inline)) uint32_t update_moving_average(uint32_t new_value){
     battery_current_moving_avg_sum -= battery_current_moving_avg_buffer[battery_current_moving_avg_index];
     battery_current_moving_avg_buffer[battery_current_moving_avg_index] = new_value;
     battery_current_moving_avg_sum += new_value;
@@ -625,14 +625,14 @@ __attribute__((aligned(4), section(".rodata"))) const int16_t sin_table[SIN_TABL
 };
 
 // Multiplication Q15
-__RAM_FUNC static inline int16_t mult_q15(int16_t a, int16_t b)
+__RAM_FUNC static __attribute__((always_inline)) inline int16_t mult_q15(int16_t a, int16_t b)
 {
     int32_t temp = (int32_t)a * (int32_t)b;
     temp += 0x4000;  // arrondi
     return (int16_t)(temp >> 15);
 }
 
-__RAM_FUNC static inline void park_transform_q15(int16_t Ialpha, int16_t Ibeta, uint16_t angle_q8_8,
+__RAM_FUNC static __attribute__((always_inline)) inline void park_transform_q15(int16_t Ialpha, int16_t Ibeta, uint16_t angle_q8_8,
                         int16_t *Id, int16_t *Iq)
 {
     // Index dans la table
@@ -650,9 +650,6 @@ __RAM_FUNC static inline void park_transform_q15(int16_t Ialpha, int16_t Ibeta, 
     *Iq = Iq_tmp;
 }
 
-volatile uint32_t debug_us_between_2_hall_fronts= 0;
-volatile uint32_t debug_rpm = 0;
-volatile uint32_t debug_erps = 0;
 volatile uint32_t debug_us_2_fronts = 0;
 volatile uint32_t debug_angle_2_fronts = 0;
 // ************************************** begin of IRQ *************************
@@ -670,11 +667,7 @@ __RAM_FUNC void CCU80_0_IRQHandler(void)
     uint16_t ui16_angle_no_ref_no_lead_q8_8;
     uint16_t ui16_angle_no_lead_q8_8;  // angle based on Hall or hybrid with ref angle but no lead angle
     //uint16_t ui16_hall_angle_no_ref_no_lead_q8_8;
-    uint16_t ui16_SVM_table_index_q8_8;
-    //int16_t svm_A = 0;
-    //int16_t svm_B = 0;
-    //int16_t svm_C = 0;
-
+    
     uint8_t ui8_curr_hall_pattern_local = ui8_curr_hall_pattern;   // local copy just for faster processing
     
     // read irq data before reading current time stamp (to be sure that time now follow the ISR timestamp)
@@ -735,11 +728,6 @@ __RAM_FUNC void CCU80_0_IRQHandler(void)
         valid_prev_hall_ticks = true; // flag that says that we have a valid ticks
         
         // for debug
-        debug_us_between_2_hall_fronts = ui16_us_between_2_hall_fronts;
-        debug_rpm = pll_get_rpm();
-        debug_erps = pll_get_erps();
-        debug_rpm++;
-        debug_erps++;
         debug_us_2_fronts = ui16_us_between_2_hall_fronts;
         debug_angle_2_fronts = (((uint32_t)ui16_angle_between_2_hall_fronts) * 360 ) >> 16;
         // check if hall calibration is required
@@ -758,25 +746,20 @@ __RAM_FUNC void CCU80_0_IRQHandler(void)
 
     } // end of new hall front registerd in hall ISR
 
+    ui8_curr_hall_pattern = ui8_curr_hall_pattern_local;
+    
     // ---- incrémentation phase par step même si erreur séquence ----
     pll_on_pwm_tick();
 
     // ---- publication angle FOC/SVM ----
     ui16_angle_no_ref_no_lead_q8_8 = pll_get_angle_q8_8();
     ui16_angle_no_lead_q8_8 = ui16_angle_no_ref_no_lead_q8_8 + ((uint16_t)hall_reference_angle<<8);
-    //ui16_SVM_table_index_q8_8 = ui16_angle_no_lead_q8_8 + ui16_lead_total_q8_8;
-    ui16_SVM_table_index_q8_8 = ui16_angle_no_lead_q8_8; // to test without lead angle
-
-    ui8_curr_hall_pattern = ui8_curr_hall_pattern_local;
-    // add hall_reference_angle ; set on 66 based on tests with my motor. (note : 64 = 90°)
-    ui16_angle_no_lead_q8_8 = ui16_angle_no_ref_no_lead_q8_8 + (uint16_t) (hall_reference_angle << 8);
-    
     // add lead angle
 //    uint16_t ui16_SVM_table_index_q8_8 = ui16_angle_no_lead_q8_8 + (uint16_t)(ui8_g_foc_angle<<8);
     // here ui16_g_foc_angle_q8_8 is just based on hall velocity and a multiplicator (see systick).
     //ui16_SVM_table_index_q8_8 = ui16_angle_no_lead_q8_8 + (ui16_g_foc_angle_q8_8);
     // here we use the lead angle based on a table on velocity and a correction to set Id around 0 
-    ui16_SVM_table_index_q8_8 = ui16_angle_no_lead_q8_8 + ui16_lead_total_q8_8;
+    uint16_t ui16_SVM_table_index_q8_8 = ui16_angle_no_lead_q8_8 + ui16_lead_total_q8_8;
     uint8_t ui8_lut_index = (uint8_t)(ui16_SVM_table_index_q8_8 >> 8);
 
     /*
@@ -828,6 +811,7 @@ __RAM_FUNC void CCU80_0_IRQHandler(void)
 
     #define DEBUG_IRQO_TIME (1) // 1 = calculate the time spent in irq0
     #if (DEBUG_IRQO_TIME == (1))
+    debug_isr0_timer_end = XMC_CCU8_SLICE_GetTimerValue(PWM_IRQ_TIMER_HW);
     if (hall_calib_state == HALL_CALIBRATED) {  // we measure only when hall are calibrated to get more realistic values
         uint16_t temp  = XMC_CCU4_SLICE_GetTimerValue(HALL_SPEED_TIMER_HW) ;
         temp = temp - ui16_curr_ISR0_ticks;
@@ -846,7 +830,6 @@ __RAM_FUNC void CCU80_0_IRQHandler(void)
     // if we do not require a high refresh rate, this could be set in another loop 
     ProbeScope_Sampling(); // this is here in a interrupt that run fast
     #endif
-    debug_isr0_timer_end = XMC_CCU8_SLICE_GetTimerValue(PWM_IRQ_TIMER_HW);
 
 } // end of CCU80_0_IRQHandler
 
@@ -1230,13 +1213,12 @@ uint16_t g_pll_phase_q8_8 = 0; // is best position
 
 // ++++++++++ for debug ++++++++++++++++++++
 uint32_t debug_phase_hall_acc_q8_24;
-volatile int32_t debug_pll_angle = 0;
-volatile int32_t debug_hall_angle= 0;
+volatile int32_t debug_pll_angle = 0; // value of PLL (even when speed is to low for pll)
+volatile int32_t debug_hall_angle= 0; // value on hall (interpolate only when there is enough transitions)
 volatile uint32_t debug_dt_us_is_0_cnt = 0;
-volatile uint32_t debug_hall_step = 0;
 volatile uint32_t debug_pll_step = 0;
+volatile uint32_t debug_hall_step = 0;  
 volatile uint8_t debug_pll_case = 0;
-volatile uint8_t debug_pll_case_max = 0;
 volatile uint8_t debug_pll_phase_acc = 0;
 volatile int32_t debug_pll_phase_error = 0;
 volatile int32_t debug_p_term = 0;
@@ -1245,11 +1227,14 @@ volatile int32_t debug_angle_correction = 0;
 
 volatile uint8_t debug_pll_phase_acc_max = 0;                
 volatile uint32_t debug_pll_timeout_cnt = 0;
+volatile uint32_t debug_case_smoothing = 0;
+volatile uint32_t debug_case_freezing = 0;
+
 
 /* ---------------- Helpers ---------------- */
 //static inline int32_t i32_abs(int32_t v) { return (v < 0) ? -v : v; }
 
-inline int32_t phase_diff_q8_8(uint16_t target, uint16_t current)
+__RAM_FUNC static __attribute__((always_inline)) inline int32_t phase_diff_q8_8(uint16_t target, uint16_t current)
 {
     int32_t d = (int32_t)target - (int32_t)current;
     if (d >  32767) d -= 65536;
@@ -1289,7 +1274,7 @@ void pll_init(void)
 // clamp to a max value (usualy nex hall position + some margin e.g. 70° because hall interval is normally 60°)
 // avoid moving position backward (pll step must be positive and in case on big error we freeze)
 // Store position in Q8.8 in g_pll_phase_q8_8 used for updating PWM timers
-inline void pll_on_pwm_tick(void)
+__RAM_FUNC __attribute__((always_inline)) inline void pll_on_pwm_tick(void)
 {
     pll.pwm_counter++;
 
@@ -1308,7 +1293,7 @@ inline void pll_on_pwm_tick(void)
         pll.ui32_smoothing_step_q8_24 = 0;
         pll.ui32_catchup_remaining_q8_24 = 0;
         #ifdef DEBUG_PLL
-        debug_phase_hall_acc_q8_24 = pll.ui32_phase_acc_q8_24;
+        debug_phase_hall_acc_q8_24 = pll.ui32_phase_acc_q8_24 ;
         debug_pll_timeout_cnt++;
         #endif
         return;
@@ -1364,8 +1349,9 @@ inline void pll_on_pwm_tick(void)
     #ifdef DEBUG_PLL
    // apply step on hall for debug (comparison haal/pll)
     debug_phase_hall_acc_q8_24 += pll.ui32_hall_step_q8_24; // automatic wrap
-    debug_pll_angle = (uint16_t)(pll.ui32_phase_acc_q8_24 >> SPEED_FRAC_BITS);
     debug_hall_angle = (uint16_t)(debug_phase_hall_acc_q8_24 >> SPEED_FRAC_BITS);
+
+    debug_pll_angle = (uint16_t)(pll.ui32_phase_acc_q8_24 >> SPEED_FRAC_BITS);
     #endif
 }
 
@@ -1384,7 +1370,7 @@ inline void pll_on_pwm_tick(void)
 //             exceeding part will be managed by freezing (no change of phase as long as the exceeding part has not been consumed by pll_step)
 //       When error is within the limits, PLL is used based on the whole error
 
-inline void pll_on_hall_event(uint16_t dt_us, uint16_t hall_phase_q8_8, uint16_t ui16_angle_between_2_hall_fronts_q8_8,bool seq_ok)
+__RAM_FUNC __attribute__((always_inline)) inline void pll_on_hall_event(uint16_t dt_us, uint16_t hall_phase_q8_8, uint16_t ui16_angle_between_2_hall_fronts_q8_8,bool seq_ok)
 {
     // calculate measured speed based on previous sector using math.div
     if (dt_us < DT_US_MAX_SPEED) { 
@@ -1410,7 +1396,7 @@ inline void pll_on_hall_event(uint16_t dt_us, uint16_t hall_phase_q8_8, uint16_t
     if (!seq_ok) return; // keep phase & speed, next PWM increments by speed
 
     // when speed is unknow, phase is aligned on hall + 30° and speed is set on 0 (no interpolation)
-    if (pll.hall_transition_count < 2) {
+    if (pll.hall_transition_count < 10) {
         uint16_t hall_center_q8_8 = hall_phase_q8_8 + HALL_OFFSET_Q8_8;
         pll.ui32_phase_acc_q8_24 = ((uint32_t)hall_center_q8_8) << SPEED_FRAC_BITS;
         pll.ui32_phase_acc_max_q8_24 = pll.ui32_phase_acc_q8_24 + MAX_ANGLE_BETWEEN_HALL_Q8_24;
@@ -1464,6 +1450,7 @@ inline void pll_on_hall_event(uint16_t dt_us, uint16_t hall_phase_q8_8, uint16_t
         pll.pll_state = PLL_STATE_SMOOTHING;
         #ifdef DEBUG_PLL
         debug_pll_case = 3;
+        debug_case_smoothing++;
         #endif
     } else if (e_q8_8 < -max_error_q8_8) {
         // hall behind → freeze PLL
@@ -1472,6 +1459,7 @@ inline void pll_on_hall_event(uint16_t dt_us, uint16_t hall_phase_q8_8, uint16_t
         pll.pll_state = PLL_STATE_FREEZE;
         #ifdef DEBUG_PLL
         debug_pll_case = 4;
+        debug_case_freezing++;
         #endif
     } else {
         pll.pll_state = PLL_STATE_FREE;
@@ -1505,7 +1493,7 @@ inline void pll_on_hall_event(uint16_t dt_us, uint16_t hall_phase_q8_8, uint16_t
     
     pll.ui32_hall_step_q8_24 = ui32_hall_step_q8_24;
     #ifdef DEBUG_PLL
-    debug_hall_step = ui32_hall_step_q8_24;
+    debug_hall_step = ui32_hall_step_q8_24 >> SPEED_FRAC_BITS;
     #endif
 
     if (dt_us > DT_US_START_PLL_SPEED) { // speed is less than required for PLL: use hall position with interpolation based on last sector speed
@@ -1539,9 +1527,9 @@ inline void pll_on_hall_event(uint16_t dt_us, uint16_t hall_phase_q8_8, uint16_t
     #ifdef DEBUG_PLL
     // for debug
     debug_phase_hall_acc_q8_24 = ((uint32_t)hall_phase_q8_8) << SPEED_FRAC_BITS; // to debug
-    debug_p_term = p_term_q8_19 ;
-    debug_i_term = pll.i32_integrator_q8_19 ;
-    debug_pll_step = ui32_pll_step_q8_24;
+    debug_p_term = p_term_q8_19 >> 11;
+    debug_i_term = pll.i32_integrator_q8_19 >> 11;
+    debug_pll_step = ui32_pll_step_q8_24 >> SPEED_FRAC_BITS; // in q8.8
     debug_angle_correction = i32_angle_correction_q8_8;
     debug_pll_phase_acc_max = pll.ui32_phase_acc_max_q8_24;
     #endif
