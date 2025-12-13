@@ -49,8 +49,8 @@
 #define HALLS_PER_ELEC_REV 6
 #define HALLS_PER_MECH_REV (HALLS_PER_ELEC_REV * MOTOR_POLE_PAIRS)
 
-#define KP_Q11   (1000)     // 160 >> 11 => environ 0,1 ; 1000= environ 50%
-#define KI_Q11   (100)      // 16 >> 11 =>  environ 0,01
+#define KP_Q11   (500)     // 160 >> 11 => environ 0,1 ; 1000= environ 50%;  1<<11 =  2048 ; 500 = environ 25%
+#define KI_Q11   (50)      // 16 >> 11 =>  environ 0,01
 
 #define DEG_TO_Q8_8(d) ((int32_t)((d) * 65536 / 360))
 #define HALL_OFFSET_DEG (30)
@@ -1446,7 +1446,7 @@ __RAM_FUNC __attribute__((always_inline)) inline void pll_on_hall_event(uint16_t
         // hall ahead → apply smoothing
         pll.ui32_smoothing_remaining_q8_24 = (e_q8_8 - max_error_q8_8) << SPEED_FRAC_BITS;
         e_q8_8 = max_error_q8_8; // limit the part being used for pll because remaining is taken by smoothing
-        pll.ui32_smoothing_step_q8_24 = pll.ui32_smoothing_remaining_q8_24 >> SMOOTHING_BITS;
+        pll.ui32_smoothing_step_q8_24 = pll.ui32_smoothing_remaining_q8_24 >> SMOOTHING_BITS; // split on 8 pwm cycle
         pll.pll_state = PLL_STATE_SMOOTHING;
         #ifdef DEBUG_PLL
         debug_pll_case = 3;
@@ -1488,10 +1488,10 @@ __RAM_FUNC __attribute__((always_inline)) inline void pll_on_hall_event(uint16_t
     uint32_t inverse_dt_us_q16 = ((uint32_t) MATH->QUOT);
     uint32_t ui32_hall_step_q8_24 = ((uint32_t) ui16_angle_between_2_hall_fronts_q8_8) * inverse_dt_us_q16 ; // q24 to keep precision during cumul at low speed
     
-    // snap step
+    // clamp step ; !!! this is not 100% required
     if (ui32_hall_step_q8_24 > MAX_SPEED_Q8_24) ui32_hall_step_q8_24 = MAX_SPEED_Q8_24; // step when speed is more than 6000 rpm
     
-    pll.ui32_hall_step_q8_24 = ui32_hall_step_q8_24;
+    pll.ui32_hall_step_q8_24 = ui32_hall_step_q8_24; // used to provide RPM, ERPS and Velocity; could be avoided if using pll_step
     #ifdef DEBUG_PLL
     debug_hall_step = ui32_hall_step_q8_24 >> SPEED_FRAC_BITS;
     #endif
@@ -1516,7 +1516,7 @@ __RAM_FUNC __attribute__((always_inline)) inline void pll_on_hall_event(uint16_t
     if (i32_total_angle_q8_8 < 0) i32_total_angle_q8_8 = 0; // avoid backward rotating
     // calculate total step (including pll correction)
     uint32_t ui32_pll_step_q8_24 = ((uint32_t) i32_total_angle_q8_8)  * inverse_dt_us_q16 ; // in Q24
-    // clamp to max and positive
+    // clamp to max 
     if (ui32_pll_step_q8_24 > MAX_SPEED_Q8_24) {
         ui32_pll_step_q8_24 = MAX_SPEED_Q8_24; // step when speed is more than 6000 rpm
     }

@@ -254,7 +254,7 @@ void SysTick_Handler(void) {
 
 
 // ---------------------------------------------------
-// Constantes globales et formats
+// constant and formats for lead angle 
 // ---------------------------------------------------
 #define Q30_SCALE           (1UL << 30)
 #define DEG_TO_Q8_8(x)      ((uint16_t)((x) * (65536.0f / 360.0f) + 0.5f))
