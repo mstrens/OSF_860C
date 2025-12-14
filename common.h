@@ -27,7 +27,7 @@
 #define CRUISE_MODE                               6
 #define WALK_ASSIST_MODE                          7
 #define TORQUE_SENSOR_CALIBRATION_MODE            8								   
-#define MOTOR_CALIBRATION_MODE                    8
+#define MOTOR_CALIBRATION_MODE                    8 // only in 860C version
 
 // walk assist
 #define WALK_ASSIST_THRESHOLD_SPEED_X10           70  // 80 -> 8.0 kph, this is the maximum speed limit from which walk assist can be activated

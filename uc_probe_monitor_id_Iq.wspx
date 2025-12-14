@@ -12,16 +12,12 @@
         <properties mode="CONTINUOUS" slope="POS" timeScale="us" trigHoldOff="0" clkDiv="1" trigDispPos="0" />
         <symbols>
           <symbol path="NONE" IsAnArrayElement="false" ElementIndex="0" IsCustomSymbol="false" Mask_Enabled="false" Mask_Start_Bit="0" Mask_End_Bit="0" />
-          <symbol path="debug_pll_angle" IsAnArrayElement="false" ElementIndex="0" IsCustomSymbol="false" Mask_Enabled="false" Mask_Start_Bit="0" Mask_End_Bit="0" />
-          <symbol path="debug_p_term" IsAnArrayElement="false" ElementIndex="0" IsCustomSymbol="false" Mask_Enabled="false" Mask_Start_Bit="0" Mask_End_Bit="0" />
-          <symbol path="debug_pll_phase_error" IsAnArrayElement="false" ElementIndex="0" IsCustomSymbol="false" Mask_Enabled="false" Mask_Start_Bit="0" Mask_End_Bit="0" />
-          <symbol path="debug_isr0_timer_end" IsAnArrayElement="false" ElementIndex="0" IsCustomSymbol="false" Mask_Enabled="false" Mask_Start_Bit="0" Mask_End_Bit="0" />
         </symbols>
         <channels>
-          <channel index="1" isEnabled="true" selectedSymbol="debug_pll_angle" IsCustomSymbol="false" Mask_Enabled="false" Mask_Start_Bit="0" Mask_End_Bit="0" triggerLevel="0" isTriggerSource="true" bitEn="false" bitIx="0" scaledMode="true" gain="1" offset="0" label="" y_Min_Scale_Value="2" y_Max_Scale_Value="65531" />
-          <channel index="2" isEnabled="true" selectedSymbol="debug_p_term" IsCustomSymbol="false" Mask_Enabled="false" Mask_Start_Bit="0" Mask_End_Bit="0" triggerLevel="0" isTriggerSource="false" bitEn="false" bitIx="0" scaledMode="true" gain="1" offset="0" label="" y_Min_Scale_Value="-1247" y_Max_Scale_Value="439" />
-          <channel index="3" isEnabled="false" selectedSymbol="debug_pll_phase_error" IsCustomSymbol="false" Mask_Enabled="false" Mask_Start_Bit="0" Mask_End_Bit="0" triggerLevel="0" isTriggerSource="false" bitEn="false" bitIx="0" scaledMode="true" gain="1" offset="0" label="" y_Min_Scale_Value="-217" y_Max_Scale_Value="119" />
-          <channel index="4" isEnabled="true" selectedSymbol="debug_isr0_timer_end" IsCustomSymbol="false" Mask_Enabled="false" Mask_Start_Bit="0" Mask_End_Bit="0" triggerLevel="0" isTriggerSource="false" bitEn="false" bitIx="0" scaledMode="true" gain="1" offset="0" label="" y_Min_Scale_Value="508" y_Max_Scale_Value="1680" />
+          <channel index="1" isEnabled="false" triggerLevel="0" isTriggerSource="true" bitEn="false" bitIx="0" scaledMode="true" gain="1" offset="0" label="" y_Min_Scale_Value="0" y_Max_Scale_Value="1000" />
+          <channel index="2" isEnabled="false" triggerLevel="0" isTriggerSource="false" bitEn="false" bitIx="0" scaledMode="true" gain="1" offset="0" label="" y_Min_Scale_Value="0" y_Max_Scale_Value="1000" />
+          <channel index="3" isEnabled="false" triggerLevel="0" isTriggerSource="false" bitEn="false" bitIx="0" scaledMode="true" gain="1" offset="0" label="" y_Min_Scale_Value="0" y_Max_Scale_Value="1000" />
+          <channel index="4" isEnabled="false" triggerLevel="0" isTriggerSource="false" bitEn="false" bitIx="0" scaledMode="true" gain="1" offset="0" label="" y_Min_Scale_Value="0" y_Max_Scale_Value="1000" />
           <channel index="5" isEnabled="false" triggerLevel="0" isTriggerSource="false" bitEn="false" bitIx="0" scaledMode="true" gain="1" offset="0" label="" y_Min_Scale_Value="0" y_Max_Scale_Value="1000" />
           <channel index="6" isEnabled="false" triggerLevel="0" isTriggerSource="false" bitEn="false" bitIx="0" scaledMode="true" gain="1" offset="0" label="" y_Min_Scale_Value="0" y_Max_Scale_Value="1000" />
           <channel index="7" isEnabled="false" triggerLevel="0" isTriggerSource="false" bitEn="false" bitIx="0" scaledMode="true" gain="1" offset="0" label="" y_Min_Scale_Value="0" y_Max_Scale_Value="1000" />
@@ -1149,7 +1145,7 @@
           <CanDock>true</CanDock>
           <CanClose>false</CanClose>
           <IsSelectedTab>true</IsSelectedTab>
-          <IsActiveWindow>false</IsActiveWindow>
+          <IsActiveWindow>true</IsActiveWindow>
           <WindowRect />
           <TabGroupName>37251989</TabGroupName>
           <IsTabGroupOwner>false</IsTabGroupOwner>
@@ -1225,7 +1221,7 @@
           <CanDock>false</CanDock>
           <CanClose>false</CanClose>
           <IsSelectedTab>false</IsSelectedTab>
-          <IsActiveWindow>true</IsActiveWindow>
+          <IsActiveWindow>false</IsActiveWindow>
           <WindowRect />
           <TabGroupName />
           <IsTabGroupOwner>false</IsTabGroupOwner>

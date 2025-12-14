@@ -1,4 +1,4 @@
-//test5
+//test6 for 860C
 // to do : adapt values for overcurrent in motor.c and use flag overcurrent_detected to secure the system.
 // search for best lead angle for different erps and fill table
 // look if adc trigger at another time help; require probably another way to unable the motor
@@ -161,7 +161,7 @@
 #define WHEEL_SPEED_SENSOR_TICKS_COUNTER_MAX			(uint16_t)((uint32_t)PWM_CYCLES_SECOND*10U/1157U)   // 164 at 19 khz (135 at 15,625KHz) something like 200 m/h with a 6'' wheel
 #define WHEEL_SPEED_SENSOR_TICKS_COUNTER_MIN			(uint16_t)((uint32_t)PWM_CYCLES_SECOND*1000U/477U) // 32767@15625KHz could be a bigger number but will make for a slow detection of stopped wheel speed
 
-#define WHEEL_SPEED_SENSOR_SIMULATION	1 // 1 allows to avoid the error after 12 sec if motor runs but not the wheel sensor
+#define WHEEL_SPEED_SENSOR_SIMULATION	0 // 1 allows to avoid the error after 12 sec if motor runs but not the wheel sensor
                                             // 0 do not simulate
 
 
@@ -209,15 +209,9 @@ HALL_COUNTER_OFFSET_UP:    29 -> 44
 ****************************************
 */
 
-//#define HALL_COUNTER_OFFSET_DOWN                (HALL_COUNTER_FREQ/PWM_CYCLES_SECOND/2 + 17)
-//#define HALL_COUNTER_OFFSET_UP                  (HALL_COUNTER_OFFSET_DOWN + 21)
 #define FW_HALL_COUNTER_OFFSET_MAX              5 // 5*4=20us max time offset
 
 #define MOTOR_ROTOR_INTERPOLATION_MIN_ERPS      5 // it was 10 for tsdz2 that used 8 poles; tsdz8 uses 4 poles so erps is 2 smaller
-
-// set on the display with motor type
-//#define FOC_ANGLE_MULTIPLIER_36V				30 // 36 volt motor Mstrens not used for TSDZ8
-//#define FOC_ANGLE_MULTIPLIER_48V				39 // 48 volt motor Mstrens not used for TSDZ8
 
 // adc torque offset gap value for error
 #define ADC_TORQUE_SENSOR_OFFSET_THRESHOLD		60 // was 30 for TSDZ2; changed to 60 for TSDZ8 because some motors have lot of difference depending on pedal position
@@ -304,7 +298,7 @@ HALL_COUNTER_OFFSET_UP:    29 -> 44
  controller is 16 A and it should not be exceeded.
  ---------------------------------------------------------*/
 
-// throttle ADC values
+// throttle ADC values used only in 860C version
 #define ADC_THROTTLE_MIN_VALUE			47 // used in 860c
 #define ADC_THROTTLE_MAX_VALUE			176 // used in 860C
 
@@ -332,7 +326,7 @@ HALL_COUNTER_OFFSET_UP:    29 -> 44
  --------------------------------------------------------------------------*/
 
 
-// default values
+// default values used only in 860C version
 #define DEFAULT_VALUE_BATTERY_CURRENT_MAX  10  // 10 amps Used only in 860C version
 
 /*---------------------------------------------------------
@@ -367,17 +361,18 @@ HALL_COUNTER_OFFSET_UP:    29 -> 44
 // ADC battery current measurement
 #define BATTERY_CURRENT_PER_10_BIT_ADC_STEP_X100		16  // 0.16A x 10 bit ADC step
 
-// for oem display
-
 // walk assist
+//#define WALK_ASSIST_THRESHOLD_SPEED		        (uint8_t)(WALK_ASSIST_THRESHOLD_SPEED_X10 / 10)
 #define WALK_ASSIST_WHEEL_SPEED_MIN_DETECT_X10	42
-#define WALK_ASSIST_ERPS_THRESHOLD				20
-#define WALK_ASSIST_ADJ_DELAY_MIN				4
+#define WALK_ASSIST_ERPS_THRESHOLD			    20
+#define WALK_ASSIST_ADJ_DELAY_MIN			     4
 #define WALK_ASSIST_ADJ_DELAY_STARTUP			10
 #define WALK_ASSIST_DUTY_CYCLE_MIN              40
 #define WALK_ASSIST_DUTY_CYCLE_STARTUP			50
 #define WALK_ASSIST_DUTY_CYCLE_MAX              130
-#define WALK_ASSIST_ADC_BATTERY_CURRENT_MAX     40
+#define WALK_ASSIST_ADC_BATTERY_CURRENT_MAX      40
+
+
 
 // security checks added by mstrens (see use in systick.c and motor.c)
 #define PHASE_PEAK_ADC_NOMINAL     (800.0)     // not sure about the value; I do not know the shunt, gain of amp.
@@ -394,7 +389,10 @@ HALL_COUNTER_OFFSET_UP:    29 -> 44
 
 // note : Systick.c contains also some set up for lead angle (table, steps, RPM, ...)
 
-#endif // _MAIN_H_
+
+
+
+// for oem display
 
 #ifdef USE_TSDZ8_VLCD5_VERSION
 // next was in TSDZ8 VLCD5 version but not in 860C version
@@ -562,16 +560,6 @@ HALL_COUNTER_OFFSET_UP:    29 -> 44
 #define POWER_ASSIST_LEVEL_SPORT     (uint8_t)(POWER_ASSIST_LEVEL_3 / 2)
 #define POWER_ASSIST_LEVEL_TURBO     (uint8_t)(POWER_ASSIST_LEVEL_4 / 2)
 
-// walk assist
-//#define WALK_ASSIST_THRESHOLD_SPEED		        (uint8_t)(WALK_ASSIST_THRESHOLD_SPEED_X10 / 10)
-#define WALK_ASSIST_WHEEL_SPEED_MIN_DETECT_X10	42
-#define WALK_ASSIST_ERPS_THRESHOLD			    20
-#define WALK_ASSIST_ADJ_DELAY_MIN			     4
-#define WALK_ASSIST_ADJ_DELAY_STARTUP			10
-#define WALK_ASSIST_DUTY_CYCLE_MIN              40
-#define WALK_ASSIST_DUTY_CYCLE_STARTUP			50
-#define WALK_ASSIST_DUTY_CYCLE_MAX              130
-#define WALK_ASSIST_ADC_BATTERY_CURRENT_MAX      40
 
 /*
 // cruise threshold (speed limit min km/h x10)
@@ -598,3 +586,4 @@ HALL_COUNTER_OFFSET_UP:    29 -> 44
 
     
 #endif // USE_TSDZ8_VLCD5_VERSION
+#endif // _MAIN_H_

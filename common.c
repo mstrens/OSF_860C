@@ -83,10 +83,12 @@ uint8_t ui8_max(uint8_t value_a, uint8_t value_b) {
 
 
 uint16_t filter(uint16_t ui16_new_value, uint16_t ui16_old_value, uint8_t ui8_alpha) {
-    if (ui8_alpha < 11) {
-        uint32_t ui32_temp_new = (uint32_t) ui16_new_value * (uint32_t)(10U - ui8_alpha);
+    #define MAX_ALPHA_BITS 4
+    const uint8_t ui8_max_alpha = 1<<MAX_ALPHA_BITS;  //16
+    if (ui8_alpha < ui8_max_alpha) {
+        uint32_t ui32_temp_new = (uint32_t) ui16_new_value * (uint32_t)(ui8_max_alpha - ui8_alpha);
 		uint32_t ui32_temp_old = (uint32_t) ui16_old_value * (uint32_t) ui8_alpha;
-        uint16_t ui16_filtered_value = (uint16_t)((ui32_temp_new + ui32_temp_old + 5U) / 10U);
+        uint16_t ui16_filtered_value = (uint16_t)((ui32_temp_new + ui32_temp_old + (ui8_max_alpha>>1)) >> MAX_ALPHA_BITS);
 
         if (ui16_filtered_value == ui16_old_value) {
             if (ui16_filtered_value < ui16_new_value)

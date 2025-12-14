@@ -12,6 +12,7 @@
 //#include <stdint.h>
 #include "main.h"
 
+// only for 860C version
 // moved from ebike_app.c because used also in main.c
 // from v.1.1.0
 // Error state (changed)
@@ -47,7 +48,7 @@ extern volatile uint16_t ui16_adc_motor_phase_current_max;
 // Motor enabled
 extern uint8_t ui8_motor_enabled;
 
-
+// only for 860C version
 extern uint8_t ui8_m_system_state;
 
 // added by mstrens
@@ -55,7 +56,7 @@ extern uint8_t ui8_m_motor_init_state ;
 extern uint8_t ui8_m_motor_init_status;
 extern uint8_t ui8_pwm_duty_cycle_max;
 
-/*
+/* // not used in 860C version
 typedef struct  _configuration_variables
 {
   //uint8_t ui8_motor_power_x10; // not used
@@ -85,7 +86,9 @@ extern uint8_t ui8_test_mode_flag ;
 extern uint8_t hall_reference_angle ;
 
 void new_torque_sample();
-void fillRxBuffer();
+
+// only for 860C version
+void fillRxBuffer();  
 
 /*
 extern uint8_t ui8_best_ref_angles1 ;
@@ -96,6 +99,8 @@ extern uint8_t ui8_best_ref_angles5 ;
 extern uint8_t ui8_best_ref_angles6 ;
 */
 void ebike_app_controller(void);
+
+// used only in VLCD5 version
 //struct_configuration_variables* get_configuration_variables(void);
 
 void ebike_app_init(void);

@@ -1,4 +1,4 @@
-//test5
+//test6 for 860C
 /*
 * Description: This is based on the open source firmware for TSDZ2 motor made by mbrusa
 * It is adapted for TSDZ8 
@@ -93,7 +93,6 @@ extern uint16_t ui16_display_data_factor;
 extern volatile uint8_t ui8_g_foc_angle;
 extern uint8_t ui8_throttle_adc_in;
 
-//extern volatile uint8_t ui8_best_ref_angles[8] ;
 extern uint32_t best_ref_angles_X16bits[8] ;
 
 extern volatile uint16_t ui16_adc_motor_phase_current;
@@ -105,7 +104,7 @@ extern volatile uint16_t ui16_adc_voltage_cut_off;
 extern uint8_t hall_reference_angle;
 extern uint8_t ui8_wheel_speed_simulate ;  //added by mstrens to simulate a fixed speed whithout having a speed sensor 
 
-extern uint8_t ui8_m_system_state;
+extern uint8_t ui8_m_system_state;   // used only in 860C version
 
 extern volatile uint32_t ui32_ms_counter; // updated by systick every ms
 
@@ -156,8 +155,6 @@ void jlink_print_system_state();
 //********************************************************************************
 
 int main(void)
-
-
 {
     cy_rslt_t result;
 
@@ -272,7 +269,8 @@ int main(void)
     XMC_SCU_StartTempMeasurement();
 
     // **** load the config from flash
-    //init_extra_fields_config (); // get the user parameters from flash
+    // used only in VLCD5 version :
+    //init_extra_fields_config (); //  get the user parameters from flash
     // todo : change when eeprom is coded properly add some initialisation (e.g. m_configuration_init() and ebike_app.init)
     // currently it is filled with parameters from user setup + some dummy values (e.g. for soc)
     //m_configuration_init();
@@ -280,7 +278,6 @@ int main(void)
     //ebike_app_init();
     // added by Mstrens
 	hall_reference_angle =  (uint8_t) DEFAULT_HALL_REFERENCE_ANGLE; //to do = add a small offset like in non 860c version
-	//hall_reference_angle = 66;
 	ui8_wheel_speed_simulate =  WHEEL_SPEED_SIMULATE; // load wheel speed simulate (so allow to change it with uc-probe)
 
     //XMC_WDT_Service();
@@ -501,7 +498,7 @@ int main(void)
     } // end while main loop
 } // end main
 
-// Error state (changed)
+// Error state (changed) (only for 860C)
 // NO_ERROR                                0			// "None"
 // ERROR_NOT_INIT                          1			// "Motor not init"
 // ERROR_TORQUE_SENSOR                     (1 << 1)	// "Torque Fault"
