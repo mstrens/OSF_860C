@@ -262,7 +262,7 @@ void SysTick_Handler(void) {
 
 #define LEAD_STEP_MIN_DEGREE  (0.02)       // ≈ 0.022° // lead angle correction is updated per small steps; varies between min and max
 #define LEAD_STEP_MAX_DEGREE  (0.35)       // ≈ 0.35°
-#define MAX_LEAD_CORR_DEGREE  (5)        // max for correction (in plus and min)
+#define MAX_LEAD_CORR_DEGREE  (10)        // max for correction (in plus and min)
 
 #define LOW_SPEED_RPM        (200)       // below this speed, lead angle is set on 0
 #define SPEED_FILTER_A_Q15   (30000)  // coeff IIR vitesse (α≈0.9)
@@ -302,12 +302,15 @@ static uint8_t tables_initialized = 0;
 // ---------------------------------------------------
 static uint16_t tick_5ms = 0;
 static int32_t  i32_pll_velocity_filt_q8_8X1024 = 0;
-static int32_t  lead_corr_q8_8 = 0;
-static uint16_t lead_base_q8_8_val = 0;
-uint16_t ui16_lead_total_q8_8 = 0;
 static int16_t i16_adc_battery_current_for_lead_base = 0;
 // Deadband adaptatif
 static int32_t last_deadband = 0;
+uint16_t ui16_lead_base_rpm_q8_8 = 0;
+uint16_t ui16_lead_base_current_q8_8 = 0;
+uint16_t ui16_lead_base_total_q8_8 = 0; 
+uint16_t ui16_lead_corr_q8_8 = 0;
+static int32_t  lead_corr_q8_8 = 0;
+uint16_t ui16_lead_total_q8_8 = 0;
 
 // ---------------------------------------------------
 // Fonctions utilitaires
@@ -388,11 +391,12 @@ void update_lead_angle(void)
     // ----------------------
     // Lead base interpolation based on pll velocity
     // ----------------------
-    uint16_t ui16_lead_base_q8_8_val = interpolate_lead_base_from_hall_velocity((uint16_t)pll_velocity_used);
+    ui16_lead_base_rpm_q8_8 = interpolate_lead_base_from_hall_velocity((uint16_t)pll_velocity_used);
     // add more lead angle when current incease
     i16_adc_battery_current_for_lead_base = filter_i16((int16_t)ui8_adc_battery_current_filtered,i16_adc_battery_current_for_lead_base, 6);
-    lead_base_q8_8_val = ui16_lead_base_q8_8_val + (i16_adc_battery_current_for_lead_base * LEAD_ANGLE_Q8_8_PER_ADC_STEP); 
-    if (lead_base_q8_8_val > (25<<8))lead_base_q8_8_val = (25<<8); // do not exceed 25*360 /256 = 35°
+    ui16_lead_base_current_q8_8 = (i16_adc_battery_current_for_lead_base * LEAD_ANGLE_Q8_8_PER_ADC_STEP); 
+    ui16_lead_base_total_q8_8 = ui16_lead_base_rpm_q8_8 + ui16_lead_base_current_q8_8;
+    if (ui16_lead_base_total_q8_8 > (25<<8))ui16_lead_base_total_q8_8 = (25<<8); // do not exceed 25*360 /256 = 35°
 
     // lead correction based on Id (taking care of Iq and speed)
     int32_t Id_filt = 0;
@@ -444,12 +448,13 @@ void update_lead_angle(void)
         // clamp correction 
         lead_corr_q8_8 = clamp32(lead_corr_q8_8, -MAX_LEAD_CORR_Q8_8, MAX_LEAD_CORR_Q8_8); // max = -10° + 10°
     }
- 
+    
+    ui16_lead_corr_q8_8 = (uint16_t) lead_corr_q8_8;
+    
     // Calcul total
-    ui16_lead_total_q8_8 = (uint16_t)lead_base_q8_8_val + (uint16_t)lead_corr_q8_8;
+    ui16_lead_total_q8_8 = (uint16_t)ui16_lead_base_total_q8_8 + (uint16_t)lead_corr_q8_8;
 
 }
-
 
 
 // security checks in systick

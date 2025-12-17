@@ -250,6 +250,11 @@ uint32_t ui32_battery_current_mA_avg = 0;
 
 uint32_t ui32_current_1_rotation_ma = 0; // average current over 1 electric rotation
 
+uint8_t ui8_lead_angle_to_display = 0; // select the lead angle to transmit to the display
+                                       // 0 = total lead angle, 
+									   // 1 =  part of base lead angle depending on rpm
+									   // 2 =  part of base lead angle depending on current
+									   // 3 = correction based on Id 
 
 // system functions
 static void get_battery_voltage(void);
@@ -2576,7 +2581,40 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		ui8_tx_buffer[17] = (uint8_t) (ui16_motor_speed_erps >> 8);
 		
 		// FOC angle
-		ui8_tx_buffer[18] = (uint8_t)(ui16_lead_total_q8_8 >> 8);
+		//ui8_tx_buffer[18] = (uint8_t)(ui16_lead_total_q8_8 >> 8);
+		// modified by mstrens to allow to select the lead angle to display
+		//ui8_lead_angle_to_display = 0; // select the lead angle to transmit to the display
+                                       // 10 = total lead angle, 
+									   // 11 =  part of base lead angle depending on rpm
+									   // 12 =  part of base lead angle depending on current
+									   // 13 = base lead angle (sum of 2 parts)
+									   // 14 = correction based on Id 
+			uint8_t ui8_lead_angle_temp;
+			switch (ui8_lead_angle_to_display) {
+			case 11:
+				ui8_lead_angle_temp = (int16_t)(ui16_lead_base_rpm_q8_8 >> 8);
+				break;
+			case 12:
+				ui8_lead_angle_temp = (int16_t)(ui16_lead_base_current_q8_8 >> 8);
+				break;
+			case 13:
+				ui8_lead_angle_temp = (int16_t)(ui16_lead_base_total_q8_8 >> 8);
+				break;
+			case 14:
+				ui8_lead_angle_temp = (uint8_t)(ui16_lead_corr_q8_8 >> 8);
+				break;
+			default :
+				ui8_lead_angle_temp = (uint8_t)(ui16_lead_total_q8_8 >> 8);
+				break;		
+		}
+		if (ui8_lead_angle_temp < 128) { 
+			ui8_tx_buffer[18] = ui8_lead_angle_temp;  // use when positive displayed values will be 0, 1, 2, 4, 5, 7
+		} else {
+			// Display apply a ratio *14/10; it can't display more than 255 (uint8) ,nor negative figures.
+			// here we want that e.g. 255 (=-1,4°) becomes 201, 254 (-2,8°) becomes 203 ; 253=>204, ...; so the 2 of 2xx replaces the sign
+			// so negative values will becomes 201, 203, 204, 205, 207
+			ui8_tx_buffer[18] = (2000U/14 + 1 + 256U) - ui8_lead_angle_temp; 
+		}
 
 		// system state
 		ui8_tx_buffer[19] = ui8_m_system_state;
@@ -2753,10 +2791,18 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		ui8_smooth_start_counter_set_temp = ui8_smooth_start_counter_set;
 		
 		// coast brake threshold
-		ui8_coaster_brake_torque_threshold = ui8_rx_buffer[81];
+		//ui8_coaster_brake_torque_threshold = ui8_rx_buffer[81];
 		// modified by mstrens to allow to change foc calculation
 		//ui8_foc_angle_multiplicator = ui8_rx_buffer[81]; // not used anymore with optimised lead angle in systick.c
-			
+		// modified by mstrens to select the lead angle to display
+		ui8_lead_angle_to_display = ui8_rx_buffer[81]; // select the lead angle to transmit to the display
+                                       // 0 = total lead angle, 
+									   // 1 =  part of base lead angle depending on rpm
+									   // 2 =  part of base lead angle depending on current
+									   // 3 = correction based on Id 
+
+		
+
 		//ui8_m_adc_lights_current_offset = (uint16_t) ui8_rx_buffer[82];
 		// lights configuration
 		ui8_lights_configuration = ui8_rx_buffer[82];
