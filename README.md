@@ -113,7 +113,7 @@ See the instructions on the mbrusa site (see links above)
 
 See the instructions on the mbrusa site (see links above).
 Still there are a few differences:
-* Coast brake ADC : This concept is not used in OSF TSDZ8. Still this field has been "reused" in order to let the user specify the "FOC multiplier" that is used to calculate "FOC angle" that plays a role in motor efficiency and stability when current is high. So enter here a value for "FOC multiplier". It seems that a value in the range 24/28 is good. Feel free to experiment but be careful with values that would be very different and could create unstability and let the motor become too hot.
+* Coast brake ADC : This concept is not used in OSF TSDZ8.
 
 
 * calibration MUST be disabled. If you enable it, 860C transmit some false data to the controller.

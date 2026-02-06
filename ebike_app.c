@@ -250,11 +250,12 @@ uint32_t ui32_battery_current_mA_avg = 0;
 
 uint32_t ui32_current_1_rotation_ma = 0; // average current over 1 electric rotation
 
-uint8_t ui8_lead_angle_to_display = 0; // select the lead angle to transmit to the display
-                                       // 0 = total lead angle, 
-									   // 1 =  part of base lead angle depending on rpm
-									   // 2 =  part of base lead angle depending on current
-									   // 3 = correction based on Id 
+uint8_t ui8_lead_angle_to_display = 10; // select the lead angle to transmit to the display
+                                       // 10 = total lead angle, 
+									   // 11 =  part of base lead angle depending on rpm
+									   // 12 =  part of base lead angle depending on current
+									   // 13 = base lead angle (sum of 2 parts)
+									   // 14 = correction based on Id 
 
 // system functions
 static void get_battery_voltage(void);
