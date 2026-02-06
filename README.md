@@ -113,7 +113,8 @@ See the instructions on the mbrusa site (see links above)
 
 See the instructions on the mbrusa site (see links above).
 Still there are a few differences:
-* Coast brake ADC : This concept is not used in OSF TSDZ8.
+* Coast brake ADC : This concept is not used in OSF TSDZ8. Still this input field has been "re-used" in order to let you select the type of lead angle to be displayed in the output field named "FOC". This can be useful to check that the firmware uses some good parameters for best efficency. In fact, the name "FOC" should best be named "Lead angle". For best efficiency, the lead angle must vary with motor speed (RPM) and current. This version of OSF tries to optimise the lead angle in 2 ways. First it calculates a "base lead angle" basedd on RPM (using 2 tables ) and a ratio angle per current. Second it adds to the base lead angle a correction angle trying to keep the "unproductieve current" (usually named Id in real FOC program) close to zero. At this stage, I am not sure that OSF parameters are the best one. So it can be usefull to have a look at the base lead angle, at the correction angle and at the total. Coast brake ADC allow you to select one angle (10 = total lead angle(default), 11 =  part of base lead angle depending on rpm , 12 =  part of base lead angle depending on current, 13 = base lead angle (sum of 2 parts), 14 = correction based on Id). Please note that the correction lead angle can be negative while the 860c displays only positieve number. Therefore, negative values starts with "2é instead of "-". So 201 means -1, 202 means -2 , etc... Best would be to adapt RPM and current ratio in order to keep correction angle close to 0 (avoiding the automatic but still slower correction)
+    
 
 
 * calibration MUST be disabled. If you enable it, 860C transmit some false data to the controller.
@@ -147,6 +148,7 @@ Reversely, the more the parameter is lower than 20 (up to 1), the more assistanc
 
 
 * If you use throttle, you have to set up the limits (min and max) provided by your sensor. In menu "Motor temperature" you have to declare that sensor is used for throttle and you have to fill the min and max values. To know them you have to use menu "Technical" and look at ADC throttle field. Note the min and max values when pressing throttle. For min, it is safe to enter a value that is slightly higher that what you read (to avoid unexpected start of the motor)
+
 
 # IMPORTANT NOTES
 * Installing this firmware will void your warranty of the TSDZ8 mid drive.
@@ -185,7 +187,7 @@ Then there are some more steps to perform:
 
 Normally you are now ready to use VS Code and to compile.
 
-To compiling the firmware:
+To compile the firmware:
 * Open VS Code.
 * In menu "File", select the option "Open Workspace from File..."
 * Select a file named "TSDZ8.code-workspace" in folder "OSF".This should open all files.

@@ -2797,10 +2797,11 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		//ui8_foc_angle_multiplicator = ui8_rx_buffer[81]; // not used anymore with optimised lead angle in systick.c
 		// modified by mstrens to select the lead angle to display
 		ui8_lead_angle_to_display = ui8_rx_buffer[81]; // select the lead angle to transmit to the display
-                                       // 0 = total lead angle, 
-									   // 1 =  part of base lead angle depending on rpm
-									   // 2 =  part of base lead angle depending on current
-									   // 3 = correction based on Id 
+                                       // 10 = total lead angle, 
+									   // 11 =  part of base lead angle depending on rpm
+									   // 12 =  part of base lead angle depending on current
+									   // 13 = base lead angle (sum of 2 parts)
+									   // 14 = correction based on Id 
 
 		
 
