@@ -376,14 +376,15 @@ HALL_COUNTER_OFFSET_UP:    29 -> 44
 
 // security checks added by mstrens (see use in systick.c and motor.c)
 #define PHASE_PEAK_ADC_NOMINAL     (800.0)     // not sure about the value; I do not know the shunt, gain of amp.
-                                              // // ADC is 12 bit = max 4096; offset is about 2048; So max is about 2048
-#define PHASE_PEAK_TRIP_RATIO       (2.2)      // disable the motor when this limit is reached (need a power off to reset)
+                                              // ADC is 12 bit = max 4096; offset is about 2048; So max is about 2048
+                                              // initial value to test is 800
+#define PHASE_PEAK_TRIP_RATIO       (2.8)      // disable the motor when this limit is reached (need a power off to reset) (first value was 2.2)
 #define PHASE_RMS_WARN_RATIO       (1.8)       // reduce power during RAMP_UP_DELAY_TICKS (e.g. 2 sec)
 #define IMOTOR_RMS_WARN_RATIO       (1.5)      // reduce power during RAMP_UP_DELAY_TICKS (e.g. 2 sec)
 
 #define IDC_NOMINAL_AMPERE          (13.0)     // Amp
-#define IDC_FAST_TRIP_RATIO         (2.5)      // disable the motor when this limit is reached (need a power off to reset)
-#define IDC_SLOW_WARN_RATIO         (1.5)      // reduce power during RAMP_UP_DELAY_TICKS (e.g. 2 sec)
+#define IDC_FAST_TRIP_RATIO         (3.0)      // disable the motor when this limit is reached (need a power off to reset); first value was 2.5
+#define IDC_SLOW_WARN_RATIO         (2.0)      // reduce power during RAMP_UP_DELAY_TICKS (e.g. 2 sec); first value was 1.5
 
 #define RAMP_UP_DELAY_TICKS 2000  // 2000 ms Timer anti ramp up (avoid ramp up when soft error occured for some ms)
 
