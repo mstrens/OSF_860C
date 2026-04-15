@@ -1726,8 +1726,19 @@ static void get_pedal_torque(void) {
 		ui16_adc_pedal_torque_filtered_noExpo = filter( ui16_TorqueDeltaADC_norm , ui16_adc_pedal_torque_filtered_noExpo , 5); 
 		#else // (USE_SPIDER_LOGIC_FOR_TORQUE == (3) we use the average
 		if (ui8_TSamplesNum > 0) {
-			ui16_adc_pedal_torque_filtered_noExpo = ui16_TSum / ui8_TSamplesNum; // overwrite with avg when less than 1 rotation
-		}	
+		//	ui16_adc_pedal_torque_filtered_noExpo = ui16_TSum / ui8_TSamplesNum; // overwrite with avg when less than 1 rotation
+		//}	
+			ui16_adc_pedal_torque_filtered_noExpo = ui16_TSum / ui8_TSamplesNum; // partial rotation: avg of 1-19 samples
+		} else {
+			// Standstill: no PAS transitions yet, use filtered ADC directly
+			ui16_adc_pedal_torque_filtered_noExpo = filter(ui16_TorqueDeltaADC_norm,
+				ui16_adc_pedal_torque_filtered_noExpo, 5);
+		}
+		
+		
+		//if (ui8_TSamplesNum > 0) {
+		//	ui16_adc_pedal_torque_filtered_noExpo = ui16_TSum / ui8_TSamplesNum; // overwrite with avg when less than 1 rotation
+		//}	
 		#endif
 	}
 
