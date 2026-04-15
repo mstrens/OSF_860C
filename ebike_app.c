@@ -2068,8 +2068,10 @@ static void check_system(void)
 	}
 	else {
 		ui8_check_cadence_sensor_counter = 0;
+		// auto-clear cadence error when condition goes away (no restart needed)
+		ui8_m_system_state &= ~ERROR_CADENCE_SENSOR;
 	}
-	
+
 	if (ui8_check_cadence_sensor_counter > CHECK_CADENCE_SENSOR_COUNTER_THRESHOLD) {
 		// set cadence sensor error code
 		ui8_m_system_state |= ERROR_CADENCE_SENSOR;
@@ -2477,7 +2479,7 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		
 		// battery max power target
 		ui8_target_battery_max_power_div25 = ui8_rx_buffer[6];
-		
+
 		// calculate max battery current in ADC steps
 		// from the received battery current limit & power limit
 		if (ui8_target_battery_max_power_div25 != ui8_target_battery_max_power_div25_temp) {
