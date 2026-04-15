@@ -979,12 +979,14 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 1300 c
     uint32_t i32_Iv2 = (i32_Iv >> 3) * (i32_Iv >> 3);
     uint32_t i32_Iw2 = (i32_Iw >> 3) * (i32_Iw >> 3);
 
+    #ifndef DISABLE_PHASE_CURRENT_PEAK_PROTECTION
     // Phase current Peak protection
     if(i32_Iu2 > PHASE_PEAK_TRIP2 || i32_Iv2 > PHASE_PEAK_TRIP2 || i32_Iw2 > PHASE_PEAK_TRIP2) {
         fault_phase_current_peak = true;
         motor_disable_pwm();
         ui8_motor_enabled = 0;
     }
+    #endif
 
     // RMS IIR phase (assembleur-like)
     int32_t diff;
@@ -998,12 +1000,14 @@ __RAM_FUNC void CCU80_1_IRQHandler(){ // called when ccu8 Slice 3 reaches 1300 c
     // RMS moteur (somme carrés)
     ui32_Imotor_rms_2_filt = ui32_Iu_rms_2_filt + ui32_Iv_rms_2_filt + ui32_Iw_rms_2_filt; 
 
-    // Idc fast
+    #ifndef DISABLE_IDC_FAST_PROTECTION
+    // Idc fast protection
     if(ui32_adc_battery_current_15b > IDC_FAST_TRIP) {
         fault_idc_fast = true;
         motor_disable_pwm();
         ui8_motor_enabled = 0;
     }
+    #endif
 
 // calculate clack transform 
     int32_t I_Alpha_1Q31;

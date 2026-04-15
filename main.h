@@ -24,7 +24,7 @@
 //#include "config.h"
 #include "common.h"
                                     // !!!!!!!!!!!!!!
-#define FIRMWARE_VERSION "0.2.2"      //  !!! this version was derived from 0.1.13 for vlcd5 !!!!!!!!!!
+#define FIRMWARE_VERSION "0.2.3"      //  !!! this version was derived from 0.1.13 for vlcd5 !!!!!!!!!!
 //#define MAIN_CONFIGURATOR_VERSION 2   // for configurator (must be the same as in xls sheet)
 //#define SUB_CONFIGURATOR_VERSION 1    // is not used (just for reference)
 
@@ -390,6 +390,9 @@ HALL_COUNTER_OFFSET_UP:    29 -> 44
 
 // note : Systick.c contains also some set up for lead angle (table, steps, RPM, ...)
 
+//======== next defines allows to disable some security checks on maximum current
+//#define DISABLE_PHASE_CURRENT_PEAK_PROTECTION
+//#define DISABLE_IDC_FAST_PROTECTION
 
 
 

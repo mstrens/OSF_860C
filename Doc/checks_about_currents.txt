@@ -1,0 +1,120 @@
+Here the doc about different checks on currents
+
+There are many currents that are calculated:
+- Idc = battery current: this is the current measured with the "DC shunt current resistor".
+    This shunt is installed between Grnd and the common source node.
+    In OSF this current is usually named the "battery current".
+    It is measured at each PWM cycle (19khz -  52usec) in ISR 1 in ui32_temp_adc_battery_current_15b (15 bits)
+    It is used to calculate ui32_adc_battery_current_15b_moving_average (moving average on 64 measures)
+    It is then reduced to 8 bit in ui8_adc_battery_current_filtered to get the same logic as tsdz2 (reduced from 15 to 10 bits)
+- phase current :  this is the current in one phase. 
+    Osf name is ui16_adc_motor_phase_current.
+    It is ui8_adc_battery_current_filtered / (ui16_g_duty_cycle / 256).
+    When PWM is 100%, it is the same as ui8_adc_battery_current_filtered
+    It is calculated in systick.c at 1kHz (1000us)
+- Iu, Iv, Iw : those are the currents in the 3 shunt resistors (one in each low side mosfet)
+    They are measured at each PWM cycle (19Khz - 52 usec).
+    OSF names them i32_Iu, i32_Iv, i32_Iw.
+    Ideally they have sinusoidal form. They are positive and negative.
+    The sum of the 3 is zero.
+    OSF calculates also at each PWM cycle:
+        - 3 fields i32_Ix2 = (i32_Ix >> 3) * (i32_Ix >> 3). (x= u, v, w) for a security check
+        - 3 fields ui32_Ix_rms_2_filt = filtered i32_Ix2 (= other kind of phase current)
+        - ui32_Imotor_rms_2_filt =  the sum of the 3 ui32_Ix_rms_2_filt (= other kind of motor current)
+ 
+- Id and Iq: Those are the "productive" (Id) and "unproductive" (Iq) currents.
+    At each PWM cycle (19Khz - 52 usec) OSF calculates i16_id and i16_iq
+    Calculation is based on the 3 i32_Ix and rotor position using Clarck and Park transform.
+    Then 64 values are summarised in i32_id_sum and i32_iq_sum in order to get an average.
+    Sum are used (and reset) in systick.c (at 200Hz - 5000 usec)
+    Note : Iq is used to calculate a correction of lead angle (target is getting Iq = 0) in order to optimise motor efficiency
+
+Security checks are performed on several places and against several limits:
+1. in each PWM cycle (every 52 usec) (in motor.c)
+    1.1 Each i32_Ix2 is compared to PHASE_PEAK_TRIP2 which is defined in systick.h as
+        #define PHASE_PEAK_TRIP2 ((uint32_t)(PHASE_PEAK_ADC_NOMINAL * PHASE_PEAK_ADC_NOMINAL * PHASE_PEAK_TRIP_RATIO * PHASE_PEAK_TRIP_RATIO) )  // I^2
+        and in main.h we have
+        #define PHASE_PEAK_ADC_NOMINAL     (800.0)     // not sure about the value; I do not know the shunt, gain of amp.
+                                              // ADC is 12 bit = max 4096; offset is about 2048; So max is about 2048
+                                              // initial value to test is 800
+        #define PHASE_PEAK_TRIP_RATIO       (2.8)      // disable the motor when this limit is reached (need a power off to reset) (first value was 2.2)
+        When the limit is exceeded, motor is disabled and an overcurrent current error is generated (using fault_phase_current_peak flag)
+    1.2 ui32_adc_battery_current_15b is compared to IDC_FAST_TRIP which is defined in systick.h as
+        #define IDC_FAST_TRIP         (((uint16_t)(IDC_NOMINAL_AMPERE * IDC_FAST_TRIP_RATIO * 100.0 / 16.0)) << 5)     // 30A = 180 ADC 10 bit; here in 15 bits for IDC
+        and in main.h we have
+        #define IDC_NOMINAL_AMPERE          (13.0)     // Amp
+        #define IDC_FAST_TRIP_RATIO         (3.0)      // disable the motor when this limit is reached (need a power off to reset); first value was 2.5
+        When the limit is exceeded, motor is disabled and an overcurrent current error is generated (using fault_idc_fast flag)
+2. At 1kHz (each 1000 usec) in systick.c (function systick_security_checks)
+    2.1 Check on rms phase current:
+        OSF calculates ui32_Iphase_max2 being the max of the 3 ui32_Ix_rms_2_filt
+        ui32_Iphase_max2 is compared to PHASE_RMS_WARN2 which is defined in systick.h as 
+        #define PHASE_RMS_WARN2  ((uint32_t)(PHASE_PEAK_ADC_NOMINAL * PHASE_PEAK_ADC_NOMINAL * PHASE_RMS_WARN_RATIO * PHASE_RMS_WARN_RATIO))
+        and in main.h we have
+        #define PHASE_PEAK_ADC_NOMINAL     (800.0)     // not sure about the value; I do not know the shunt, gain of amp.
+                                              // ADC is 12 bit = max 4096; offset is about 2048; So max is about 2048
+                                              // initial value to test is 800
+        #define PHASE_RMS_WARN_RATIO       (1.8)       // reduce power during RAMP_UP_DELAY_TICKS (e.g. 2 sec)
+        When the limit is exceeded for more than 20 msec (20 consecutive iterations) a flag duty_limit_active become true.
+        This does not generate an overcurrent error but it forces a reduction of 12% of the PWM duty cycle (and so the applied voltage)
+        It also activate a delay avoiding the duty cycle to increase within the next 2 sec.
+    2.2 Check on rms motor current:
+        ui32_Imotor_rms_2_filt (calculated in PWM) is compared to IMOTOR_RMS_WARN2 which is defined in systick.h as 
+        #define IMOTOR_RMS_WARN2 ((uint32_t)(PHASE_PEAK_ADC_NOMINAL * PHASE_PEAK_ADC_NOMINAL * IMOTOR_RMS_WARN_RATIO * IMOTOR_RMS_WARN_RATIO * 3.0 )) // *3 because motor is sum of the 3 phase
+        and in main.h we have
+        #define PHASE_PEAK_ADC_NOMINAL     (800.0)     // not sure about the value; I do not know the shunt, gain of amp.
+                                              // ADC is 12 bit = max 4096; offset is about 2048; So max is about 2048
+                                              // initial value to test is 800
+        #define IMOTOR_RMS_WARN_RATIO       (1.5)      // reduce power during RAMP_UP_DELAY_TICKS (e.g. 2 sec)
+        When the limit is exceeded for more than 100 msec (100 consecutive iterations) a flag duty_limit_active become true.
+        This does not generate an overcurrent error but it forces a reduction of 12% of the PWM duty cycle (and so the applied voltage)
+        It also activate a delay avoiding the duty cycle to increase within the next 2 sec.
+    2.3 Check on Idc:
+        ui8_adc_battery_current_filtered (calculated in PWM) is compared to IDC_SLOW_WARN which is defined in systick.h as
+        #define IDC_SLOW_WARN         (((uint16_t)(IDC_NOMINAL_AMPERE * IDC_SLOW_WARN_RATIO * 100.0 / 16.0)) << 5)    // 30A = 180 ADC 10 bit; here in 15 bits for IDC
+        and in main.h we have
+        #define IDC_NOMINAL_AMPERE          (13.0)     // Amp
+        #define IDC_SLOW_WARN_RATIO         (2.0)      // reduce power during RAMP_UP_DELAY_TICKS (e.g. 2 sec); first value was 1.5
+        When the limit is exceeded for more than 100 msec (100 consecutive iterations) a flag duty_limit_active become true.
+        This does not generate an overcurrent error but it forces a reduction of 12% of the PWM duty cycle (and so the applied voltage)
+        It also activate a delay avoiding the duty cycle to increase within the next 2 sec.
+3 At 40Hz (each 25 msec) in ebike_app.c in function ebike_control_motor:
+    3.1 Check on ui8_adc_battery_current_filtered:
+        ui8_adc_battery_current_filtered (calculated in PWM) is compared to ui8_adc_battery_overcurrent.
+        When the limit is exceeded for more than X consecutive iterations, motor is disabled and an overcurrent current error is generated (using fault_phase_current_peak flag)
+        The number of iterations can be defined by the user in ui8_battery_overcurrent_delay.
+        When the value is 0 than the check is not performed.
+        ui8_adc_battery_overcurrent is ui8_adc_battery_current_max + ADC_10_BIT_BATTERY_EXTRACURRENT;
+            ui8_adc_battery_current_max is the maximum of :
+                - ADC_10_BIT_BATTERY_CURRENT_MAX (defined in main.h - see below)
+                - maximum battery current (ui8_battery_current_max defined by the user parameters )(*100/16 to convert A to ADC steps)
+                - current based on maximum power (defined by user parameter) and divided actual voltage (measured by OSF)
+        In main.h we have 
+                #define ADC_10_BIT_BATTERY_CURRENT_MAX				143	// 23 amps // 1 = 0.16 Amp
+                #define ADC_10_BIT_BATTERY_EXTRACURRENT				50  //  8 amps
+        Note: most limits are in ADC steps (1O bits). 1 ADC step = 0.16 Amp.
+
+Beside the security checks here above, OSF uses also some logic to regulate the motor.
+This logic can also limit the power.
+In fact the power depends on the PWM duty cycle (which in fact reduce the voltage really applied to the motor).
+The regulation is done in a loop (update_duty_cycle) in systick.c running at 1Khz (each 1000 usec).
+It reduces (progressively at "deceleration" rate) the duty cycle (and so the power) when:
+    - the actual current is bigger than target current. It is done with this test:
+            (ui8_controller_adc_battery_current_target < ui8_adc_battery_current_filtered) 
+        ui8_controller_adc_battery_current_target is based on pedal torque, cadence, throttle, ...
+        Note : ui8_controller_adc_battery_current_target is also limitted to ui8_adc_battery_current_max (see 3.1)
+
+    - the "phase current" is higher than the max allowed. It is done with this test:
+            (ui16_adc_motor_phase_current >  ui16_adc_motor_phase_current_max)
+        where ui16_adc_motor_phase_current_max is the max between:
+        - ADC_10_BIT_MOTOR_PHASE_CURRENT_MAX defined in main.h
+            #define ADC_10_BIT_MOTOR_PHASE_CURRENT_MAX			187	// 30 amps // 1 = 0.16 Amp
+        - ui8_adc_battery_current_max * ADC_10_BIT_MOTOR_PHASE_CURRENT_MAX / ADC_10_BIT_BATTERY_CURRENT_MAX
+            and in main.h we have
+            #define ADC_10_BIT_MOTOR_PHASE_CURRENT_MAX			187	// 30 amps // 1 = 0.16 Amp
+            #define ADC_10_BIT_BATTERY_CURRENT_MAX				143	// 23 amps // 1 = 0.16 Amp
+
+
+
+
+
