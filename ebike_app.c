@@ -717,7 +717,7 @@ static void apply_power_assist(void)
 	if (ui8_assist_without_pedal_rotation_enabled) {
 		if ((!ui8_pedal_cadence_RPM) &&
 		   (ui16_adc_pedal_torque_delta > (120 - ui8_assist_without_pedal_rotation_threshold))) {
-				ui8_pedal_cadence_RPM = 1;
+			ui8_pedal_cadence_RPM = 5; // substitute cadence for power formula (it was 1 instead of 5 but 1 gives near-zero at low PAS)	
 		}
 	}
 	
@@ -1725,20 +1725,14 @@ static void get_pedal_torque(void) {
 		#if (USE_SPIDER_LOGIC_FOR_TORQUE == (1)) 
 		ui16_adc_pedal_torque_filtered_noExpo = filter( ui16_TorqueDeltaADC_norm , ui16_adc_pedal_torque_filtered_noExpo , 5); 
 		#else // (USE_SPIDER_LOGIC_FOR_TORQUE == (3) we use the average
-		if (ui8_TSamplesNum > 0) {
-		//	ui16_adc_pedal_torque_filtered_noExpo = ui16_TSum / ui8_TSamplesNum; // overwrite with avg when less than 1 rotation
-		//}	
+		if (ui8_TSamplesNum > 0 && ui16_TorqueDeltaADC_norm > 0) {
 			ui16_adc_pedal_torque_filtered_noExpo = ui16_TSum / ui8_TSamplesNum; // partial rotation: avg of 1-19 samples
 		} else {
-			// Standstill: no PAS transitions yet, use filtered ADC directly
+			// No samples yet, or no current torque (foot off pedal) — use filtered ADC.
+			// Decays to 0 when rider stops; responds instantly at standstill.
 			ui16_adc_pedal_torque_filtered_noExpo = filter(ui16_TorqueDeltaADC_norm,
 				ui16_adc_pedal_torque_filtered_noExpo, 5);
 		}
-		
-		
-		//if (ui8_TSamplesNum > 0) {
-		//	ui16_adc_pedal_torque_filtered_noExpo = ui16_TSum / ui8_TSamplesNum; // overwrite with avg when less than 1 rotation
-		//}	
 		#endif
 	}
 
@@ -2068,8 +2062,10 @@ static void check_system(void)
 	}
 	else {
 		ui8_check_cadence_sensor_counter = 0;
+		// auto-clear cadence error when condition goes away (no restart needed)
+		ui8_m_system_state &= ~ERROR_CADENCE_SENSOR;
 	}
-	
+
 	if (ui8_check_cadence_sensor_counter > CHECK_CADENCE_SENSOR_COUNTER_THRESHOLD) {
 		// set cadence sensor error code
 		ui8_m_system_state |= ERROR_CADENCE_SENSOR;
@@ -2478,6 +2474,13 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		// battery max power target
 		ui8_target_battery_max_power_div25 = ui8_rx_buffer[6];
 		
+		// Apply hard safety limits to prevent dangerous power levels from display
+		#define MAX_SAFE_POWER_DIV25    48  // 1200W max hardware limit (48 * 25W)
+		
+		if (ui8_target_battery_max_power_div25 > MAX_SAFE_POWER_DIV25) {
+			ui8_target_battery_max_power_div25 = MAX_SAFE_POWER_DIV25;
+		}
+
 		// calculate max battery current in ADC steps
 		// from the received battery current limit & power limit
 		if (ui8_target_battery_max_power_div25 != ui8_target_battery_max_power_div25_temp) {
