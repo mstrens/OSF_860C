@@ -717,7 +717,7 @@ static void apply_power_assist(void)
 	if (ui8_assist_without_pedal_rotation_enabled) {
 		if ((!ui8_pedal_cadence_RPM) &&
 		   (ui16_adc_pedal_torque_delta > (120 - ui8_assist_without_pedal_rotation_threshold))) {
-				ui8_pedal_cadence_RPM = 5; // substitute cadence for power formula (1 gives near-zero at low PAS)
+			ui8_pedal_cadence_RPM = 5; // substitute cadence for power formula (it was 1 instead of 5 but 1 gives near-zero at low PAS)
 		}
 	}
 	
