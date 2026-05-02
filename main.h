@@ -77,7 +77,7 @@
 // those rules apply only when rotor rotation speed is fast enough otherwise we use "normal positioning"
 // Normal positionning means that extrapolation is based on each pattern change and on speed on last 360°
 
-#define DYNAMIC_LEAD_ANGLE      (0)   // (0) no dynamic
+//#define DYNAMIC_LEAD_ANGLE      (0)   // (0) no dynamic
                                       // (1) dynamic based on Id and a PID + optimiser 
                                       // (2) dynamic based on Idc and a optimiser (= esc) 
 
@@ -148,6 +148,7 @@
 // It seems TSDZ8 motor has an inductance of 180 uH and 4 poles
 // So, TSDZ2 uses a multiplier = 39, TSDZ8 should use 39 * 180 / 135 * 4 / 8 = 26  (foc is based on erps*L*I/V) 
 // I reduce it because erps should be 2X lower due to the reduced number of poles
+// note : with version O.2.X, this parameter is not used anymore because lead angle is dynamically optimised
 #define FOC_ANGLE_MULTIPLIER					26
 
 
