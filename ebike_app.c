@@ -717,7 +717,7 @@ static void apply_power_assist(void)
 	if (ui8_assist_without_pedal_rotation_enabled) {
 		if ((!ui8_pedal_cadence_RPM) &&
 		   (ui16_adc_pedal_torque_delta > (120 - ui8_assist_without_pedal_rotation_threshold))) {
-			ui8_pedal_cadence_RPM = 5; // substitute cadence for power formula (it was 1 instead of 5 but 1 gives near-zero at low PAS)	
+			ui8_pedal_cadence_RPM = 5; // substitute cadence for power formula (it was 1 instead of 5 but 1 gives near-zero at low PAS)
 		}
 	}
 	
@@ -2473,13 +2473,6 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		
 		// battery max power target
 		ui8_target_battery_max_power_div25 = ui8_rx_buffer[6];
-		
-		// Apply hard safety limits to prevent dangerous power levels from display
-		#define MAX_SAFE_POWER_DIV25    48  // 1200W max hardware limit (48 * 25W)
-		
-		if (ui8_target_battery_max_power_div25 > MAX_SAFE_POWER_DIV25) {
-			ui8_target_battery_max_power_div25 = MAX_SAFE_POWER_DIV25;
-		}
 
 		// calculate max battery current in ADC steps
 		// from the received battery current limit & power limit
