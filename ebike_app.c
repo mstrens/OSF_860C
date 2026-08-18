@@ -118,7 +118,7 @@ static uint8_t ui8_adc_torque_calibration_offset = 0;
 static uint8_t ui8_adc_torque_middle_offset_adj = 0;
 static uint8_t ui8_adc_pedal_torque_offset_adj = 0;
 static uint8_t ui8_adc_pedal_torque_delta_adj = 0;
-static uint8_t ui8_adc_pedal_torque_range_adj = 0;
+//static uint8_t ui8_adc_pedal_torque_range_adj = 0; // mstrens not used anymore - used for torque expo
 static uint16_t ui16_adc_pedal_torque_range = 160;
 static uint16_t ui16_adc_pedal_torque_range_ingrease_x100 = 0;
 static uint8_t ui8_adc_pedal_torque_angle_adj = 0;
@@ -247,6 +247,13 @@ uint32_t ui32_battery_current_mA_acc =0;
 uint32_t ui32_battery_current_mA_cnt = AVERAGING_CNT;
 uint32_t ui32_battery_current_mA_avg = 0;
 
+//added by mstrens to get torque knee weight (range 0/40) based on another value received from an array
+static uint8_t ui8_adc_pedal_torque_angle_adj_array[41] = {160, 138, 120, 107, 96, 88, 80, 74, 70, 66, 63, 59, 56, 52,
+	50, 47, 44, 42, 39, 37, 36, 35, 34, 33, 32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16 };
+uint8_t ui8_pedal_torque_knee_adc_percent= 10; // filled with buffer[50] = value from ui8_adc_pedal_torque_offset_adj (0...34)
+uint8_t ui8_pedal_torque_expo_coef = 20; // filled with buffer[51] = value from ui8_adc_pedal_torque_range_adj; Still 20 to remove (0...40)
+uint8_t ui8_pedal_torque_knee_weight = 20; // filled with buffer[52] = 2 * index in array from ui8_adc_pedal_torque_angle_adj(160...16 to get 0...40)
+uint8_t ui8_pedal_torque_max_weight = 80; // filled with buffer[81] = 2 * value from ui8_coast_brake_adc (5...50) 
 
 uint32_t ui32_current_1_rotation_ma = 0; // average current over 1 electric rotation
 
@@ -1671,12 +1678,157 @@ void new_torque_sample() {
     
 }
 
+//uint16_t ui16_adc_pedal_torque_offset;       // Offset effectif utilisé
+uint16_t ui16_adc_pedal_torque_adc_knee;    // ADC au point knee
+//uint16_t ui16_adc_pedal_torque_adc_80kg;     // ADC théorique à 80 kg
+
+uint32_t ui32_pedal_torque_k1_q16;           // pente segment 1, Q16
+uint32_t ui32_pedal_torque_k2_q16;           // pente segment 2, Q16
+uint8_t  ui8_pedal_torque_knee_value;        // sortie au knee (0...160)
+
+//uint8_t  ui8_pedal_torque_knee_adc_percent = 10;
+//uint8_t  ui8_pedal_torque_knee_weight      = 50;
+//uint8_t  ui8_pedal_torque_max_weight       = 80;
+
+//uint16_t ui16_adc_pedal_torque_offset_set;
+//uint16_t ui16_adc_pedal_torque_range;
+
+bool pedal_torque_parameter_error = false;
+
+void pedal_torque_update_parameters(void)
+{
+    uint32_t ui32_temp;
+    uint32_t ui32_adc_knee;
+    uint32_t ui32_adc_max;
+
+    uint32_t ui32_delta_adc_2;
+    uint32_t ui32_delta_weight_2;
+
+    uint32_t ui32_adc80_delta;
+
+    // determine offset
+    ui16_adc_pedal_torque_offset = ui16_adc_pedal_torque_offset_set;
+
+    // calculate ADC max
+    ui32_adc_max = (uint32_t) ui16_adc_pedal_torque_offset + (uint32_t) ui16_adc_pedal_torque_range;
+
+    pedal_torque_parameter_error = false;
+    // first check some parameters
+    if ( ( ui16_adc_pedal_torque_offset < 100) ||
+            ( ui16_adc_pedal_torque_offset > 300) ||
+            ( ui16_adc_pedal_torque_range < 50) ||
+            ( ui8_pedal_torque_knee_weight < 20) || 
+            ( ui8_pedal_torque_knee_weight > 70) ||
+            ( ui8_pedal_torque_max_weight > 100) || 
+            ( ui8_pedal_torque_knee_weight >= ui8_pedal_torque_max_weight) || 
+            ( ( ui8_pedal_torque_max_weight - ui8_pedal_torque_knee_weight ) < 10)||
+            (ui8_pedal_torque_knee_adc_percent == 0) ||
+            (ui8_pedal_torque_knee_adc_percent > 34) ||
+            ((ui32_adc_max < 100) || (ui32_adc_max > 600))  
+        ) {
+        pedal_torque_parameter_error = true;
+        return;
+    }
+  
+    /*
+     * ------------------------------------------------------------
+     * ADC at the knee
+     *
+     * knee_adc_percent is the percentage of the ADC range
+     * corresponding to the saturated part.
+     * Therefore:  100 - knee_adc_percent is the ADC range up to the knee.
+     * ------------------------------------------------------------
+     */
+    ui32_adc_knee =
+        (uint32_t) ui16_adc_pedal_torque_range
+        * (100U - ui8_pedal_torque_knee_adc_percent);
+    ui32_adc_knee /= 100U;
+    ui32_adc_knee += ui16_adc_pedal_torque_offset;
+    ui16_adc_pedal_torque_adc_knee = (uint16_t) ui32_adc_knee;
+    
+    // normalized Value corresponding to the knee because 80kg -> 160
+    // 0 kg  -> 0
+    // Wk    -> Wk * 2
+    ui8_pedal_torque_knee_value = (uint8_t) (2U * ui8_pedal_torque_knee_weight);
+    
+    // First segment coefficient (from ADC offset -> 0 up to ADC knee   -> knee_value) in  Q16 coefficient:
+    // K1 = knee_value * 65536 / delta_ADC
+    ui32_temp = (uint32_t) ui16_adc_pedal_torque_adc_knee - (uint32_t) ui16_adc_pedal_torque_offset;
+    if (ui32_temp != 0)    {
+        ui32_pedal_torque_k1_q16 = ((uint64_t) ui8_pedal_torque_knee_value << 16) / ui32_temp;
+    }    else     {
+        ui32_pedal_torque_k1_q16 = 0;
+    }
+
+    // Second segment (from Wk -> ADC_knee up to Wm -> ADC_max);  * We extrapolate/interpolate to 80 kg.
+    // We don't actually calculate ADC80 with integer rounding.
+    // Instead, we calculate its equivalent slope directly.
+    ui32_delta_adc_2 = ui32_adc_max - (uint32_t) ui16_adc_pedal_torque_adc_knee;
+    ui32_delta_weight_2 = (uint32_t) ui8_pedal_torque_max_weight - (uint32_t) ui8_pedal_torque_knee_weight;
+
+    // ADC difference corresponding to 80 kg:
+    // ADC80 - ADCknee =  ( delta_ADC * (80 - Wk) )    /   (  Wm - Wk )
+    // This is kept as a rational value so that we don't lose precision by rounding ADC80 first.
+    if ((ui32_delta_adc_2 != 0)
+        && (ui32_delta_weight_2 != 0)
+        && (ui8_pedal_torque_knee_weight < 80))     {
+        ui32_adc80_delta = (uint32_t) (80U - ui8_pedal_torque_knee_weight);
+        // K2 =  (160 - knee_value) * 65536 / (  ADC80 - ADCknee )
+        // with  (ADC80 - ADCknee) =  delta_ADC * (80-Wk)/(Wm-Wk)
+        // Therefore: K2 = (160-knee) * 65536 * (Wm-Wk) / ( delta_ADC * (80-Wk) )
+
+        ui32_pedal_torque_k2_q16 = ((uint64_t) (160U - ui8_pedal_torque_knee_value) * 65536ULL  * ui32_delta_weight_2)
+                                    /   ((uint64_t) ui32_delta_adc_2 * ui32_adc80_delta);
+    }     else     {
+        ui32_pedal_torque_k2_q16 = 0;
+    }
+                
+    // check that slope of first segment is higher than for second segment 
+    if (((ui32_adc_knee - ui16_adc_pedal_torque_offset) * (ui8_pedal_torque_max_weight - ui8_pedal_torque_knee_weight))
+        <=  ((ui32_adc_max - ui32_adc_knee) * ui8_pedal_torque_knee_weight))
+    {
+        pedal_torque_parameter_error = true;
+    }
+}
+
+uint8_t pedal_torque_process_adc(uint16_t ui16_adc_torque_filtered)
+{
+    uint32_t ui32_delta;
+    uint32_t ui32_result;
+
+    if (pedal_torque_parameter_error) {
+        return 0;
+    }
+    // Below 0 kg
+    if (ui16_adc_torque_filtered <= ui16_adc_pedal_torque_offset)   { 
+        return 0;
+    }
+
+    // First segment    
+    if (ui16_adc_torque_filtered <= ui16_adc_pedal_torque_adc_knee)     {
+        ui32_delta = (uint32_t) ui16_adc_torque_filtered - (uint32_t) ui16_adc_pedal_torque_offset;
+        ui32_result = ((uint32_t) ui32_delta * ui32_pedal_torque_k1_q16 + 32768U) >> 16;
+        if (ui32_result > 160) {  return 160; }
+        return (uint8_t) ui32_result;
+    }
+
+    // Second segment
+    ui32_delta = (uint32_t) ui16_adc_torque_filtered - (uint32_t) ui16_adc_pedal_torque_adc_knee;
+    ui32_result = ui8_pedal_torque_knee_value + (((uint32_t) ui32_delta * ui32_pedal_torque_k2_q16 + 32768U) >> 16);
+    if (ui32_result >= 160)    { return 160; }
+    return (uint8_t) ui32_result;
+}
+
+
+
+
 //( (USE_SPIDER_LOGIC_FOR_TORQUE > 0 (so 1, 2, 3)
 #define TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MAX 100 // max value is 160
 static void get_pedal_torque(void) {
 	if (toffset_cycle_counter < TOFFSET_CYCLES) {  // less than 3 sec
 		ui16_adc_pedal_torque_offset_init = filter(ui16_adc_torque_filtered, ui16_adc_pedal_torque_offset_init , 4) ; // get filtered torque captured in motor.c irq1
         toffset_cycle_counter++;
+		/*
 		if ((toffset_cycle_counter == TOFFSET_CYCLES)&&(ui8_torque_sensor_calibration_enabled)) {
 			if ((ui16_adc_pedal_torque_offset_init > ui16_adc_pedal_torque_offset_min)&& 
 			  (ui16_adc_pedal_torque_offset_init < ui16_adc_pedal_torque_offset_max)) {
@@ -1686,6 +1838,7 @@ static void get_pedal_torque(void) {
 				ui8_adc_pedal_torque_offset_error = 1;
 			}
 		}
+		*/	
 		ui16_adc_pedal_torque = ui16_adc_pedal_torque_offset_init;
 	} else { // after 3 sec
 		ui16_adc_pedal_torque = ui16_adc_torque_filtered; // ui16_adc_torque_filtered is the value calculated in irq
@@ -1694,6 +1847,20 @@ static void get_pedal_torque(void) {
 	ui16_adc_pedal_torque_delta = 0; // this is the final value to retun 
 	uint16_t ui16_TorqueDeltaADC_norm = 0;
 	uint16_t ui16_adc_torque = ui16_adc_torque_filtered; // save the value being calculated in motor.c because it can change in irq
+	// check that init value (calculated at power on) is valid with parameters from display
+	if ((toffset_cycle_counter >= TOFFSET_CYCLES)&&(ui8_m_motor_init_status == MOTOR_INIT_STATUS_INIT_OK)) {
+		if ((ui16_adc_pedal_torque_offset_init > ui16_adc_pedal_torque_offset_min)&& 
+		  (ui16_adc_pedal_torque_offset_init < ui16_adc_pedal_torque_offset_max)) {
+			ui8_adc_pedal_torque_offset_error = 0;
+		}
+		else {
+			ui8_adc_pedal_torque_offset_error = 1;
+			ui16_adc_torque = 0; // reset for safety so motor can't start
+		}
+	}
+	// linearisation and normalisation of adc torque (value is in now in range 0...160)
+	ui16_TorqueDeltaADC_norm = pedal_torque_process_adc(ui16_adc_torque); 
+	/*
 	if ( ui16_adc_torque > ui16_adc_pedal_torque_offset) {
 		// map the delta value to max 160.
 		ui16_TorqueDeltaADC_norm = ((uint32_t)(ui16_adc_torque - ui16_adc_pedal_torque_offset) * ADC_TORQUE_SENSOR_RANGE_TARGET) /ui16_adc_pedal_torque_range ;
@@ -1702,7 +1869,8 @@ static void get_pedal_torque(void) {
 		}	
 	} else {
 		ui16_adc_pedal_torque_filtered_noExpo = 0 ;  // reset filtered no expo when torque is 0
-	}	
+	}
+	*/	
 #if ((USE_SPIDER_LOGIC_FOR_TORQUE == (1)) || (USE_SPIDER_LOGIC_FOR_TORQUE == (3)) )
 	// when TSampleNum == 20,
 	//                     if difference with previous at the same position,is low, use the average (no filter because already average over one rotation)
@@ -1747,7 +1915,7 @@ static void get_pedal_torque(void) {
 #endif	
 	ui16_adc_pedal_torque_delta =  expo(
 				(int) ui16_adc_pedal_torque_filtered_noExpo  ,
-					((int) ui8_adc_pedal_torque_range_adj - 20) * 12 ); // apply expo ; *12 because expo expect a value in range -256/+256
+					((int) ui8_pedal_torque_expo_coef - 20) * 12 ); // apply expo ; *12 because expo expect a value in range -256/+256
 			
 	// here ui16_adc_pedal_torque_delta is known
 	ui16_adc_pedal_torque_delta_temp = ui16_adc_pedal_torque_delta;
@@ -1986,7 +2154,7 @@ static void get_pedal_torque(void)
 	//                      so we have to substract 20 and multiply by 12.
 	ui16_adc_pedal_torque_delta =  expo(
 		(int) ui16_adc_pedal_torque_noExpo  ,
-			((int) ui8_adc_pedal_torque_range_adj - 20) * 12 ); // apply expo ; *12 because expo expect a value in range -256/+256
+			((int) ui8_pedal_torque_expo_coef - 20) * 12 ); // apply expo ; *12 because expo expect a value in range -256/+256
 
 	// here ui16_adc_pedal_torque_delta is known
 	ui16_adc_pedal_torque_delta_temp = ui16_adc_pedal_torque_delta;
@@ -2748,10 +2916,22 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		ui8_adc_pedal_torque_offset_adj = ui8_rx_buffer[50];
 		
 		// Torque ADC range adjustment (0 / 40)
-		ui8_adc_pedal_torque_range_adj = ui8_rx_buffer[51];
-		
+		//ui8_adc_pedal_torque_range_adj = ui8_rx_buffer[51]; // original code
+		ui8_pedal_torque_expo_coef = ui8_rx_buffer[51]; // mstrens reused field for exponential correction
+
 		// Torque ADC angle adjustment (0 / 40)
-		ui8_adc_pedal_torque_angle_adj = ui8_rx_buffer[52];
+		// ui8_adc_pedal_torque_angle_adj = ui8_rx_buffer[52]; // previous code
+		// added by mstrens
+		ui8_pedal_torque_knee_weight = 0;
+		for (uint8_t i = 0; i < 41; i++) {
+			if (ui8_adc_pedal_torque_angle_adj_array[i] == ui8_rx_buffer[52])
+			{
+				ui8_pedal_torque_knee_weight = i * 2; // use index * 2 as knee weight
+				break;
+			}
+		}
+		if (ui8_pedal_torque_knee_weight < 20) ui8_pedal_torque_knee_weight= 20; // safety to avoid to low values
+		// end of mstrens change
 		
 		// Parameters for torque ADC offset adjustment
 		ui8_adc_torque_calibration_offset = ui8_rx_buffer[53];
@@ -2810,13 +2990,14 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		// modified by mstrens to allow to change foc calculation
 		//ui8_foc_angle_multiplicator = ui8_rx_buffer[81]; // not used anymore with optimised lead angle in systick.c
 		// modified by mstrens to select the lead angle to display
-		ui8_lead_angle_to_display = ui8_rx_buffer[81]; // select the lead angle to transmit to the display
+		//ui8_lead_angle_to_display = ui8_rx_buffer[81]; // select the lead angle to transmit to the display
                                        // 10 = total lead angle, 
 									   // 11 =  part of base lead angle depending on rpm
 									   // 12 =  part of base lead angle depending on current
 									   // 13 = base lead angle (sum of 2 parts)
-									   // 14 = correction based on Id 
-
+									   // 14 = correction based on Id
+		ui8_lead_angle_to_display = 14; // in this version, we force the value because coaster_brake_torque is reused for ui8_pedal_torque_max_weight
+		ui8_pedal_torque_max_weight = ui8_rx_buffer[81] * 2; //
 		
 
 		//ui8_m_adc_lights_current_offset = (uint16_t) ui8_rx_buffer[82];
@@ -2839,6 +3020,8 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 			ui8_assist_without_pedal_rotation_threshold = 0;
 		}
 		break;
+
+		pedal_torque_update_parameters(); // update all parameters used to linearise and normalise ADC torque value.
 
       // firmware version
       case COMM_FRAME_TYPE_FIRMWARE_VERSION:
