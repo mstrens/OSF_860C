@@ -38,6 +38,10 @@ MTB_TYPE=COMBINED
 # and update or regenerate launch configurations for your IDE.
 TARGET=tsdz8_for_GPIO_TEST
 
+# !!!!!! Added by mstrens to avoid that some generated files are regenerated silently
+#        because user should use a modus toolbox version other than version 3.3 
+SKIP_CODE_GEN=TRUE
+
 # Name of application (used to derive name of final linked file).
 #
 # If APPNAME is edited, ensure to update or regenerate launch
@@ -189,4 +193,49 @@ endif
 
 $(info Tools Directory: $(CY_TOOLS_DIR))
 
+# !!!!!! Added by mstrens to check if the right version of Modustoolbox tools (V3.3) is being used 
+ifeq ($(findstring tools_3.3,$(CY_TOOLS_DIR)),)
+$(error This project requires ModusToolbox Tools 3.3)
+endif
+
 include $(CY_TOOLS_DIR)/make/start.mk
+
+
+# !!!!!! Added by mstrens to check if some generated files are regenerated silently
+#        because user should use a modus toolbox version other than version 3.3 
+
+# ============================================================
+# OSF TSDZ8 integrity check (bulletproof)
+# ============================================================
+
+# Find cycfg_peripherals.c anywhere in BSP tree
+CYCFG_FILE := $(firstword $(wildcard \
+    bsps/TARGET_tsdz8_for_GPIO_TEST/config/GeneratedSource/cycfg_peripherals.c \
+    bsps/**/cycfg_peripherals.c \
+    ../bsps/TARGET_tsdz8_for_GPIO_TEST/config/GeneratedSource/cycfg_peripherals.c \
+))
+
+# Fail immediately if file not found
+ifeq ($(CYCFG_FILE),)
+$(error ERROR: cycfg_peripherals.c not found (BSP path issue or wrong workspace))
+endif
+
+# Normalize path for shell
+CYCFG_FILE := $(subst \,/,$(CYCFG_FILE))
+
+# Check marker "mstrens"
+CHECK_OSF := $(shell grep -q "mstrens" "$(CYCFG_FILE)" && echo OK)
+
+ifeq ($(CHECK_OSF),)
+$(warning ************************************************************)
+$(warning ERROR: cycfg_peripherals.c was regenerated and/or modified.)
+$(warning ERROR: To avoid this error, you must have version 3.3 of ModusToolbox Tools and not an higher version.)
+$(warning ERROR: You may also not use modustoolbox to regenerate the initialisation file.)
+$(warning ERROR: Restore the files from GitHub.)
+$(warning ************************************************************)
+$(error Build aborted)
+endif
+
+
+# Optional debug (uncomment if needed)
+# $(info OSF check OK: $(CYCFG_FILE))

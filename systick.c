@@ -87,8 +87,10 @@ void SysTick_Handler(void) {
     // --- Wheel --- 
     static uint32_t ui32_prev_wheel_pwm_tick = 0;
     static uint32_t ui32_last_wheel_ms = 0;
-    // --- cadence --- 
+    // --- cadence ---
+    #define CADENCE_REVERSE_DEBOUNCE 3   // consecutive reverse codes before believing a real backward rotation
     static int8_t i8_prev_cadence_index = -1;      // -1 = pas encore de référence
+    static uint8_t ui8_cadence_reverse_cnt = 0;    // consecutive reverse quadrature codes (dither rejection)
     static uint32_t ui32_prev_cadence_tick = 0;
     static uint32_t ui32_last_cadence_ms = 0;
     static uint32_t ui32_prev_cadence_tick_max = 0;          // pour détecter un vrai nouveau front
@@ -124,11 +126,24 @@ void SysTick_Handler(void) {
     // Check if a new cadence event occured
     if (ui32_cadence_tick_max != ui32_prev_cadence_tick_max) {
         ui32_prev_cadence_tick_max = ui32_cadence_tick_max;
-        if (ui8_cadence_idx_max == 4) { // --- reverse cadence rotation ---
-            ui16_cadence_sensor_ticks = 0; // reset value used in ebike_app.c
-            i8_prev_cadence_index = -1;
-             ui8_pas_new_transition = 0x80; // used in mspider logic for torque sensor // to do
+        if (ui8_cadence_idx_max == 4) { // --- reverse transition seen ---
+            // DEBOUNCE spurious reverses: a single reverse quadrature code is almost always detent-edge
+            // dither, not real backward pedalling. Zeroing cadence AND wiping the rotation-average torque
+            // buffer (pas_new_transition=0x80) on ONE reverse made cadence glitch to 0 for ~300 ms while
+            // pedalling FORWARD at speed (the quadrature dithers at a detent edge), which fed the
+            // per-stroke dead-spot torque zeros and forced long debounces everywhere downstream. Require
+            // several consecutive reverses; any interleaved forward transition resets the count. Genuine
+            // backward rotation produces a run of reverse codes and still trips it (a few transitions later,
+            // which is harmless).
+            if (ui8_cadence_reverse_cnt < 255) ui8_cadence_reverse_cnt++;
+            if (ui8_cadence_reverse_cnt >= CADENCE_REVERSE_DEBOUNCE) { // believed real backward rotation
+                ui16_cadence_sensor_ticks = 0; // reset value used in ebike_app.c
+                i8_prev_cadence_index = -1;
+                ui8_pas_new_transition = 0x80; // used in mspider logic for torque sensor // to do
+            }
+            // else: ignore this isolated reverse - keep cadence and the torque buffer intact
         } else { // --- forward cadence (codes 0..3) ---
+            ui8_cadence_reverse_cnt = 0; // a forward transition clears the reverse debounce
             //ui16_debug_fw_cnt++;
             if (i8_prev_cadence_index < 0) {   // Premier front après arrêt → initialise seulement
                 i8_prev_cadence_index = (int8_t)ui8_cadence_idx_max;
@@ -177,7 +192,9 @@ void SysTick_Handler(void) {
         ui32_prev_wheel_pwm_tick = ui32_wheel_pwm_tick; // save for next comparison
         ui32_last_wheel_ms = ui32_ms_counter;           // used to detect when wheel stopped (time out)
         if (ui32_wheel_delta_ticks > 0) {
-            if (ui32_wheel_delta_ticks > 600) { // 600 at 19Khz => 2000mm/1000000(km) * 19000kHz/600 * 3600sec = 228 km/h
+            //if (ui32_wheel_delta_ticks > 600) { // 600 at 19Khz => 2000mm/1000000(km) * 19000kHz/600 * 3600sec = 228 km/h
+            if (ui32_wheel_delta_ticks > 1800) { // 1800 at 19Khz => 2000mm/1000000(km) * 19000kHz/1800 * 3600sec = 75 km/h
+            
                 // set the value used in ebike_app.c to wheel speed when speed is not to high
                 ui16_wheel_speed_sensor_ticks = ui32_wheel_delta_ticks ; // ticks are based on PWM frequency
                 ++ui32_wheel_speed_sensor_ticks_total; // used only in 860C version to calculate the distance in 860c

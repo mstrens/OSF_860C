@@ -163,12 +163,17 @@ Reversely, the more the parameter is lower than 20 (up to 1), the more assistanc
 If you want, you can look at the software and modify it.
 
 This software has been developped with 
- - Modus toolbox (from infineon)
+ - Modus toolbox (from infineon): !!! it must be version 3.3 
  - Visual Studio Code (and some extensions).
 Note: Segger Jlink is also used to flash the controller if you want to do it inside VS Code.
 
 To install those firmwares, you have to follow the instructions provided in this link in the steps 1.1 and 1.2 (and 1.3 if you plan to use Jlink inside VS Code)
 https://www.infineon.com/dgdl/Infineon-Visual-Studio-Code-user-guide-UserManual-v04_00-EN.pdf?fileId=8ac78c8c92416ca50192787be52923b2&redirId=248223
+
+There is an important point of attention: I used some modus tool to generate the initialisation (config) files.
+Those files may normally not be manually modified but still I had to do so.
+The result is that you must install the version 3.3 (not another one) otherwise configuration files will be regenerated silently and the changes I made will will be lost. Then your compilation will succeed but the firmware will not run!!!!
+
 
 This can be quite long but is not very difficult.
 There is no need to follow the instructions in chapters 2 and after.
