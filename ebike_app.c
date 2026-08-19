@@ -2913,24 +2913,27 @@ static void communications_process_packages(uint8_t ui8_frame_type)
                 (uint8_t) PWM_DUTY_CYCLE_RAMP_DOWN_INVERSE_STEP_MIN);
 		
 		// Torque ADC offset adjustment (0 / 34)
-		ui8_adc_pedal_torque_offset_adj = ui8_rx_buffer[50];
+		//ui8_adc_pedal_torque_offset_adj = ui8_rx_buffer[50]; // mstrens : original purpose
+		ui8_pedal_torque_knee_adc_percent = ui8_rx_buffer[50]; // reused for knee ADC percent
 		
 		// Torque ADC range adjustment (0 / 40)
 		//ui8_adc_pedal_torque_range_adj = ui8_rx_buffer[51]; // original code
+		ui8_pedal_torque_knee_weight = ui8_rx_buffer[51] * 2; // mstrens reused field
+		if (ui8_pedal_torque_knee_weight < 20) ui8_pedal_torque_knee_weight= 20; // safety to avoid to low values
+		
 		ui8_pedal_torque_expo_coef = ui8_rx_buffer[51]; // mstrens reused field for exponential correction
 
 		// Torque ADC angle adjustment (0 / 40)
 		// ui8_adc_pedal_torque_angle_adj = ui8_rx_buffer[52]; // previous code
 		// added by mstrens
-		ui8_pedal_torque_knee_weight = 0;
+		ui8_pedal_torque_expo_coef = 20;
 		for (uint8_t i = 0; i < 41; i++) {
 			if (ui8_adc_pedal_torque_angle_adj_array[i] == ui8_rx_buffer[52])
 			{
-				ui8_pedal_torque_knee_weight = i * 2; // use index * 2 as knee weight
+				ui8_pedal_torque_expo_coef = i ; // use index for expo
 				break;
 			}
 		}
-		if (ui8_pedal_torque_knee_weight < 20) ui8_pedal_torque_knee_weight= 20; // safety to avoid to low values
 		// end of mstrens change
 		
 		// Parameters for torque ADC offset adjustment
