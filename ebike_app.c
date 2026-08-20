@@ -114,10 +114,10 @@ static uint16_t ui16_adc_pedal_torque_offset_set = ADC_TORQUE_SENSOR_OFFSET_DEFA
 static uint16_t ui16_adc_pedal_torque_offset_min = ADC_TORQUE_SENSOR_OFFSET_DEFAULT - ADC_TORQUE_SENSOR_OFFSET_THRESHOLD; // 120
 static uint16_t ui16_adc_pedal_torque_offset_max = ADC_TORQUE_SENSOR_OFFSET_DEFAULT ; // mstrens in new logic init may not exceed offset 
 static uint8_t ui8_adc_pedal_torque_offset_error = 0;
-static uint8_t ui8_adc_torque_calibration_offset = 0;
-static uint8_t ui8_adc_torque_middle_offset_adj = 0;
-static uint8_t ui8_adc_pedal_torque_offset_adj = 0;
-static uint8_t ui8_adc_pedal_torque_delta_adj = 0;
+//static uint8_t ui8_adc_torque_calibration_offset = 0; // mstrens - not used anymore
+//static uint8_t ui8_adc_torque_middle_offset_adj = 0; // mstrens - not used anymore
+//static uint8_t ui8_adc_pedal_torque_offset_adj = 0; // mstrens - not used anymore
+//static uint8_t ui8_adc_pedal_torque_delta_adj = 0; // mstrens - not used anymore
 //static uint8_t ui8_adc_pedal_torque_range_adj = 0; // mstrens not used anymore - used for torque expo
 static uint16_t ui16_adc_pedal_torque_range = 160;
 static uint16_t ui16_adc_pedal_torque_range_ingrease_x100 = 0;
@@ -130,7 +130,7 @@ static uint16_t ui16_adc_pedal_torque = 0;
 static uint16_t ui16_adc_pedal_torque_delta = 0;
 static uint16_t ui16_adc_pedal_torque_delta_temp = 0;
 static uint16_t ui16_adc_pedal_torque_delta_no_boost = 0;
-static uint16_t ui16_pedal_torque_x100 = 0;
+//static uint16_t ui16_pedal_torque_x100 = 0; // mstrens :  not used because hybrid mode recalculate it
 static uint8_t ui8_torque_sensor_calibration_enabled = 0;
 static uint8_t ui8_hybrid_torque_parameter = 0;
 static uint8_t ui8_eMTB_based_on_power = 1;
@@ -730,11 +730,11 @@ static void apply_power_assist(void)
 	
   	// startup boost
 	if (ui8_startup_boost_enabled) {
-		apply_startup_boost();
+		apply_startup_boost(); // this change the value of ui16_adc_pedal_torque_delta (so pedal_torque_X100 that was calculated in get_pedal_torque is not valid)
 	}
 	
 	if ((ui8_pedal_cadence_RPM)||(ui8_startup_assist_adc_battery_current_target)) {
-		// calculate torque on pedals + torque startup boost
+		// calculate torque on pedals taking care of expo + startup boost (because based on ui16_adc_pedal_torque_delta  )
 		uint32_t ui32_pedal_torque_x100 = (uint32_t)(ui16_adc_pedal_torque_delta * ui8_pedal_torque_per_10_bit_ADC_step_x100);
 	
 		// calculate power assist by multiplying human power with the power assist multiplier
@@ -1018,9 +1018,12 @@ static void apply_hybrid_assist(void)
 		// get the power assist multiplier
 		uint8_t ui8_power_assist_multiplier_x50 = ui8_riding_mode_parameter;
 
-		// calculate power assist by multiplying human power with the power assist multiplier
+		// calculate torque on pedals taking care of expo (because based on ui16_adc_pedal_torque_delta  )
+		uint32_t ui32_pedal_torque_x100 = (uint32_t)(ui16_adc_pedal_torque_delta * ui8_pedal_torque_per_10_bit_ADC_step_x100);
+	
+		// calculate power assist by multiplying power with the power assist multiplier
 		uint32_t ui32_power_assist_x100 = (((uint32_t)(ui8_pedal_cadence_RPM * ui8_power_assist_multiplier_x50))
-				* ui16_pedal_torque_x100) >> 8; // see note below
+            * ui32_pedal_torque_x100) >> 8; // see note below ; IN tsdz2, it is 9; with 8 we can double the current for the same level
 	
 		// calculate power assist target current x100
 		uint32_t ui32_battery_current_target_x100 = (ui32_power_assist_x100 * 1000) / ui16_battery_voltage_filtered_x1000;
@@ -1035,6 +1038,7 @@ static void apply_hybrid_assist(void)
 		else {
 			ui16_adc_battery_current_target = ui16_adc_battery_current_target_torque_assist;
 		}
+
 		// set motor acceleration / deceleration
 		set_motor_ramp();
 	
@@ -1824,6 +1828,19 @@ uint8_t pedal_torque_process_adc(uint16_t ui16_adc_torque_filtered)
 
 //( (USE_SPIDER_LOGIC_FOR_TORQUE > 0 (so 1, 2, 3)
 #define TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MAX 100 // max value is 160
+// ui16_adc_pedal_torque_offset_init = filtered raw ADC after 3 sec = offset when no weight on pedal
+// ui16_adc_pedal_torque_offset_set = offset received from display
+// ui16_adc_torque_filtered = raw value (with filter) calculated in motor because calculated in irq
+// ui16_TorqueDeltaADC_norm =  conversion of ui16_adc_torque_filtered for linearization and normalisation (0...160 for 0...80kg)
+// ui16_adc_pedal_torque_filtered_noExpo = averaging of ui16_TorqueDeltaADC_norm on one pedal rotation (spider logic)
+// ui16_adc_pedal_torque_delta =  apply expo on ui16_adc_pedal_torque_filtered_noExpo (to be used for assistance)
+// ui16_adc_pedal_torque_delta_temp = copy of ui16_adc_pedal_torque_delta;
+// ui16_adc_pedal_torque_delta_no_boost = ui16_adc_pedal_torque_delta used for cadence sensor check(ERR03); sent in tx_buffer[]
+// ui16_pedal_torque_x100 = calculate torque on pedals
+//                        = ui16_adc_pedal_torque_delta * ui8_pedal_torque_per_10_bit_ADC_step_x100;
+
+
+
 static void get_pedal_torque(void) {
 	if (toffset_cycle_counter < TOFFSET_CYCLES) {  // less than 3 sec
 		ui16_adc_pedal_torque_offset_init = filter(ui16_adc_torque_filtered, ui16_adc_pedal_torque_offset_init , 4) ; // get filtered torque captured in motor.c irq1
@@ -1920,11 +1937,8 @@ static void get_pedal_torque(void) {
 	// here ui16_adc_pedal_torque_delta is known
 	ui16_adc_pedal_torque_delta_temp = ui16_adc_pedal_torque_delta;
 	
-	// for cadence sensor check
-	ui16_adc_pedal_torque_delta_no_boost = ui16_adc_pedal_torque_delta;
-	
-    // calculate torque on pedals
-    ui16_pedal_torque_x100 = ui16_adc_pedal_torque_delta * ui8_pedal_torque_per_10_bit_ADC_step_x100;
+	// for cadence sensor check and sent in TX_buffer[12..13] for calculation of human power by display 860c
+	ui16_adc_pedal_torque_delta_no_boost = ui16_adc_pedal_torque_filtered_noExpo; // mstrens it was = ui16_adc_pedal_torque_delta;
 	
 }
 #else // NORMAL or KATANA logic : (USE_SPIDER_LOGIC_FOR_TORQUE == (0)) 
@@ -2159,12 +2173,10 @@ static void get_pedal_torque(void)
 	// here ui16_adc_pedal_torque_delta is known
 	ui16_adc_pedal_torque_delta_temp = ui16_adc_pedal_torque_delta;
 	
-	// for cadence sensor check
-	ui16_adc_pedal_torque_delta_no_boost = ui16_adc_pedal_torque_delta;
+	// for cadence sensor check and sent in TX_buffer[12..13] for calculation of human power by display 860c
+	ui16_adc_pedal_torque_delta_no_boost = ui16_adc_pedal_torque_filtered_noExpo ; // mstrens it was = ui16_adc_pedal_torque_delta;
 	
-    // calculate torque on pedals
-    ui16_pedal_torque_x100 = ui16_adc_pedal_torque_delta * ui8_pedal_torque_per_10_bit_ADC_step_x100;
-	
+
 	/*------------------------------------------------------------------------
 
     NOTE: regarding the human power calculation
@@ -2747,6 +2759,8 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		ui8_tx_buffer[7] |= (uint8_t) ((ui16_adc_torque_filtered & 0x300) >> 2); //xx00 0000
 
 		// pedal torque delta no boost
+		// those bytes are used in 860C to calculate human power so it may not take exponential into account
+		// ui16_adc_pedal_torque_delta_no_boost has been filled in get_pedal_torque()
 		ui8_tx_buffer[12] = (uint8_t) (ui16_adc_pedal_torque_delta_no_boost & 0xff);
 		ui8_tx_buffer[13] = (uint8_t) (ui16_adc_pedal_torque_delta_no_boost >> 8);
 		
@@ -2810,7 +2824,7 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		ui8_tx_buffer[22] = (uint8_t) ((ui32_wheel_speed_sensor_ticks_total >> 8) & 0xff);
 		ui8_tx_buffer[23] = (uint8_t) ((ui32_wheel_speed_sensor_ticks_total >> 16) & 0xff);
 
-		// pedal torque delta boost
+		// pedal torque delta ; mstrens this field take care of the expo and is used to calculate the assistance in all mode (except cadence)
 		ui8_tx_buffer[24] = (uint8_t) (ui16_adc_pedal_torque_delta & 0xff);
 		ui8_tx_buffer[25] = (uint8_t) (ui16_adc_pedal_torque_delta >> 8);
 
@@ -2937,11 +2951,11 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		// end of mstrens change
 		
 		// Parameters for torque ADC offset adjustment
-		ui8_adc_torque_calibration_offset = ui8_rx_buffer[53];
-		ui8_adc_torque_middle_offset_adj = ui8_rx_buffer[54];
+		//ui8_adc_torque_calibration_offset = ui8_rx_buffer[53]; // mstrens - not used anymore
+		//ui8_adc_torque_middle_offset_adj = ui8_rx_buffer[54]; // mstrens - not used anymore
 		
-		// Torque ADC delta adjustment
-		ui8_adc_pedal_torque_delta_adj = (ui8_adc_torque_middle_offset_adj * 2) - ui8_adc_torque_calibration_offset - ui8_adc_pedal_torque_offset_adj;
+		// Torque ADC delta adjustment // mstrens - not used anymore
+		//ui8_adc_pedal_torque_delta_adj = (ui8_adc_torque_middle_offset_adj * 2) - ui8_adc_torque_calibration_offset - ui8_adc_pedal_torque_offset_adj;
 		
 		// Smooth start counter set
 		ui8_temp = ui8_rx_buffer[55];
