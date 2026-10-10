@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>860C Torque Sensor Calibration</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f6f9;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: #fff;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        h1, h2, h3 { color: #2c3e50; margin-top: 0; }
+        .toolbar {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            background: #ecf0f1;
+            padding: 10px;
+            border-radius: 6px;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+        button:hover { background-color: #2980b9; }
+        button.secondary { background-color: #95a5a6; }
+        button.secondary:hover { background-color: #7f8c8d; }
+        button.add-btn { background-color: #2ecc71; margin-bottom: 10px; }
+        button.add-btn:hover { background-color: #27ae60; }
+        button.delete-btn { background-color: #e74c3c; padding: 4px 8px; font-size: 0.85em; }
+        button.delete-btn:hover { background-color: #c0392b; }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+        .table-container {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            margin-bottom: 10px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+        th, td { padding: 8px 12px; border-bottom: 1px solid #ddd; vertical-align: middle; }
+        th { background-color: #f8f9fa; position: sticky; top: 0; }
+        input[type="number"] {
+            width: 90px;
+            padding: 6px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .config-box {
+            background-color: #fff9db;
+            border-left: 5px solid #f1c40f;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 0 8px 8px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .config-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .config-card {
+            background: white;
+            padding: 12px;
+            border-radius: 6px;
+            border: 1px solid #f5e79e;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .config-card .label-desc {
+            display: flex;
+            flex-direction: column;
+        }
+        .config-card span.title { font-weight: bold; color: #2c3e50; }
+        .config-card span.comment { font-size: 0.8em; color: #7f8c8d; margin-top: 2px; }
+        .config-card strong.value { font-size: 1.15em; color: #d35400; font-family: monospace; }
+        .chart-container {
+            position: relative;
+            height: 450px;
+            width: 100%;
+            margin-bottom: 25px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>860C Torque Sensor Calibration & Configuration</h1>
+    
+    <div class="toolbar">
+        <button onclick="exportJSON()">💾 Save (JSON)</button>
+        <button class="secondary" onclick="document.getElementById('fileInput').click()">📂 Load (JSON)</button>
+        <input type="file" id="fileInput" style="display:none" accept=".json" onchange="importJSON(event)">
+        <button class="secondary" onclick="resetToDefaults()">🔄 Default values</button>
+    </div>
+
+    <div class="chart-container">
+        <canvas id="calibrationChart"></canvas>
+    </div>
+
+    <!-- 860C Configuration Menu -->
+    <div class="config-box">
+        <h2>🛠️ How to fill in the 860C configuration (torque sensor menu)</h2>
+        <div class="config-grid">
+            <div class="config-card">
+                <div class="label-desc"><span class="title">Calibration</span><span class="comment">MUST be disabled</span></div>
+                <strong class="value">DISABLE</strong>
+            </div>
+            <div class="config-card">
+                <div class="label-desc"><span class="title">Torque adc step</span><span class="comment">P_i * 167 / (ADC_i - ADC_0M)</span></div>
+                <strong class="value" id="cfg-step">--</strong>
+            </div>
+            <div class="config-card">
+                <div class="label-desc"><span class="title">Torque adc step adv</span><span class="comment">Not used</span></div>
+                <strong class="value">Not used</strong>
+            </div>
+            <div class="config-card">
+                <div class="label-desc"><span class="title">Torque offset adj</span><span class="comment">Margin to prevent auto-start</span></div>
+                <strong class="value">20</strong>
+            </div>
+            <div class="config-card">
+                <div class="label-desc"><span class="title">Torque range adj</span><span class="comment">(ADC_80M - ADC_i) * 100 / (ADC_80M - ADC_0M)</span></div>
+                <strong class="value" id="cfg-range">--</strong>
+            </div>
+            <div class="config-card">
+                <div class="label-desc"><span class="title">Torque angle adj</span><span class="comment">20 = no exponential response</span></div>
+                <strong class="value">20</strong>
+            </div>
+            <div class="config-card">
+                <div class="label-desc"><span class="title">Torque adc offset</span><span class="comment">ADC_0M (Average at 0 kg)</span></div>
+                <strong class="value" id="cfg-offset">--</strong>
+            </div>
+            <div class="config-card">
+                <div class="label-desc"><span class="title">Torque adc max</span><span class="comment">ADC_80M (Average at 80 kg)</span></div>
+                <strong class="value" id="cfg-max">--</strong>
+            </div>
+            <div class="config-card">
+                <div class="label-desc"><span class="title">Weight on pedal</span><span class="comment">P_i (Intersection weight)</span></div>
+                <strong class="value" id="cfg-weight">--</strong>
+            </div>
+            <div class="config-card">
+                <div class="label-desc"><span class="title">Torque adc on weight</span><span class="comment">ADC_i (Intersection ADC)</span></div>
+                <strong class="value" id="cfg-adcweight">--</strong>
+            </div>
+            <div class="config-card">
+                <div class="label-desc"><span class="title">ADC torque step cal</span><span class="comment">= Torque ADC step</span></div>
+                <strong class="value" id="cfg-stepcal">--</strong>
+            </div>
+            <div class="config-card">
+                <div class="label-desc"><span class="title">Default weight</span><span class="comment">Status</span></div>
+                <strong class="value">no</strong>
+            </div>
+        </div>
+    </div>
+
+    <!-- Input Tables -->
+    <div class="grid">
+        <div>
+            <h2>Left Pedal</h2>
+            <button class="add-btn" onclick="addRow('left')">➕ Add a measurement</button>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Weight (kg)</th>
+                            <th>ADC Value</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="left-table-body"></tbody>
+                </table>
+            </div>
+        </div>
+        <div>
+            <h2>Right Pedal</h2>
+            <button class="add-btn" onclick="addRow('right')">➕ Add a measurement</button>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Weight (kg)</th>
+                            <th>ADC Value</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="right-table-body"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Virtual Synchronization Grid -->
+    <div>
+        <h2>Regular Interpolation & Weighting Grid</h2>
+        <p style="font-size: 0.9em; color:#666;">This grid is automatically generated in 5 kg increments. You can adjust the weighting of each level to influence the automatic fitting of the segments.</p>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Reference Weight (kg)</th>
+                        <th>Interpolated Left (ADC)</th>
+                        <th>Interpolated Right (ADC)</th>
+                        <th>Average (ADC)</th>
+                        <th>Weighting</th>
+                    </tr>
+                </thead>
+                <tbody id="grid-table-body"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Default datasets as specified
+    const defaultLeft = [
+        {w: 0, adc: 200}, {w: 5, adc: 217}, {w: 10, adc: 231}, {w: 20, adc: 261},
+        {w: 30, adc: 296}, {w: 40, adc: 346}, {w: 45, adc: 368}, {w: 50, adc: 392},
+        {w: 55, adc: 399}, {w: 60, adc: 406}, {w: 65, adc: 410}, {w: 70, adc: 412},
+        {w: 75, adc: 414}, {w: 80, adc: 416}, {w: 85, adc: 418}
+    ];
+
+    // Asymmetric dataset for the right side (offset weights and ADC varying by +/- 10%)
+    const defaultRight = [
+        {w: 0, adc: 195}, {w: 4.8, adc: 214}, {w: 11.2, adc: 235}, {w: 18.5, adc: 255},
+        {w: 31.0, adc: 305}, {w: 39.5, adc: 338}, {w: 46.2, adc: 372}, {w: 51.1, adc: 388},
+        {w: 54.8, adc: 394}, {w: 60.5, adc: 412}, {w: 63.8, adc: 415}, {w: 69.1, adc: 410},
+        {w: 76.4, adc: 419}, {w: 81.0, adc: 415}, {w: 84.5, adc: 422}
+    ];
+
+    let leftData = [];
+    let rightData = [];
+    let gridWeights = [];
+    let weightsFactors = {}; // Object storing the weighting factors for each level
+
+    let chartInstance = null;
+
+    function initData() {
+        leftData = JSON.parse(JSON.stringify(defaultLeft));
+        rightData = JSON.parse(JSON.stringify(defaultRight));
+        weightsFactors = {};
+    }
+
+    // Linear interpolation and extrapolation function
+    function interpolate(x, dataPoints) {
+        const sorted = [...dataPoints].sort((a, b) => a.w - b.w);
+        if (sorted.length === 0) return 0;
+        if (sorted.length === 1) return sorted[0].adc;
+
+        // If x is below the first point (lower extrapolation)
+        if (x < sorted[0].w) {
+            const p1 = sorted[0];
+            const p2 = sorted[1];
+            const slope = (p2.adc - p1.adc) / (p2.w - p1.w || 1);
+            return p1.adc + slope * (x - p1.w);
+        }
+
+        // If x is above the last point (upper extrapolation)
+        if (x > sorted[sorted.length - 1].w) {
+            const p1 = sorted[sorted.length - 2];
+            const p2 = sorted[sorted.length - 1];
+            const slope = (p2.adc - p1.adc) / (p2.w - p1.w || 1);
+            return p2.adc + slope * (x - p2.w);
+        }
+
+        // Find the interpolation interval
+        for (let i = 0; i < sorted.length - 1; i++) {
+            if (x >= sorted[i].w && x <= sorted[i+1].w) {
+                const p1 = sorted[i];
+                const p2 = sorted[i+1];
+                const pct = (x - p1.w) / (p2.w - p1.w || 1);
+                return p1.adc + pct * (p2.adc - p1.adc);
+            }
+        }
+        return sorted[sorted.length - 1].adc;
+    }
+
+    function addRow(side) {
+        if (side === 'left') {
+            const lastW = leftData.length > 0 ? leftData[leftData.length - 1].w + 5 : 0;
+            const lastAdc = leftData.length > 0 ? leftData[leftData.length - 1].adc : 200;
+            leftData.push({w: lastW, adc: lastAdc});
+        } else {
+            const lastW = rightData.length > 0 ? rightData[rightData.length - 1].w + 5 : 0;
+            const lastAdc = rightData.length > 0 ? rightData[rightData.length - 1].adc : 200;
+            rightData.push({w: lastW, adc: lastAdc});
+        }
+        calculateAndPlot();
+    }
+
+    function deleteRow(side, idx) {
+        if (side === 'left') leftData.splice(idx, 1);
+        else rightData.splice(idx, 1);
+        calculateAndPlot();
+    }
+
+    function updateMeasure(side, idx, field, val) {
+        const numValue = parseFloat(val) || 0;
+        if (side === 'left') leftData[idx][field] = numValue;
+        else rightData[idx][field] = numValue;
+        calculateAndPlot();
+    }
+
+    function updateWeightFactor(w, val) {
+        weightsFactors[w] = parseFloat(val) || 1.0;
+        calculateAndPlot();
+    }
+
+    function linearRegressionWeighted(points) {
+        let sumW = 0, sumWX = 0, sumWY = 0, sumWXX = 0, sumWXY = 0;
+        points.forEach(p => {
+            sumW += p.w;
+            sumWX += p.w * p.x;
+            sumWY += p.w * p.y;
+            sumWXX += p.w * p.x * p.x;
+            sumWXY += p.w * p.x * p.y;
+        });
+        const denom = (sumW * sumWXX - sumWX * sumWX);
+        if (Math.abs(denom) < 1e-8) return { a: 0, b: 0 };
+        return { a: (sumW * sumWXY - sumWX * sumWY) / denom, b: (sumWY - ((sumW * sumWXY - sumWX * sumWY) / denom) * sumWX) / sumW };
+    }
+
+    function calculateAndPlot() {
+        // Sort user datasets by increasing weight
+        leftData.sort((a,b) => a.w - b.w);
+        rightData.sort((a,b) => a.w - b.w);
+
+        // Render Basic Input Tables
+        const leftBody = document.getElementById('left-table-body');
+        leftBody.innerHTML = '';
+        leftData.forEach((pt, idx) => {
+            leftBody.innerHTML += `<tr>
+                <td><input type="number" step="any" value="${pt.w}" onchange="updateMeasure('left', ${idx}, 'w', this.value)"></td>
+                <td><input type="number" value="${pt.adc}" onchange="updateMeasure('left', ${idx}, 'adc', this.value)"></td>
+                <td><button class="delete-btn" onclick="deleteRow('left', ${idx})">🗑️</button></td>
+            </tr>`;
+        });
+
+        const rightBody = document.getElementById('right-table-body');
+        rightBody.innerHTML = '';
+        rightData.forEach((pt, idx) => {
+            rightBody.innerHTML += `<tr>
+                <td><input type="number" step="any" value="${pt.w}" onchange="updateMeasure('right', ${idx}, 'w', this.value)"></td>
+                <td><input type="number" value="${pt.adc}" onchange="updateMeasure('right', ${idx}, 'adc', this.value)"></td>
+                <td><button class="delete-btn" onclick="deleteRow('right', ${idx})">🗑️</button></td>
+            </tr>`;
+        });
+
+        // 1. Determine the global maximum bound for the grid
+        const maxWLeft = leftData.length > 0 ? leftData[leftData.length - 1].w : 0;
+        const maxWRight = rightData.length > 0 ? rightData[rightData.length - 1].w : 0;
+        const globalMaxW = Math.max(85, maxWLeft, maxWRight);
+
+        // Regenerate grid levels in 5 kg increments
+        gridWeights = [];
+        for (let w = 0; w <= globalMaxW; w += 5) {
+            gridWeights.push(w);
+            if (!(w in weightsFactors)) weightsFactors[w] = 1.0; // Uniform default value
+        }
+
+        // 2. Build the virtual average curve points
+        const virtualPoints = [];
+        const gridBody = document.getElementById('grid-table-body');
+        gridBody.innerHTML = '';
+
+        gridWeights.forEach(w => {
+            const lAdc = interpolate(w, leftData);
+            const rAdc = interpolate(w, rightData);
+            const mAdc = (lAdc + rAdc) / 2;
+            const factor = weightsFactors[w];
+
+            virtualPoints.push({ x: w, y: mAdc, w: factor });
+
+            gridBody.innerHTML += `<tr>
+                <td><strong>${w} kg</strong></td>
+                <td>${lAdc.toFixed(1)}</td>
+                <td>${rAdc.toFixed(1)}</td>
+                <td><span style="color:#2c3e50; font-weight:bold;">${mAdc.toFixed(1)}</span></td>
+                <td><input type="number" min="0" step="0.1" value="${factor}" onchange="updateWeightFactor(${w}, this.value)"></td>
+            </tr>`;
+        });
+
+        // 3. Calculations required by your exact equations
+        const ADC_0G = interpolate(0, leftData);
+        const ADC_0D = interpolate(0, rightData);
+        const ADC_0M = (ADC_0G + ADC_0D) / 2;
+
+        const ADC_80G = interpolate(80, leftData);
+        const ADC_80D = interpolate(80, rightData);
+        const ADC_80M = (ADC_80G + ADC_80D) / 2;
+
+        // 4. Extract the optimal intersection point (P_i, ADC_i)
+        let bestError = Infinity;
+        let bestSeg1 = {a:0, b:0}, bestSeg2 = {a:0, b:0};
+        let P_i = 0, ADC_i = ADC_0M;
+
+        // Scan the pivot points of the virtual grid (excluding the absolute endpoints)
+        for (let i = 2; i < virtualPoints.length - 2; i++) {
+            const part1 = virtualPoints.slice(0, i + 1);
+            const part2 = virtualPoints.slice(i);
+
+            const seg1 = linearRegressionWeighted(part1);
+            const seg2 = linearRegressionWeighted(part2);
+
+            let pivotX = virtualPoints[i].x;
+            if (Math.abs(seg1.a - seg2.a) > 1e-5) {
+                pivotX = (seg2.b - seg1.b) / (seg1.a - seg2.a);
+            }
+            if (pivotX < 0 || pivotX > globalMaxW) pivotX = virtualPoints[i].x;
+            
+            const pivotY = seg1.a * pivotX + seg1.b;
+
+            // Weighted squared-error calculation
+            let err = 0;
+            part1.forEach(p => { err += p.w * Math.pow(p.y - (seg1.a * p.x + seg1.b), 2); });
+            part2.forEach(p => { err += p.w * Math.pow(p.y - (seg2.a * p.x + seg2.b), 2); });
+
+            if (err < bestError) {
+                bestError = err;
+                bestSeg1 = seg1;
+                bestSeg2 = seg2;
+                P_i = pivotX;
+                ADC_i = pivotY;
+            }
+        }
+
+        // 5. Strict application of your formulas for the 860C module
+        const torqueAdcStep = (P_i * 167) / (ADC_i - ADC_0M || 1);
+        const torqueRangeAdj = ((ADC_80M - ADC_i) * 100) / (ADC_80M - ADC_0M || 1);
+
+        // Update the interface
+        document.getElementById('cfg-step').innerText = torqueAdcStep.toFixed(0);
+        document.getElementById('cfg-range').innerText = torqueRangeAdj.toFixed(0) + " %";
+        document.getElementById('cfg-offset').innerText = ADC_0M.toFixed(0);
+        document.getElementById('cfg-max').innerText = ADC_80M.toFixed(0);
+        document.getElementById('cfg-weight').innerText = P_i.toFixed(1) + " kg";
+        document.getElementById('cfg-adcweight').innerText = ADC_i.toFixed(0);
+        document.getElementById('cfg-stepcal').innerText = torqueAdcStep.toFixed(0);
+
+        // 6. Update the Chart.js visualization
+        const lineSeg1 = [{ x: 0, y: bestSeg1.b }, { x: P_i, y: ADC_i }];
+        const lineSeg2 = [{ x: P_i, y: ADC_i }, { x: globalMaxW, y: bestSeg2.a * globalMaxW + bestSeg2.b }];
+
+        const chartData = {
+            datasets: [
+                {
+                    label: 'Left Pedal (Raw)',
+                    data: leftData.map(d => ({ x: d.w, y: d.adc })),
+                    borderColor: '#e74c3c',
+                    backgroundColor: 'rgba(231, 76, 60, 0.5)',
+                    showLine: true,
+                    borderWidth: 1,
+                    pointRadius: 4
+                },
+                {
+                    label: 'Right Pedal (Raw)',
+                    data: rightData.map(d => ({ x: d.w, y: d.adc })),
+                    borderColor: '#9b59b6',
+                    backgroundColor: 'rgba(155, 89, 182, 0.5)',
+                    showLine: true,
+                    borderWidth: 1,
+                    pointRadius: 4
+                },
+                {
+                    label: 'Average Curve (Virtual)',
+                    data: virtualPoints,
+                    borderColor: '#2c3e50',
+                    backgroundColor: '#2c3e50',
+                    showLine: false,
+                    pointRadius: 3
+                },
+                {
+                    label: 'Segment 1 (Low Load)',
+                    data: lineSeg1,
+                    borderColor: '#2ecc71',
+                    borderWidth: 3,
+                    showLine: true,
+                    pointRadius: 0
+                },
+                {
+                    label: 'Segment 2 (High Load)',
+                    data: lineSeg2,
+                    borderColor: '#e67e22',
+                    borderWidth: 3,
+                    showLine: true,
+                    pointRadius: 0
+                },
+                {
+                    label: 'Key Points',
+                    data: [
+                        { x: 0, y: ADC_0M },
+                        { x: P_i, y: ADC_i },
+                        { x: 80, y: ADC_80M }
+                    ],
+                    backgroundColor: '#f1c40f',
+                    borderColor: '#d35400',
+                    pointRadius: 7,
+                    showLine: false
+                }
+            ]
+        };
+
+        const ctx = document.getElementById('calibrationChart').getContext('2d');
+        if (chartInstance) {
+            chartInstance.data = chartData;
+            chartInstance.update();
+        } else {
+            chartInstance = new Chart(ctx, {
+                type: 'scatter',
+                data: chartData,
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { type: 'linear', position: 'bottom', title: { display: true, text: 'Weight (kg)' } },
+                        y: { title: { display: true, text: 'ADC Value' } }
+                    }
+                }
+            });
+        }
+    }
+
+    function exportJSON() {
+        const payload = { left: leftData, right: rightData, factors: weightsFactors };
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(payload, null, 2));
+        const dlAnchor = document.createElement('a');
+        dlAnchor.setAttribute("href", dataStr);
+        dlAnchor.setAttribute("download", "calibrage_860c.json");
+        document.body.appendChild(dlAnchor);
+        dlAnchor.click();
+        dlAnchor.remove();
+    }
+
+    function importJSON(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const parsed = JSON.parse(e.target.result);
+                if (parsed.left && parsed.right) {
+                    leftData = parsed.left;
+                    rightData = parsed.right;
+                    if (parsed.factors) weightsFactors = parsed.factors;
+                    calculateAndPlot();
+                } else {
+                    alert("Invalid JSON format for the application.");
+                }
+            } catch (err) {
+                alert("Error while decoding the JSON file.");
+            }
+        };
+        reader.readAsText(file);
+    }
+
+    function resetToDefaults() {
+        initData();
+        calculateAndPlot();
+    }
+
+    initData();
+    calculateAndPlot();
+</script>
+
+</body>
+</html>

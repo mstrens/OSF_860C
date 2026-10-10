@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TSDZ8 Assist Curve Designer</title>
+<style>
+* { box-sizing: border-box; }
+body { font-family: Arial, Helvetica, sans-serif; margin: 0; padding: 20px; background: #f4f4f4; color: #222; }
+h1 { margin: 0 0 8px 0; }
+h2 { margin-top: 0; }
+.description { color: #555; margin-bottom: 20px; }
+table { border-collapse: collapse; width: 100%; }
+th, td { border: 1px solid #ccc; padding: 7px; text-align: center; }
+th { background: #e9e9e9; }
+td:first-child { text-align: left; }
+input[type="text"] { width: 140px; padding: 5px; border: 1px solid #aaa; border-radius: 4px; }
+select { padding: 5px; min-width: 100px; }
+.code { font-family: monospace; font-weight: bold; font-size: 16px; }
+.valid { color: #006000; }
+.invalid { color: #b00000; background: #ffe5e5; }
+#plot { width: 100%; height: 520px; display: block; background: white; border: 1px solid #bbb; }
+
+.status-inline-container {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+}
+.status {
+    padding: 8px 12px;
+    border-radius: 5px;
+    background: #eee;
+    flex-grow: 1;
+    margin: 0;
+}
+button { padding: 8px 16px; border: 1px solid #888; border-radius: 5px; background: #eee; cursor: pointer; font-weight: bold; }
+button:hover { background: #ddd; }
+.legend { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 14px; }
+.legend-item { display: flex; align-items: center; gap: 5px; }
+.legend-line { width: 28px; height: 3px; }
+.advanced-note { color: #666; margin-bottom: 12px; }
+.edit-warning { margin-left: 12px; color: #777; font-style: italic; }
+input:disabled, select:disabled { background: #eee; color: #777; }
+
+.layout-top-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+    margin-bottom: 16px;
+}
+.cadre-1a, .cadre-1b, .cadre-2 { background: white; border: 1px solid #ccc; border-radius: 8px; padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+.cadre-2 { width: 100%; }
+
+.profile-editor-table { width: 100%; border-collapse: collapse; font-size: 10px; }
+.profile-editor-table td { border-bottom: 1px solid #ddd; padding: 4px; vertical-align: middle; }
+.profile-main-row td { background: #f8f8f8; }
+.profile-name-cell { width: 75px; }
+.profile-mode-cell { width: 100px; white-space: nowrap; }
+.profile-mode-cell label { margin-right: 4px; font-size: 9px; cursor: pointer; }
+.profile-name-cell .lut-name { width: 70px !important; height: 21px; padding: 1px 2px; font-size: 10px; }
+.param-cell { text-align: center; }
+.param-cell label { display: block; font-size: 8px; color: #555; }
+.param-cell input[type="number"] { width: 40px; height: 21px; text-align: center; font-size: 10px; }
+.action-cell { width: 45px; text-align: center; }
+.action-cell button { padding: 3px 5px; font-size: 9px; white-space: nowrap; }
+
+.profile-lut-row td { border-bottom: 2px solid #ccc; }
+.lut-row-label { font-weight: bold; color: #333; text-align: right; width: 75px; font-size: 11px; }
+.lut-index-cell { width: 85px; color: #666; font-size: 9px; text-align: center; }
+.lut-values-cell { padding: 4px 2px !important; background: #fff; }
+.lut-values-grid { display: grid; grid-template-columns: repeat(17, minmax(0, 1fr)); gap: 3px; width: 100%; }
+.lut-value-item { text-align: center; }
+.lut-value-item span { display: block; color: #777; font-size: 8px; }
+.lut-value-item input[type="number"] { width: 100%; max-width: 35px; height: 20px; text-align: center; font-size: 9px; padding: 0; }
+.cmax-section { margin-top: 20px; }
+.cmax-table { width: auto; }
+.cmax-table th, .cmax-table td { min-width: 65px; }
+.cmax-name { width: 55px !important; height: 20px; text-align: center; font-size: 10px; }
+
+@media (max-width: 1150px) { .layout-top-grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<h1>TSDZ8 Assist Curve Designer</h1>
+<div class="description">
+Configure the nine assist levels and visualize the corresponding pedal-torque to motor-current curves.
+</div>
+
+<div class="layout-top-grid">
+    <!-- CADRE 1A : LE GRAPHIQUE -->
+    <div class="cadre-1a">
+        <h2>Assist curves</h2>
+        <canvas id="plot"></canvas>
+        <div class="legend" id="legend"></div>
+    </div>
+
+    <!-- CADRE 1B : ASSIST LEVELS + CONFIGURATION (5 PARAMS) -->
+    <div class="cadre-1b">
+        <h2>Assist levels</h2>
+        <table id="assistTable">
+            <thead>
+                <tr>
+                    <th>Assist level</th>
+                    <th>Max current</th>
+                    <th>Saturation torque</th>
+                    <th>Profile</th>
+                    <th>Setup code</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+        
+        <div class="status-inline-container">
+            <button id="copyButton">Copy setup codes</button>
+            <div class="status" id="status">Ready.</div>
+        </div>
+
+        <hr style="margin: 20px 0; border: 0; border-top: 1px dashed #ccc;">
+        
+        <h2>Curve Generators (5 Parameters)</h2>
+        <div class="advanced-note" style="font-size: 11px;">
+            Configure parameters below to update the lookup table dynamically.
+        </div>
+        <div id="topLutParamsContainer"></div>
+    </div>
+</div>
+
+<!-- CADRE 2 : VALEURS ET TABLES AVANCÉES -->
+<div class="cadre-2">
+    <h2>Advanced: Profile and Cmax tables</h2>
+    <div class="advanced-note">
+        These settings normally do not need to be changed. Enable editing only if you want to manually modify the 17 table values, curve names or the ten available saturation torque values. It requires then to edit/recompile the TSDZ8 firmware
+    </div>
+
+    <div style="margin-bottom: 15px; background: #eee; padding: 10px; border-radius: 6px;">
+        <label style="font-weight: bold; cursor: pointer;">
+            <input type="checkbox" id="enableEditing"> Enable LUT/profile editing
+        </label>
+        <span class="edit-warning" id="editWarning">Editing is disabled.</span>
+    </div>
+
+    <h3>Lookup Tables (17 Values)</h3>
+    <div id="bottomLutValuesContainer" style="overflow-x: auto;"></div>
+
+    <div class="cmax-section">
+        <h3>Saturation torque table</h3>
+        <div class="advanced-note">
+            The ten values are in kg. Internally, 1 kg corresponds to 2 torque units.
+        </div>
+        <div id="cmaxContainer" style="overflow-x: auto;"></div>
+    </div>
+</div>
+
+<script>
+let PROFILE_NAMES = ["Slow", "Medium", "High", "Linear", "Decreasing"];
+let LUT = [
+        [0,0,0,2,6,11,19,28,39,53,68,87,109,135,166,204,255],
+	[0,0,1,7,15,25,37,50,65,81,99,119,140,163,189,219,255],
+	[0,0,8,19,31,44,58,73,90,107,125,144,164,185,207,231,255],
+	[0,0,14,32,50,67,83,100,116,133,149,166,182,200,217,236,255],
+	[0,0,21,46,67,86,103,118,133,146,159,172,186,200,216,234,255]
+/*
+	[0,0,0,2,4,8,13,21,32,45,62,83,108,137,171,210,255],
+    [0,1,4,9,16,25,36,49,64,81,100,121,143,168,195,224,255],
+    [0,7,15,25,35,47,60,74,89,106,124,142,163,184,206,230,255],
+    [0,16,32,48,64,80,96,112,128,143,159,175,191,207,223,239,255],
+    [0,23,46,67,88,107,126,143,159,175,189,203,215,227,237,247,255]
+*/
+];
+let BEZIER_PARAMS = [
+        {x0:20, p0:0, c0:100, p1:50, c1:20},
+    {x0:20, p0:0, c0:46, p1:50, c1:35},
+    {x0:20, p0:13, c0:40, p1:59, c1:80},
+    {x0:33, p0:31, c0:50, p1:32, c1:50},
+    {x0:20, p0:54, c0:58, p1:37, c1:50}
+/*
+	{x0:0, p0:20, c0:50, p1:20, c1:50},
+    {x0:0, p0:35, c0:50, p1:35, c1:50},
+    {x0:0, p0:55, c0:50, p1:55, c1:50},
+    {x0:0, p0:50, c0:50, p1:50, c1:50},
+    {x0:0, p0:75, c0:50, p1:75, c1:50}
+*/	
+];
+let CMAX_KG = [16, 20, 24, 28, 32, 36, 40, 48, 64, 88];
+
+const ASSIST_NAMES = [
+    "Assist level 1", "Assist level 2", "Assist level 3",
+    "Assist level 4", "Assist level 5", "Assist level 6",
+    "Assist level 7", "Assist level 8", "Assist level 9"
+];
+const configs = [
+    { maxCurrent: 20, saturationIndex: 7, profile: 0 },
+    { maxCurrent: 20, saturationIndex: 6, profile: 0 },
+    { maxCurrent: 40, saturationIndex: 7, profile: 2 },
+    { maxCurrent: 40, saturationIndex: 6, profile: 2 },
+    { maxCurrent: 60, saturationIndex: 6, profile: 2 },
+    { maxCurrent: 60,  saturationIndex: 5, profile: 2 },
+    { maxCurrent: 80, saturationIndex: 5, profile: 2 },
+    { maxCurrent: 100, saturationIndex: 5, profile: 2 },
+    { maxCurrent: 100, saturationIndex: 4, profile: 2 }
+
+/*
+    { maxCurrent: 40, saturationIndex: 4, profile: 0 },
+    { maxCurrent: 40, saturationIndex: 4, profile: 1 },
+    { maxCurrent: 40, saturationIndex: 4, profile: 2 },
+    { maxCurrent: 60, saturationIndex: 6, profile: 0 },
+    { maxCurrent: 60, saturationIndex: 6, profile: 1 },
+    { maxCurrent: 60, saturationIndex: 6, profile: 2 },
+    { maxCurrent: 80, saturationIndex: 8, profile: 0 },
+    { maxCurrent: 80, saturationIndex: 8, profile: 1 },
+    { maxCurrent: 80, saturationIndex: 8, profile: 2 }
+*/
+];
+const CURRENT_OPTIONS = [20, 40, 60, 80, 100];
+
+const assistTableBody = document.querySelector("#assistTable tbody");
+const statusElement = document.getElementById("status");
+const plotCanvas = document.getElementById("plot");
+const legendElement = document.getElementById("legend");
+const topLutParamsContainer = document.getElementById("topLutParamsContainer");
+const bottomLutValuesContainer = document.getElementById("bottomLutValuesContainer");
+const cmaxContainer = document.getElementById("cmaxContainer");
+const enableEditing = document.getElementById("enableEditing");
+const editWarning = document.getElementById("editWarning");
+
+function createAssistRows() {
+    assistTableBody.innerHTML = "";
+    for (let i = 0; i < 9; i++) {
+        const tr = document.createElement("tr");
+        let td = document.createElement("td");
+        const nInp = document.createElement("input");
+        nInp.type = "text"; nInp.className = "name-input"; nInp.value = ASSIST_NAMES[i];
+        nInp.addEventListener("input", update);
+        td.appendChild(nInp); tr.appendChild(td);
+
+        td = document.createElement("td");
+        const cSel = document.createElement("select"); cSel.className = "current-select";
+        CURRENT_OPTIONS.forEach(v => {
+            const o = document.createElement("option"); o.value = v; o.textContent = v + "%"; cSel.appendChild(o);
+        });
+        cSel.value = configs[i].maxCurrent; cSel.addEventListener("change", update);
+        td.appendChild(cSel); tr.appendChild(td);
+
+        td = document.createElement("td");
+        const sSel = document.createElement("select"); sSel.className = "saturation-select";
+        updateSaturationOptions(sSel, configs[i].saturationIndex);
+        sSel.addEventListener("change", update);
+        td.appendChild(sSel); tr.appendChild(td);
+
+        td = document.createElement("td");
+        const pSel = document.createElement("select"); pSel.className = "profile-select";
+        updateProfileOptions(pSel, configs[i].profile);
+        pSel.addEventListener("change", update);
+        td.appendChild(pSel); tr.appendChild(td);
+
+        td = document.createElement("td"); td.className = "code"; td.dataset.codeCell = i; tr.appendChild(td);
+        assistTableBody.appendChild(tr);
+    }
+}
+
+function updateProfileOptions(s, sel) {
+    s.innerHTML = "";
+    for (let p = 0; p < 5; p++) {
+        const o = document.createElement("option"); o.value = p; o.textContent = PROFILE_NAMES[p]; s.appendChild(o);
+    }
+    s.value = sel;
+}
+
+function updateProfileSelects() {
+    document.querySelectorAll(".profile-select").forEach(s => { updateProfileOptions(s, Number(s.value)); });
+    document.querySelectorAll(".lut-row-label").forEach((lbl, p) => { lbl.textContent = PROFILE_NAMES[p]; });
+}
+
+function updateSaturationOptions(s, sel) {
+    s.innerHTML = "";
+    for (let i = 0; i < CMAX_KG.length; i++) {
+        const o = document.createElement("option"); o.value = i; o.textContent = CMAX_KG[i] + " kg"; s.appendChild(o);
+    }
+    s.value = sel;
+}
+
+function updateSaturationSelects() {
+    document.querySelectorAll(".saturation-select").forEach(s => { updateSaturationOptions(s, Number(s.value)); });
+}
+
+function readAssistTable() {
+    const rows = assistTableBody.querySelectorAll("tr");
+    rows.forEach((r, i) => {
+        configs[i].maxCurrent = Number(r.querySelector(".current-select").value);
+        configs[i].saturationIndex = Number(r.querySelector(".saturation-select").value);
+        configs[i].profile = Number(r.querySelector(".profile-select").value);
+        ASSIST_NAMES[i] = r.querySelector(".name-input").value;
+    });
+}
+
+function getCmaxInternal(i) { return Math.round(CMAX_KG[i] * 2); }
+function reciprocalQ24(c) { return Math.floor(16777216 / c); }
+function setupCode(m, s, p) {
+    const cg = Math.round(m / 20) - 1;
+    const sd = 9 - s;
+    return (50 * cg + 5 * sd + p);
+}
+
+function torqueToCurrent(t, c) {
+    if (t <= 0) return 0;
+    const cx = getCmaxInternal(c.saturationIndex);
+    const mI = Math.round(c.maxCurrent * 255 / 100);
+    if (t >= cx) return mI;
+    const reciprocal = reciprocalQ24(cx);
+    let lp = Math.floor(t * reciprocal / 256) * 16;
+    let idx = Math.floor(lp / 65536);
+    if (idx > 15) idx = 15;
+    const fr = Math.floor(lp / 4096) & 0x0F;
+    const tbl = LUT[c.profile];
+    const y0 = tbl[idx]; const y1 = tbl[idx + 1];
+    let y = (y1 >= y0) ? y0 + Math.floor((y1 - y0) * fr / 16) : y0 - Math.floor((y0 - y1) * fr / 16);
+    let cur = Math.floor((y * mI * 257 + 32768) / 65536);
+    return cur > mI ? mI : cur;
+}
+
+function drawPlot() {
+    const cv = plotCanvas; const rc = cv.getBoundingClientRect(); const dpr = window.devicePixelRatio || 1;
+    cv.width = Math.round(rc.width * dpr); cv.height = Math.round(rc.height * dpr);
+    const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const w = rc.width, h = rc.height, l = 70, r = 25, t = 25, b = 55, pW = w - l - r, pH = h - t - b;
+    ctx.clearRect(0, 0, w, h);
+    function sx(tq) { return l + tq / 160 * pW; }
+    function sy(pc) { return t + (100 - pc) / 100 * pH; }
+    ctx.strokeStyle = "#dddddd"; ctx.lineWidth = 1;
+    for (let kg = 0; kg <= 80; kg += 10) {
+        const x = sx(kg * 2); ctx.beginPath(); ctx.moveTo(x, t); ctx.lineTo(x, t + pH); ctx.stroke();
+    }
+    for (let pc = 0; pc <= 100; pc += 10) {
+        const y = sy(pc); ctx.beginPath(); ctx.moveTo(l, y); ctx.lineTo(l + pW, y); ctx.stroke();
+    }
+    ctx.strokeStyle = "#222"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(l, t); ctx.lineTo(l, t + pH); ctx.lineTo(l + pW, t + pH); ctx.stroke();
+    ctx.fillStyle = "#222"; ctx.font = "12px Arial"; ctx.textAlign = "center";
+    for (let kg = 0; kg <= 80; kg += 10) { ctx.fillText(kg, sx(kg * 2), t + pH + 20); }
+    ctx.textAlign = "right";
+    for (let pc = 0; pc <= 100; pc += 10) { ctx.fillText(pc, l - 8, sy(pc) + 4); }
+    ctx.textAlign = "center"; ctx.font = "14px Arial"; ctx.fillText("Pedal torque (kg)", l + pW / 2, h - 10);
+    ctx.save(); ctx.translate(18, t + pH / 2); ctx.rotate(-Math.PI / 2); ctx.fillText("Motor current (%)", 0, 0); ctx.restore();
+    const lc = ["#1565c0", "#c62828", "#2e7d32", "#6a1b9a", "#ef6c00", "#00838f", "#ad1457", "#455a64", "#827717"];
+    legendElement.innerHTML = "";
+    for (let lv = 0; lv < 9; lv++) {
+        const cfg = configs[lv], col = lc[lv]; ctx.strokeStyle = col; ctx.lineWidth = 2.5; ctx.beginPath();
+        for (let tq = 0; tq <= 160; tq++) {
+            const pc = torqueToCurrent(tq, cfg) * 100 / 255;
+            if (tq === 0) ctx.moveTo(sx(tq), sy(pc)); else ctx.lineTo(sx(tq), sy(pc));
+        }
+        ctx.stroke();
+        ctx.fillStyle = col; ctx.beginPath(); ctx.arc(sx(getCmaxInternal(cfg.saturationIndex)), sy(cfg.maxCurrent), 4, 0, Math.PI * 2); ctx.fill();
+        const itm = document.createElement("div"); itm.className = "legend-item";
+        const line = document.createElement("div"); line.className = "legend-line"; line.style.background = col;
+        const txt = document.createElement("span"); txt.textContent = ASSIST_NAMES[lv] + " — " + PROFILE_NAMES[cfg.profile];
+        itm.appendChild(line); itm.appendChild(txt); legendElement.appendChild(itm);
+    }
+}
+
+function update() {
+    readAssistTable();
+    const cells = document.querySelectorAll("[data-code-cell]"), codes = [];
+    let inv = false;
+    for (let i = 0; i < 9; i++) {
+        const c = configs[i], code = setupCode(c.maxCurrent, c.saturationIndex, c.profile);
+        codes.push(code); const cell = cells[i]; cell.textContent = code; cell.classList.remove("valid", "invalid");
+        if (code < 0 || code > 249) { cell.classList.add("invalid"); inv = true; } else { cell.classList.add("valid"); }
+    }
+    statusElement.textContent = inv ? "Warning: one or more setup codes out of range." : "Setup codes: " + codes.join(", ");
+    drawPlot();
+}
+
+document.getElementById("copyButton").addEventListener("click", async function() {
+    readAssistTable();
+    const txt = configs.map(c => setupCode(c.maxCurrent, c.saturationIndex, c.profile)).join(", ");
+    try { await navigator.clipboard.writeText(txt); statusElement.textContent = "Setup codes copied: " + txt; } 
+    catch (e) { statusElement.textContent = "Setup codes: " + txt; }
+});
+
+function bezier1D(p0, p1, p2, p3, t) {
+    const u = 1 - t;
+    return u*u*u*p0 + 3*u*u*t*p1 + 3*u*t*t*p2 + t*t*t*p3;
+}
+
+function generateBezierLut(pr) {
+    const p = BEZIER_PARAMS[pr], x0 = Math.max(0, Math.min(254, Number(p.x0))), span = 255 - x0;
+    if (span <= 0) { LUT[pr] = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,255]; return; }
+    const x1 = x0 + span * (0.05 + 0.45 * p.c0 / 100), x2 = 255 - span * (0.05 + 0.45 * p.c1 / 100);
+    const y1 = 255 * p.p0 / 100, y2 = 255 * (1 - p.p1 / 100), res = [];
+    for (let i = 0; i < 17; i++) {
+        const x = 255 * i / 16;
+        if (x <= x0) { res.push(0); continue; }
+        if (x >= 255) { res.push(255); continue; }
+        let lo = 0, hi = 1;
+        for (let k = 0; k < 25; k++) {
+            const t = (lo + hi) / 2;
+            if (bezier1D(x0, x1, x2, 255, t) < x) lo = t; else hi = t;
+        }
+        res.push(Math.max(0, Math.min(255, Math.round(bezier1D(0, y1, y2, 255, (lo + hi) / 2)))));
+    }
+    LUT[pr] = res;
+}
+
+function updateLutInputs(p) {
+    document.querySelectorAll('#bottomLutValuesContainer input[data-lut-profile="' + p + '"]').forEach((inp, i) => inp.value = LUT[p][i]);
+}
+
+function copyProfileCsv(p) {
+    navigator.clipboard.writeText('{' + LUT[p].join(',') + '},').then(() => {
+        statusElement.textContent = PROFILE_NAMES[p] + ' LUT copied for C.';
+    }, () => { statusElement.textContent = 'Clipboard access failed.'; });
+}
+
+function onBezierParamChange(p) {
+    const mode = document.querySelector('input[name="lutmode' + p + '"]:checked').value;
+    if (mode === "bezier") {
+        generateBezierLut(p);
+        updateLutInputs(p);
+        update();
+    }
+}
+
+function createLutEditor() {
+    topLutParamsContainer.innerHTML = ''; bottomLutValuesContainer.innerHTML = '';
+    const topTable = document.createElement('table'); topTable.className = 'profile-editor-table';
+    const bottomTable = document.createElement('table'); bottomTable.className = 'profile-editor-table';
+    const defs = [['X0', 'x0', 0, 255], ['Start slope', 'p0', 0, 100], ['Start curve', 'c0', 0, 100], ['End slope', 'p1', 0, 100], ['End curve', 'c1', 0, 100]];
+
+    for (let p = 0; p < 5; p++) {
+        const row = document.createElement('tr'); row.className = 'profile-main-row';
+        let td = document.createElement('td'); td.className = 'profile-name-cell';
+        const nInp = document.createElement('input'); nInp.type = 'text'; nInp.className = 'lut-name'; nInp.value = PROFILE_NAMES[p]; nInp.disabled = true;
+        nInp.addEventListener('input', () => {
+            PROFILE_NAMES[p] = nInp.value;
+            updateProfileSelects();
+            update();
+        });
+        td.appendChild(nInp); row.appendChild(td);
+
+        td = document.createElement('td'); td.className = 'profile-mode-cell';
+        td.innerHTML = '<label><input type="radio" name="lutmode'+p+'" value="manual" checked> Manual</label><label><input type="radio" name="lutmode'+p+'" value="bezier"> 5-param</label>';
+        row.appendChild(td);
+        
+        row.querySelectorAll('input[name="lutmode'+p+'"]').forEach(radio => {
+            radio.addEventListener('change', () => onBezierParamChange(p));
+        });
+
+        defs.forEach(d => {
+            td = document.createElement('td'); td.className = 'param-cell';
+            const lab = document.createElement('label'); lab.textContent = d[0];
+            const inp = document.createElement('input'); inp.type = 'number'; inp.min = d[2]; inp.max = d[3]; inp.step = 1;
+            inp.value = BEZIER_PARAMS[p][d[1]]; inp.disabled = true;
+            inp.addEventListener('change', () => {
+                let v = Number(inp.value); if (!Number.isFinite(v)) v = d[2];
+                v = Math.max(d[2], Math.min(d[3], Math.round(v)));
+                inp.value = v; BEZIER_PARAMS[p][d[1]] = v;
+                onBezierParamChange(p);
+            });
+            td.appendChild(lab); td.appendChild(inp); row.appendChild(td);
+        });
+
+        td = document.createElement('td'); td.className = 'action-cell';
+        const copy = document.createElement('button'); copy.textContent = 'Copy C';
+        copy.addEventListener('click', () => copyProfileCsv(p));
+        td.appendChild(copy); row.appendChild(td);
+        topTable.appendChild(row);
+
+        const lutRow = document.createElement('tr'); lutRow.className = 'profile-lut-row';
+        td = document.createElement('td'); td.className = 'lut-row-label'; td.textContent = PROFILE_NAMES[p];
+        lutRow.appendChild(td);
+        td = document.createElement('td'); td.className = 'lut-index-cell'; td.textContent = 'LUT 0…16';
+        lutRow.appendChild(td);
+
+        const valuesCell = document.createElement('td'); valuesCell.className = 'lut-values-cell';
+        const values = document.createElement('div'); values.className = 'lut-values-grid';
+        for (let i = 0; i < 17; i++) {
+            const item = document.createElement('div'); item.className = 'lut-value-item';
+            const idx = document.createElement('span'); idx.textContent = i;
+            const inp = document.createElement('input'); inp.type = 'number'; inp.min = 0; inp.max = 255; inp.step = 1;
+            inp.value = LUT[p][i]; inp.disabled = true;
+            inp.dataset.lutProfile = p; inp.dataset.lutIndex = i;
+            inp.addEventListener('change', () => {
+                let v = Number(inp.value); if (!Number.isFinite(v)) v = 0;
+                v = Math.max(0, Math.min(255, Math.round(v)));
+                inp.value = v; LUT[p][i] = v; update();
+            });
+            item.appendChild(idx); item.appendChild(inp); values.appendChild(item);
+        }
+        valuesCell.appendChild(values); lutRow.appendChild(valuesCell); bottomTable.appendChild(lutRow);
+    }
+    topLutParamsContainer.appendChild(topTable); bottomLutValuesContainer.appendChild(bottomTable);
+}
+
+function createCmaxEditor() {
+    cmaxContainer.innerHTML = "";
+    const table = document.createElement("table"); table.className = "cmax-table";
+    const header = document.createElement("tr");
+    let th = document.createElement("th"); th.textContent = "Table index"; header.appendChild(th);
+    for (let i = 0; i < 10; i++) {
+        th = document.createElement("th"); th.textContent = i; header.appendChild(th);
+    }
+    table.appendChild(header);
+    const row = document.createElement("tr");
+    let td = document.createElement("td"); td.textContent = "Cmax (kg)"; row.appendChild(td);
+    for (let i = 0; i < 10; i++) {
+        td = document.createElement("td");
+        const input = document.createElement("input"); input.type = "number"; input.className = "cmax-name";
+        input.min = 1; input.max = 160; input.step = 1; input.value = CMAX_KG[i]; input.disabled = true;
+        input.addEventListener("change", function() {
+            let v = Number(input.value); if (!Number.isFinite(v)) v = 1;
+            v = Math.max(1, Math.min(160, Math.round(v)));
+            input.value = v; CMAX_KG[i] = v; updateSaturationSelects(); update();
+        });
+        td.appendChild(input); row.appendChild(td);
+    }
+    table.appendChild(row); cmaxContainer.appendChild(table);
+}
+
+enableEditing.addEventListener("change", function() {
+    const e = enableEditing.checked;
+    const inputs = document.querySelectorAll(
+        "#topLutParamsContainer input[type='number'], " +
+        "#topLutParamsContainer input[type='text'], " +
+        "#bottomLutValuesContainer input, " +
+        "#cmaxContainer input"
+    );
+    inputs.forEach(inp => { inp.disabled = !e; });
+    editWarning.textContent = e ? "Editing enabled." : "Editing is disabled.";
+    editWarning.style.color = e ? "#b06000" : "#777";
+});
+
+createAssistRows(); createLutEditor(); createCmaxEditor(); update();
+window.addEventListener("resize", drawPlot);
+</script>
+</body>
+</html>

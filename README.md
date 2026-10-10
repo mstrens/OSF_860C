@@ -113,58 +113,49 @@ See the instructions on the mbrusa site (see links above)
 
 See the instructions on the mbrusa site (see links above).
 Still, for TSDZ8, the configuration of the torque sensor is totally different and some fields have been reused (misused).
-
-
-The torque sensor value does not grow regularly whith the weight applied on the pedal.
-From a "knee" weight, the torque value trends to saturate (grows much slower).
-To get best human power calculation and a linear response, torque sensor should be calibrated.
-This supposes to apply different weights on the pedal (maintaining the pedal horizontally) and for each weight to note the raw ADC value (see display instruction about how to display this value on the "Technical" menu).
-Then make a graphic with the values (weigths on horizontal axis and ADC values on vertical axis).
-Normally you should clearly see that from some weight the rate decreases significantly. This is the "knee" point.
-
-
-You should also note the raw ADC value for different positions of the pedal when no weight is applied on the pedal. Tests made with différent motors show that some motors (not all) have quite different values depending on the pedal position. Note the highiest ADC value with no weight.
-
-
-Note: if you can't (do not want) calibrate the torque sensor, you can try using values found on some other TSDZ8 motor (e.g. Knee weight = 50Kg, ADC at knee weight = 390, max weight=80kg, ADC at max weight =420).
-Still it is very important that you note the highiest torque ADC with no weight for your motor because a wrong value can generate an ERR 02 that stops the motor.
-In fact at power on, the user is supposed not pressing on the pedal during the first 3 seconds. The firmware reads the torque sensor and compares the value with the "Torque ADC offset" defined on the display. If the actual value is higher than the one from the display, there is a risk that the motor starts without pressing on the pedal. Therfore the error 02 is generated.  If the actual value is lower by more than 60, there is probably also something wrong and ERR 02 is also generated.
- 
-
-
-Note : for TSDZ8, it is also possible to use some kind of exponential to change the torque sensor curve in order and so to increase/decrease sensitivity for low pressure on the pedal. This does not change the maximum assistance provided for any selected level when pressure on pedal is maximum but it allows to increase (or decrease) the assistance when pressure on pedal is quite low.
-It uses a parameter (torque angle adj) that can vary between 1 and 40. When set on 20, the assistance is proportional to the weight (if calibration is correct).
-The more the parameter is higher than 20 (up to 40) the less assistance you will get for small pressure on the pedal (but so the more you get for highier pressure - still never exceeding the max value defined for the selected level). In other words, the ratio assistance per kg pressure is lower for lowest pressure and higher for highest pressure compared to parameter set on 20.
-Reversely, the more the parameter is lower than 20 (up to 1), the more assistance you will get for small pressure on the pedal. In other words, the ratio assistance per kg pressure is higher for lowest pressure and lower for highest pressure compare to parameter set on 20.
-
-
-
-Then fill data in the torque sensor menu taking care that the labels were made for TSDZ2 and does not always match the way TSDZ8 uses the fields (sorry for this confusion). Here the way to fill each field:
+Take care that the labels were made for TSDZ2 and does not always match the way TSDZ8 uses the fields (sorry for this confusion). Here the way to fill each field:
 * Assist w/o pedal: Enable to get motor assistance once you press the pedals even without rotating them. 
 Recommended keeping disabled if you do not have brake sensors installed.
 * Torque ADC threshold : ADC pedal push threshold, for immediate start without rotation. 
 CAUTION: By enabling the BOOST function at the same time, the effect increases! This can 
 cause greater transmission stress.Typical value = 10
 * Coast brake : enable/disable : not used for TSDZ8
-* Coast brake ADC : For TSDZ8, fill it with 50% of the max weight used for calibration. E.g. fill 40 when max weight was 80kg.
-* calibration MUST be disabled (to get correct human power)
-* torque ADC step must be filled with ???? (to be defined) to get a realistic human power (and only if calibration is wel done). This value should be the same for all TSDZ8 but I do net know it (bry e.g range 30...70)
-* torque ADC step adv is not used : best is to fill with the same value as torque ADC step
-* torque offset adj : for TSDZ8, must be filled with the percentage of the ADC for the second segment: e.g. imagine ADC offset = 170, ADC knee = 390, ADC max = 420. Then it must be (420-390) / (420-170) = 30 / 250 = 12% and so fill 12.
-* torque range adj : for TSDZ8, must be filled with 50% of the weight applied to get the torque ADC value for the "knee" point. So for 50 kg, fill 25.
-* torque angle adj : for TSDZ8, use it to apply an exponential curve for motor assistance (range 0...40)(use 20 for linear repsonse) 
-* torque ADC offset :  must be filled with the ADC value (highiest for different pedal positions) with no weight + a margin (e.g.10) 
-* torque ADC max : ADC value for the highest weight you applied during calibration
-* other fields : not used
+* Coast brake ADC : this field is "re-used" in order to let you select the type of lead angle to be displayed in the output field named "FOC". This can be useful to check that the firmware uses some good parameters for best efficency. In fact, the name "FOC" should best be named "Lead angle". For best efficiency, the lead angle must vary with motor speed (RPM) and current. This version of OSF tries to optimise the lead angle in 2 ways. First it calculates a "base lead angle" basedd on RPM (using 2 tables ) and a ratio angle per current. Second it adds to the base lead angle a correction angle trying to keep the "unproductieve current" (usually named Id in real FOC program) close to zero. At this stage, I am not sure that OSF parameters are the best one. So it can be usefull to have a look at the base lead angle, at the correction angle and at the total. Coast brake ADC allow you to select one angle (10 = total lead angle(default), 11 =  part of base lead angle depending on rpm , 12 =  part of base lead angle depending on current, 13 = base lead angle (sum of 2 parts), 14 = correction based on Id). Please note that the correction lead angle can be negative while the 860c displays only positieve number. Therefore, negative values starts with "2é instead of "-". So 201 means -1, 202 means -2 , etc... Best would be to adapt RPM and current ratio in order to keep correction angle close to 0 (avoiding the automatic but still slower correction) 
 
 
-Note :  in a previous version of OSF, "coast brake adc" was "re-used" in order to let you select the type of lead angle to be displayed in the output field named "FOC". In this version, "coast brake adc" is reused for another purpose. Therefore the type of lead angle to be displayed has now been hardoced on 14.
-This can be useful to check that the firmware uses some good parameters for best efficency. In fact, the name "FOC" should best be named "Lead angle". For best efficiency, the lead angle must vary with motor speed (RPM) and current. This version of OSF tries to optimise the lead angle in 2 ways. First it calculates a "base lead angle" basedd on RPM (using 2 tables ) and a ratio angle per current. Second it adds to the base lead angle a correction angle trying to keep the "unproductieve current" (usually named Id in real FOC program) close to zero. At this stage, I am not sure that OSF parameters are the best one. So it can be usefull to have a look at the base lead angle, at the correction angle and at the total. Coast brake ADC allow you to select one angle (10 = total lead angle(default), 11 =  part of base lead angle depending on rpm , 12 =  part of base lead angle depending on current, 13 = base lead angle (sum of 2 parts), 14 = correction based on Id). Please note that the correction lead angle can be negative while the 860c displays only positieve number. Therefore, negative values starts with "2é instead of "-". So 201 means -1, 202 means -2 , etc... Best would be to adapt RPM and current ratio in order to keep correction angle close to 0 (avoiding the automatic but still slower correction)
-    
+For other fields see below.
+
+
+The torque sensor value does not grow regularly whith the weight applied on the pedal.
+From a "knee" weight, the torque value trends to saturate (grows much slower).
+To get best human power calculation and a linear response, torque sensor should be calibrated.
+This supposes to apply different weights on the pedal (maintaining the pedal horizontally) and for each weight to note the raw ADC value (see display instruction about how to display this value on the "Technical" menu).
+Best is to do it for each pedal (left and right) because values can differ for some TSDZ8.
+Best is also to apply weights up to 80 Kg (if possible).
+Then you can fill the measurement values in a tool named torque_sensor_calibration_860C_en.html provided in "Doc" folder in this repository.
+This tool will calculate the parameters to be filled for the torque sensor in 860C display.
+
+You should also note the raw ADC value for different positions of the pedal when no weight is applied on the pedal. Tests made with différent motors show that some motors (not all) have quite different values depending on the pedal position. Note the highiest ADC value with no weight (named here "torque adc max no weight"). Then enter in display field "Torque offset adj" with 10 + "torque adc max no weight" - "Torque adc offset" (being calculated by the HTML) 
+
+Note: if you can't (do not want) calibrate the torque sensor, you can try using values found on some other TSDZ8 motor : Calibration: Disabled ; Torque adc step = 46 ; Torque adc step adv = not used so doe snot matter ; Torque offset adj = 10 ; Torque range adj = 6 ; Torque angle adj = 20 ;  Torque adc max = 420. Still it is very important that you note the highiest torque ADC with no weight for your motor and fill it in "Torque adc offset" because a wrong value can generate an ERR 02 that stops the motor.
+In fact at power on, the user is supposed not pressing on the pedal during the first 3 seconds. The firmware reads the torque sensor and compares the value with ("Torque ADC offset" + "Torque offset adj") defined on the display. If the actual value is higher, there is a risk that the motor starts without pressing on the pedal. Therfore the error 02 is generated.  If the actual value is lower than ("Torque ADC offset" - 60), there is probably also something wrong and ERR 02 is also generated.
+ 
 
 Here some remarks about some other configuration parameters  
 
-* Values for the different assist levels/modes: The max value that can be filled with the 860C is usually 254. Still TSDZ8 can provide more power than TSDZ2. In order to get access to the full power even for lower weight on the pedal the ratio value/assitance has been changed for TSDZ8. You have to use a lower value (2 X lower) to get the same assistance for Power, Torque and Hybrid assist modes.
+* Values for the different assist levels/modes: The max value that can be filled with the 860C is usually 254. Still TSDZ8 can provide more power than TSDZ2. In order to get access to the full power even for lower weight on the pedal the ratio value/assitance has been changed for TSDZ8. You have usualy to use a lower value (2 X lower) to get the same assistance for Power, Hybrid and eMTB assist modes.
+
+* Important note for torque assist mode. In TSDZ2 and previous TSDZ8 OSF version, the assitance you got was proportionnal to the pressure on the pedal and to the level value you filled. In this version, the value you fill for the assist level (in torque assist mode only currently) offers you much more control on the way assistance is generated.
+The value can still be between 0 and 249 (automatically limitted to 249 inside OSF) but allows you to specify separately:
+    * The max current (can be 0=20%, 1=40%, 2=60%, 3=80%, 4=100%) 
+    * The pedal weight where the max current is reached = saturation weight (can be 0=16, 1=20, 2=24, 3=28, 4=32, 5=36, 6=40, 7=48, 8=64, 9=88 kg)
+    * The curve to be applied to convert torque to current (can be 0=LOW, 1=Medium, 2=High, 3=Linear, 4=Decrease). Low means that the current is very very low for low weight and grow more and more up to reach max current for the saturation weight. Medium, is similar to Low but already closier to a linear curve. High is even closier to linear curve; Linear means that current is proportional to weight. Decrease means that the current grows very fast low weight but grows much less when weight becomes close to the saturation weight.
+
+    The value to fill is (max current * 50 ) + (saturation weight * 5) + (curve).
+    E.g. For Max current 60% reached at 28 kg with a linear curve, level would be 2*50 + 3*5 + 3 = 118
+
+
+    Take care that a higher value does not always give more assistance for the same weight. In order to let you see curves you get for each level, you can try the tool "TSDZ8_Assist_curve_generator.html" in the Doc folder. Please note that this tools also allows to redefine the profile of the 5 curves and the 10 saturation weight but then you have to adapt some code in the firmware and recompile yourself (see array variables assist_curve_lut and assist_cmax_kg in ebike_app.c file)
 
 
 * If you use throttle, you have to set up the limits (min and max) provided by your sensor. In menu "Motor temperature" you have to declare that sensor is used for throttle and you have to fill the min and max values. To know them you have to use menu "Technical" and look at ADC throttle field. Note the min and max values when pressing throttle. For min, it is safe to enter a value that is slightly higher that what you read (to avoid unexpected start of the motor)
