@@ -798,7 +798,7 @@ static void apply_torque_assist(void)
 	// here current is based on torque * assist_factor
 	// smooth start
 	if (ui8_smooth_start_enabled) {
-		apply_smooth_start();   // pedal torque grows progressively
+		apply_smooth_start();   // ui16_adc_pedal torque delta grows progressively ()
 	}
 	
 	// check for assist without pedal rotation when there is no pedal rotation
@@ -985,7 +985,7 @@ static void apply_hybrid_assist(void)
 	
 	// smooth start
 	if (ui8_smooth_start_enabled) {
-		apply_smooth_start();
+		apply_smooth_start(); 
 	}
 	
 	// check for assist without pedal rotation when there is no pedal rotation
@@ -1760,7 +1760,7 @@ void pedal_torque_update_linearisation_parameters(void) {
     ui32_pedal_torque_k2_q16 = ui32_k2_q16;
 
     // Check expected sensor characteristic: first segment must be steeper than second segment.
-    if (ui32_pedal_torque_k1_q16 <= ui32_pedal_torque_k2_q16) {
+    if (ui32_pedal_torque_k1_q16 > ui32_pedal_torque_k2_q16) {
         pedal_torque_parameter_error = true;
         return;
     }
@@ -1774,9 +1774,11 @@ uint8_t pedal_torque_linearise_adc(uint16_t ui16_adc_torque_filtered)
     if (pedal_torque_parameter_error)
         return 0;
     // Below zero kg
-    if (ui16_adc_torque_filtered <= ui16_adc_pedal_torque_offset_max)    {
+    if (ui16_adc_torque_filtered <= ui16_adc_pedal_torque_offset)    {
         return 0;
     }
+	if ((uint32_t) ui16_adc_torque_filtered >= ((uint32_t)ui16_adc_pedal_torque_offset + (uint32_t)ui16_adc_pedal_torque_range))
+		return 160;
     // First segment
     if (ui16_adc_torque_filtered <= ui16_adc_pedal_torque_adc_knee)     {
         ui32_delta = (uint32_t)ui16_adc_torque_filtered - (uint32_t)ui16_adc_pedal_torque_offset;
@@ -1791,20 +1793,12 @@ uint8_t pedal_torque_linearise_adc(uint16_t ui16_adc_torque_filtered)
     return (uint8_t)ui32_result;
 }
 
-static uint16_t pedal_torque_denormalize_for_display(
-    uint16_t ui16_torque_norm)
-{
+static uint16_t pedal_torque_denormalize_for_display( uint16_t ui16_torque_norm){
     uint32_t ui32_result;
-    uint8_t ui8_adc_step =
-        ui8_pedal_torque_per_10_bit_ADC_step_x100;
-
+    uint8_t ui8_adc_step = ui8_pedal_torque_per_10_bit_ADC_step_x100;
     if (ui8_adc_step == 0U)
         return 0;
-
-    ui32_result =
-        ((uint32_t)ui16_torque_norm * 167UL)
-        / ((uint32_t)ui8_adc_step * 2UL);
-
+    ui32_result = (((uint32_t)ui16_torque_norm * 167UL) + (uint32_t) ui8_adc_step) / ((uint32_t)ui8_adc_step * 2UL);
     return (uint16_t)ui32_result;
 }
 
@@ -2024,7 +2018,7 @@ static void get_pedal_torque(void) {
 		ui16_adc_pedal_torque_filtered_noExpo = filter( ui16_TorqueDeltaADC_norm , ui16_adc_pedal_torque_filtered_noExpo , 5); 
 	}
 #endif	
-	
+	if (ui16_adc_pedal_torque_filtered_noExpo < ui8_adc_pedal_torque_offset_adj) ui16_adc_pedal_torque_filtered_noExpo = 0;
 	// When curves are used, we do not use expo. Conversion torque to target current is done in apply torque assist 
 	ui16_adc_pedal_torque_delta = ui16_adc_pedal_torque_filtered_noExpo ;
 					
@@ -2082,7 +2076,7 @@ static void get_pedal_torque(void)
 	//     
 	// ui8_assist_without_pedal_rotation_threshold (Rx_buf[84]) is transmitted and used (apply assistance when cadence is 0 and torque is higher that threhold)
 	// 
-	// some values are transmitted but can't be filled by user
+	// some values are transmitted by the display but can't be filled by user
 	// ui16_adc_pedal_torque_range (Rx_buffer[78-79])=  range calculated in 860c based on torque_sensor_ADC_offset and torque_sensor_ADC_max filled in 860C
 	// ui8_adc_torque_calibration_offset (Rx_buffer[53]); it is not used because it can't be modified by user and depends on calib is enabled or not
 	// ui8_adc_torque_middle_offset_adj (Rx_buffer[54]) ; it is not used ; replaced by a fixed value 20 as middel of range_adj
@@ -2097,8 +2091,6 @@ static void get_pedal_torque(void)
 		// Furthermore, the margin has a range 0/34 in 860c and -20/+20 (but transmitted 0/40) in VLCD5 javaconfigurator 
 		// this is complex.
 		// to make it easier, for TSDZ8, margin has to be included in ui16_adc_pedal_torque_offset
-		// So ui16_adc_pedal_torque_offset has to be provided by the user and should be
-		//   the max ADC value of the torque sensor with no load (but over a 360° pedal rotation) + a margin
 		
 	if (toffset_cycle_counter < TOFFSET_CYCLES) {  // less than 3 sec
         // filter again the adc_torque_filtered value
@@ -2871,7 +2863,11 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 
 		// pedal torque delta no boost
 		// those bytes are used in 860C to calculate human power so it may not take exponential into account
-		// ui16_adc_pedal_torque_delta_no_boost has been filled in get_pedal_torque()
+		// In 860C field is named ui16_adc_pedal_torque_delta
+		//    860C calculate human power with rt_vars.ui16_pedal_power_x10 = 
+		//       (rt_vars.ui16_adc_pedal_torque_delta * rt_vars.ui8_pedal_torque_per_10_bit_ADC_step_x100 * rt_vars.ui8_pedal_cadence) / 96;
+		//       and ui8_pedal_torque_per_10_bit_ADC_step_x100 is transmitted in byte 83 (it is the slope of the first segment)
+		// ui16_adc_pedal_torque_delta_no_boost has been filled in get_pedal_torque() ;
 		//ui8_tx_buffer[12] = (uint8_t) (ui16_adc_pedal_torque_delta_no_boost & 0xff);
 		//ui8_tx_buffer[13] = (uint8_t) (ui16_adc_pedal_torque_delta_no_boost >> 8);
 		
@@ -2941,8 +2937,9 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		ui8_tx_buffer[23] = (uint8_t) ((ui32_wheel_speed_sensor_ticks_total >> 16) & 0xff);
 
 		// pedal torque delta ; mstrens 
-		//mstrens : it is used to calculate the assistance in all mode (except cadence) taking care of normalized scale, expo and boost
+		//mstrens : it is used in OSF to calculate the assistance in all mode (except cadence) taking care of normalized scale, curve and boost
 		// transmitted to display only as information on display
+		// in 860C display, it is named ui16_adc_pedal_torque_delta_boost
 		ui8_tx_buffer[24] = (uint8_t) (ui16_adc_pedal_torque_delta & 0xff);
 		ui8_tx_buffer[25] = (uint8_t) (ui16_adc_pedal_torque_delta >> 8);
 
