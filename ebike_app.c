@@ -829,7 +829,7 @@ static void apply_torque_assist(void)
 		set_motor_ramp();
 		
         // set battery current target
-        if (ui16_adc_battery_current_target_torque_assist > ui8_adc_battery_current_max) {
+	    if (ui16_adc_battery_current_target_torque_assist > ui8_adc_battery_current_max) {
             ui8_adc_battery_current_target = ui8_adc_battery_current_max;
         }
 		else {
@@ -2873,9 +2873,14 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		
 		// in this version ui16_adc_pedal_torque_delta_display used a vitual scale in order to let the display calculate the human power using ADC step
 		// this value does not take care of expo and boost (because those are only for assistance)
-		ui8_tx_buffer[12] = (uint8_t)(ui16_adc_pedal_torque_delta_display & 0xff);
-		ui8_tx_buffer[13] = (uint8_t)(ui16_adc_pedal_torque_delta_display >> 8);
+		//ui8_tx_buffer[12] = (uint8_t)(ui16_adc_pedal_torque_delta_display & 0xff);
+		//ui8_tx_buffer[13] = (uint8_t)(ui16_adc_pedal_torque_delta_display >> 8);
 		
+		// here just to test that the target current is correct (there is a bug somewhere)
+		ui8_tx_buffer[12] = adc_assist_current_lut[ui16_adc_pedal_torque_delta];
+		ui8_tx_buffer[13] = 0 ;
+
+
 		// PAS cadence
 		ui8_tx_buffer[14] = ui8_pedal_cadence_RPM;
 		

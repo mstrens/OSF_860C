@@ -71,7 +71,7 @@
 #define SMOOTHING_LIMIT_DEG 20
 #define SMOOTHING_LIMIT_Q8_8 DEG_TO_Q8_8(SMOOTHING_LIMIT_DEG)
 #define SMOOTHING_BITS 3  // split part exceeding the limit ; 
-                          // use a shift to avoid division; here shift = 3 because at 6000rpm, there is about 8 pwm cycleper transition
+                          // use a shift to avoid division; here shift = 3 because at 6000rpm, there is about 8 pwm cycles per transition
 
 #define RPM_LOW_SPEED   (300)   // below this speed, at each hall front, rotor position = hall centered (+ no interpolation)
                                 // just above, at each hall front, rotor position = hall (+ interpolation based only on previous sector speed
