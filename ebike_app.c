@@ -3143,10 +3143,10 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		else {
 			ui8_assist_without_pedal_rotation_threshold = 0;
 		}
+		pedal_torque_update_linearisation_parameters(); // update all parameters used to linearise and normalise ADC torque value.
+		decode_assist_parameter(ui8_riding_mode_parameter);		
 		break;
 
-		pedal_torque_update_linearisation_parameters(); // update all parameters used to linearise and normalise ADC torque value.
-		decode_assist_parameter(ui8_riding_mode_parameter);
       // firmware version
       case COMM_FRAME_TYPE_FIRMWARE_VERSION:
 		ui8_tx_buffer[3] = ui8_m_system_state;
