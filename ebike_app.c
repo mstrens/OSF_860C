@@ -1687,7 +1687,7 @@ uint16_t ui16_adc_pedal_torque_adc_knee;    // ADC at knee point
 uint32_t ui32_pedal_torque_k1_q16;           // pente segment 1, Q16
 uint32_t ui32_pedal_torque_k2_q16;           // pente segment 2, Q16
 uint8_t  ui8_pedal_torque_knee_value;        // output at knee point (0...160)
-bool pedal_torque_parameter_error = false;
+uint8_t ui8_pedal_torque_parameters_error = 10;   // this value should be replaced by 0 when configuration parameters are received from display
 uint16_t ui16_adc_pedal_torque_delta_display; // use to transmit the adc torque being used by display when it calculates human torque (multiplying by ADC step)
 
 // this function is called when new parameters are received from display
@@ -1699,7 +1699,7 @@ void pedal_torque_update_linearisation_parameters(void) {
     uint32_t ui32_k1_q16;
     uint32_t ui32_k2_q16;
 
-    pedal_torque_parameter_error = false;
+    ui8_pedal_torque_parameters_error = 0 ; // erase the error
 
     // Effective offset received from display
     ui16_adc_pedal_torque_offset = ui16_adc_pedal_torque_offset_set;
@@ -1717,7 +1717,7 @@ void pedal_torque_update_linearisation_parameters(void) {
         (ui8_pedal_torque_knee_adc_percent > 34U) ||
         (ui8_pedal_torque_per_10_bit_ADC_step_x100 == 0U))
     {
-        pedal_torque_parameter_error = true;
+        ui8_pedal_torque_parameters_error = 1;
         return;
     }
 
@@ -1725,7 +1725,7 @@ void pedal_torque_update_linearisation_parameters(void) {
     // Therefore: delta_knee = range * (100 - knee_percent) / 100
     ui32_adc_knee_delta = ((uint32_t)ui16_adc_pedal_torque_range * (100U - ui8_pedal_torque_knee_adc_percent)) / 100U;
     if (ui32_adc_knee_delta == 0U || ui32_adc_knee_delta >= ui16_adc_pedal_torque_range)     {
-        pedal_torque_parameter_error = true;
+        ui8_pedal_torque_parameters_error = 2;
         return;
     }
 
@@ -1737,14 +1737,14 @@ void pedal_torque_update_linearisation_parameters(void) {
     ui32_k1_q16 = ((uint32_t)ui8_pedal_torque_per_10_bit_ADC_step_x100 * 2UL * 65536UL) / 167UL;
     ui32_pedal_torque_k1_q16 = ui32_k1_q16;
     if (ui32_k1_q16 == 0U)     {
-        pedal_torque_parameter_error = true;
+        ui8_pedal_torque_parameters_error = 3;
         return;
     }
 
     // Normalized value at knee
     ui32_knee_norm =  ((uint64_t)ui32_adc_knee_delta * ui32_k1_q16  + 32768ULL) >> 16;
     if (ui32_knee_norm == 0U ||  ui32_knee_norm >= 160U)     {
-        pedal_torque_parameter_error = true;
+        ui8_pedal_torque_parameters_error = 4;
         return;
     }
     ui8_pedal_torque_knee_value = (uint8_t)ui32_knee_norm;
@@ -1753,7 +1753,7 @@ void pedal_torque_update_linearisation_parameters(void) {
     // normalized knee -> 160
     ui32_adc_segment2 = (uint32_t)ui16_adc_pedal_torque_range - ui32_adc_knee_delta;
     if (ui32_adc_segment2 == 0U)     {
-        pedal_torque_parameter_error = true;
+        ui8_pedal_torque_parameters_error = 5;
         return;
     }
     ui32_k2_q16 = ((uint64_t)(160U - ui32_knee_norm) * 65536ULL) / ui32_adc_segment2;
@@ -1761,7 +1761,7 @@ void pedal_torque_update_linearisation_parameters(void) {
 
     // Check expected sensor characteristic: first segment must be steeper than second segment.
     if (ui32_pedal_torque_k1_q16 > ui32_pedal_torque_k2_q16) {
-        pedal_torque_parameter_error = true;
+        ui8_pedal_torque_parameters_error = 6;
         return;
     }
 }
@@ -1771,7 +1771,7 @@ uint8_t pedal_torque_linearise_adc(uint16_t ui16_adc_torque_filtered)
 {
     uint32_t ui32_delta;
     uint32_t ui32_result;
-    if (pedal_torque_parameter_error)
+    if (ui8_pedal_torque_parameters_error > 0)
         return 0;
     // Below zero kg
     if (ui16_adc_torque_filtered <= ui16_adc_pedal_torque_offset)    {
@@ -2877,7 +2877,8 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		//ui8_tx_buffer[13] = (uint8_t)(ui16_adc_pedal_torque_delta_display >> 8);
 		
 		// here just to test that the target current is correct (there is a bug somewhere)
-		ui8_tx_buffer[12] = adc_assist_current_lut[ui16_adc_pedal_torque_delta];
+		//ui8_tx_buffer[12] = adc_assist_current_lut[ui16_adc_pedal_torque_delta];
+		ui8_tx_buffer[12] = ui8_pedal_torque_parameters_error;
 		ui8_tx_buffer[13] = 0 ;
 
 
@@ -2945,8 +2946,11 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		//mstrens : it is used in OSF to calculate the assistance in all mode (except cadence) taking care of normalized scale, curve and boost
 		// transmitted to display only as information on display
 		// in 860C display, it is named ui16_adc_pedal_torque_delta_boost
-		ui8_tx_buffer[24] = (uint8_t) (ui16_adc_pedal_torque_delta & 0xff);
-		ui8_tx_buffer[25] = (uint8_t) (ui16_adc_pedal_torque_delta >> 8);
+		//ui8_tx_buffer[24] = (uint8_t) (ui16_adc_pedal_torque_delta & 0xff);
+		//ui8_tx_buffer[25] = (uint8_t) (ui16_adc_pedal_torque_delta >> 8);
+		// just to debug 
+		ui8_tx_buffer[24] =  ui8_adc_pedal_torque_offset_error;
+		ui8_tx_buffer[25] = 0;
 
 		// first 8 bits of adc_motor_current
 		//ui8_tx_buffer[26] = (uint8_t) (ui16_adc_battery_current & 0xff);
