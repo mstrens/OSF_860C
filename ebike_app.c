@@ -2875,10 +2875,10 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		// this value does not take care of expo and boost (because those are only for assistance)
 		//ui8_tx_buffer[12] = (uint8_t)(ui16_adc_pedal_torque_delta_display & 0xff);
 		//ui8_tx_buffer[13] = (uint8_t)(ui16_adc_pedal_torque_delta_display >> 8);
-		
+		// debug new torque 
 		// here just to test that the target current is correct (there is a bug somewhere)
-		//ui8_tx_buffer[12] = adc_assist_current_lut[ui16_adc_pedal_torque_delta];
-		ui8_tx_buffer[12] = ui8_pedal_torque_parameters_error;
+		ui8_tx_buffer[12] = adc_assist_current_lut[ui16_adc_pedal_torque_delta];
+		//ui8_tx_buffer[12] = ui8_pedal_torque_parameters_error;
 		ui8_tx_buffer[13] = 0 ;
 
 
@@ -2946,11 +2946,12 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		//mstrens : it is used in OSF to calculate the assistance in all mode (except cadence) taking care of normalized scale, curve and boost
 		// transmitted to display only as information on display
 		// in 860C display, it is named ui16_adc_pedal_torque_delta_boost
-		//ui8_tx_buffer[24] = (uint8_t) (ui16_adc_pedal_torque_delta & 0xff);
-		//ui8_tx_buffer[25] = (uint8_t) (ui16_adc_pedal_torque_delta >> 8);
+		ui8_tx_buffer[24] = (uint8_t) (ui16_adc_pedal_torque_delta & 0xff);
+		ui8_tx_buffer[25] = (uint8_t) (ui16_adc_pedal_torque_delta >> 8);
+		// debug new torque
 		// just to debug 
-		ui8_tx_buffer[24] =  ui8_adc_pedal_torque_offset_error;
-		ui8_tx_buffer[25] = 0;
+		//ui8_tx_buffer[24] =  ui8_adc_pedal_torque_offset_error;
+		//ui8_tx_buffer[25] = 0;
 
 		// first 8 bits of adc_motor_current
 		//ui8_tx_buffer[26] = (uint8_t) (ui16_adc_battery_current & 0xff);
