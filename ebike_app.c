@@ -127,9 +127,11 @@ uint16_t ui16_adc_coaster_brake_threshold = 0;
 uint8_t ui8_coaster_brake_enabled = 0;
 static uint8_t ui8_coaster_brake_torque_threshold = 0;
 static uint16_t ui16_adc_pedal_torque = 0;
-static uint16_t ui16_adc_pedal_torque_delta = 0; // torque after normalisation, linearization and expo and boost (at start up)
-static uint16_t ui16_adc_pedal_torque_delta_temp = 0; // idem ; copy to be able to restore
-static uint16_t ui16_adc_pedal_torque_delta_no_boost = 0; // torque after normalisation, linearization and expo
+static uint16_t ui16_adc_pedal_torque_filtered_no_curve ; // torque after averaging, normalisation, linearization  
+
+static uint16_t ui16_adc_pedal_torque_delta = 0; // torque after averaging, normalisation, linearization (sometime modified e.g by smoort startup)(no curve)
+static uint16_t ui16_adc_pedal_torque_delta_temp = 0; // idem ; copy to be able to restore (not modified by some functions); used for cadence assist mode
+static uint16_t ui16_adc_pedal_torque_delta_no_boost = 0; // torque after normalisation, linearization but no curve
 //static uint16_t ui16_pedal_torque_x100 = 0; // mstrens :  not used because hybrid mode recalculate it
 static uint8_t ui8_torque_sensor_calibration_enabled = 0;
 static uint8_t ui8_hybrid_torque_parameter = 0;
@@ -795,7 +797,9 @@ static void apply_power_assist(void)
 
 static void apply_torque_assist(void)
 {
-	// here current is based on torque * assist_factor
+	// initially ui16_adc_pedal_torque_delta contains the nomalized linearised torque (no curve)
+	// this field can be modified here when smooth start is applied
+	// here current is based on torque_no curve
 	// smooth start
 	if (ui8_smooth_start_enabled) {
 		apply_smooth_start();   // ui16_adc_pedal torque delta grows progressively ()
@@ -1604,7 +1608,6 @@ static uint16_t ui16_TSum = 0;
 static uint16_t ui16_TExpected[21];  // expected torque value based on expected in previous rotation and difference in TSamples
 static uint16_t ui16_TExpectedNew ;
 #endif
-static uint16_t ui16_adc_pedal_torque_filtered_noExpo ;
 uint16_t ui16_TSampleOld;
 // PWM IRQ set ui8_pas_new_transition when a new PAS signal transition is detected.
 // 20 transtions/revolution (one every 18 deg)
@@ -1943,12 +1946,15 @@ static uint16_t pedal_torque_denormalize_for_display( uint16_t ui16_torque_norm)
 // ui16_adc_pedal_torque_offset_init = filtered raw ADC after 3 sec = offset when no weight on pedal
 // ui16_adc_pedal_torque_offset_set = offset received from display
 // ui16_adc_torque_filtered = raw value (with filter) calculated in motor because calculated in irq
-// ui16_TorqueDeltaADC_norm =  converted ui16_adc_torque_filtered with linearization and normalisation (0...160 for 0...80kg) (fill in buffer)
-// ui16_adc_pedal_torque_filtered_noExpo = averaging of ui16_TorqueDeltaADC_norm on one pedal rotation (spider logic) (0...160)
-// ui16_adc_pedal_torque_delta =  normalised with expo (and boost) (to be used for assistance)
-// ui16_adc_pedal_torque_delta_temp = copy of ui16_adc_pedal_torque_delta;
+// ui16_adc_torque = local copy of ui16_adc_torque_filtered (because value can change in irq)
+// ui16_TorqueDeltaADC_norm =  converted ui16_adc_torque_filtered with linearization and normalisation (0...160 for 0...80kg) (filled in buffer)
+// ui16_adc_pedal_torque_filtered_no_curve = averaging of ui16_TorqueDeltaADC_norm on one pedal rotation (spider logic) (0...160) (in spider 3)
+//                                           To be use as basis for human power calculation (see also ui16_adc_pedal_torque_delta_display); 
+// ui16_adc_pedal_torque_delta =  ui16_adc_pedal_torque_filtered_no_curve eventually modified by e.g. smooth start (to be used for assistance)
+// ui16_adc_pedal_torque_delta_temp = copy of ui16_adc_pedal_torque_filtered_no_curve (used in cadence mode to restore original value)
 // ui16_adc_pedal_torque_delta_no_boost = ui16_adc_pedal_torque_delta used for cadence sensor check(ERR03); sent in tx_buffer[]
 // uint16_t ui16_adc_pedal_torque_delta_display; // ADC vitual scale; use to transmit the adc torque being used by display when it calculates human torque (multiplying by ADC step)
+//                                               // based on ui16_adc_pedal_torque_filtered_no_curve
 // uint32_t ui32_pedal_torque_x100 (in controler) = ((uint32_t)ui16_adc_pedal_torque_delta * 167U + 1U) >> 1; // to get the same value as the display calculation
 
 static void get_pedal_torque(void) {
@@ -1990,21 +1996,21 @@ static void get_pedal_torque(void) {
 		}
 
 		if (ui16_tmp < TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MAX  ) {
-			ui16_adc_pedal_torque_filtered_noExpo = ui16_TSum / ((uint8_t)20); // overwrite with avg when difference with previous rotation is low
+			ui16_adc_pedal_torque_filtered_no_curve = ui16_TSum / ((uint8_t)20); // overwrite with avg when difference with previous rotation is low
 		} else {      // when difference is big, apply a filter
-			ui16_adc_pedal_torque_filtered_noExpo = filter( ui16_TorqueDeltaADC_norm , ui16_adc_pedal_torque_filtered_noExpo , 5);
+			ui16_adc_pedal_torque_filtered_no_curve = filter( ui16_TorqueDeltaADC_norm , ui16_adc_pedal_torque_filtered_no_curve , 5);
 		}
 	} else {   // when buffer is not full
 		#if (USE_SPIDER_LOGIC_FOR_TORQUE == (1)) 
-		ui16_adc_pedal_torque_filtered_noExpo = filter( ui16_TorqueDeltaADC_norm , ui16_adc_pedal_torque_filtered_noExpo , 5); 
+		ui16_adc_pedal_torque_filtered_no_curve = filter( ui16_TorqueDeltaADC_norm , ui16_adc_pedal_torque_filtered_no_curve , 5); 
 		#else // (USE_SPIDER_LOGIC_FOR_TORQUE == (3) we use the average
 		if (ui8_TSamplesNum > 0 && ui16_TorqueDeltaADC_norm > 0) {
-			ui16_adc_pedal_torque_filtered_noExpo = ui16_TSum / ui8_TSamplesNum; // partial rotation: avg of 1-19 samples
+			ui16_adc_pedal_torque_filtered_no_curve = ui16_TSum / ui8_TSamplesNum; // partial rotation: avg of 1-19 samples
 		} else {
 			// No samples yet, or no current torque (foot off pedal) — use filtered ADC.
 			// Decays to 0 when rider stops; responds instantly at standstill.
-			ui16_adc_pedal_torque_filtered_noExpo = filter(ui16_TorqueDeltaADC_norm,
-				ui16_adc_pedal_torque_filtered_noExpo, 5);
+			ui16_adc_pedal_torque_filtered_no_curve = filter(ui16_TorqueDeltaADC_norm,
+				ui16_adc_pedal_torque_filtered_no_curve, 5);
 		}
 		#endif
 	}
@@ -2013,22 +2019,25 @@ static void get_pedal_torque(void) {
 	// when ui8_TSamplesNum == 20, we can compare with previous sample and we use Texpected that has been calculated
 	// else, we use current value (remapped to 160) and filtered
 	if (ui8_TSamplesNum == 20){
-		ui16_adc_pedal_torque_filtered_noExpo = filter( ui16_TExpectedNew, ui16_adc_pedal_torque_filtered_noExpo, 4);
+		ui16_adc_pedal_torque_filtered_no_curve = filter( ui16_TExpectedNew, ui16_adc_pedal_torque_filtered_no_curve, 4);
 	} else {  // TSampleNum =0/19;
-		ui16_adc_pedal_torque_filtered_noExpo = filter( ui16_TorqueDeltaADC_norm , ui16_adc_pedal_torque_filtered_noExpo , 5); 
+		ui16_adc_pedal_torque_filtered_no_curve = filter( ui16_TorqueDeltaADC_norm , ui16_adc_pedal_torque_filtered_no_curve , 5); 
 	}
 #endif	
-	if (ui16_adc_pedal_torque_filtered_noExpo < ui8_adc_pedal_torque_offset_adj) ui16_adc_pedal_torque_filtered_noExpo = 0;
-	// When curves are used, we do not use expo. Conversion torque to target current is done in apply torque assist 
-	ui16_adc_pedal_torque_delta = ui16_adc_pedal_torque_filtered_noExpo ;
+	// when linear normalised torque is smaller than offset, then set torque to 0 (security thresehold for sensor depe,ding on pedal position)
+	if (ui16_adc_pedal_torque_filtered_no_curve < ui8_adc_pedal_torque_offset_adj) ui16_adc_pedal_torque_filtered_no_curve = 0;
+	
+	// When curves are used, conversion torque to target current is done directly in apply torque assist function
+	// this conversion uses ui16_adc_pedal_torque_delta (but this field can be modified inside torque assist function e.g. for smooth start)
+	ui16_adc_pedal_torque_delta = ui16_adc_pedal_torque_filtered_no_curve ;
 					
 	// here ui16_adc_pedal_torque_delta is known
 	ui16_adc_pedal_torque_delta_temp = ui16_adc_pedal_torque_delta;
 	
 	// for cadence sensor check and sent in TX_buffer[12..13] for calculation of human power by display 860c
-	ui16_adc_pedal_torque_delta_no_boost = ui16_adc_pedal_torque_filtered_noExpo; // mstrens it was = ui16_adc_pedal_torque_delta;
-
-	ui16_adc_pedal_torque_delta_display = pedal_torque_denormalize_for_display(ui16_adc_pedal_torque_filtered_noExpo);
+	ui16_adc_pedal_torque_delta_no_boost = ui16_adc_pedal_torque_filtered_no_curve; // mstrens it was = ui16_adc_pedal_torque_delta;
+	// 860c performs his own calculation of human power. So we have to send a special value in buffer[12...13]
+	ui16_adc_pedal_torque_delta_display = pedal_torque_denormalize_for_display(ui16_adc_pedal_torque_filtered_no_curve);
 
 }
 #else // NORMAL or KATANA logic : (USE_SPIDER_LOGIC_FOR_TORQUE == (0)) 
@@ -2054,7 +2063,7 @@ uint8_t katana_count = 0;
 uint16_t katana_sum = 0; 	
 #endif
 
-static uint16_t ui16_adc_pedal_torque_noExpo;
+static uint16_t ui16_adc_pedal_torque_no_curve;
 
 static void get_pedal_torque(void)
 {
@@ -2177,8 +2186,8 @@ static void get_pedal_torque(void)
 		}
 		uint16_t katana_dif = 0;
 		uint8_t katana_factor = 16;
-		if (ui16_adc_pedal_torque_delta_160 > ui16_adc_pedal_torque_noExpo) katana_dif = ui16_adc_pedal_torque_delta_160 - ui16_adc_pedal_torque_noExpo;
-		else katana_dif = ui16_adc_pedal_torque_noExpo - ui16_adc_pedal_torque_delta_160;
+		if (ui16_adc_pedal_torque_delta_160 > ui16_adc_pedal_torque_no_curve) katana_dif = ui16_adc_pedal_torque_delta_160 - ui16_adc_pedal_torque_no_curve;
+		else katana_dif = ui16_adc_pedal_torque_no_curve - ui16_adc_pedal_torque_delta_160;
 		
 		if (katana_dif < 60) katana_factor = 1;
 		else if (katana_dif < 80) katana_factor = 2;
@@ -2228,8 +2237,8 @@ static void get_pedal_torque(void)
 		// number of values added depends on the (absolute) difference between current value and new one	
 		uint16_t katana_dif = 0;
 		uint8_t katana_factor = 16;
-		if (ui16_adc_pedal_torque_delta_160 > ui16_adc_pedal_torque_noExpo) katana_dif = ui16_adc_pedal_torque_delta_160 - ui16_adc_pedal_torque_noExpo;
-		else katana_dif = ui16_adc_pedal_torque_noExpo - ui16_adc_pedal_torque_delta_160;
+		if (ui16_adc_pedal_torque_delta_160 > ui16_adc_pedal_torque_no_curve) katana_dif = ui16_adc_pedal_torque_delta_160 - ui16_adc_pedal_torque_no_curve;
+		else katana_dif = ui16_adc_pedal_torque_no_curve - ui16_adc_pedal_torque_delta_160;
 		if (katana_dif < 60) katana_factor = 1;
 		else if (katana_dif < 80) katana_factor = 2;
 		else if (katana_dif < 100) katana_factor = 4;
@@ -2256,20 +2265,20 @@ static void get_pedal_torque(void)
 		if 	(ui16_adc_pedal_torque_delta_160 > ADC_TORQUE_SENSOR_RANGE_TARGET) ui16_adc_pedal_torque_delta_160 = ADC_TORQUE_SENSOR_RANGE_TARGET;
 	#endif
 	// save the value before applying expo in order to calculate variation in katana1234 logic on next loop (here above)
-	ui16_adc_pedal_torque_noExpo = ui16_adc_pedal_torque_delta_160 ; 
+	ui16_adc_pedal_torque_no_curve = ui16_adc_pedal_torque_delta_160 ; 
 	
 	// apply expo : value is in range 0/256 and so does not need to be remaped 
 	//              coeff expect a value in range-256/256 while range_adj is in range 0/40
 	//                      so we have to substract 20 and multiply by 12.
 	ui16_adc_pedal_torque_delta =  expo(
-		(int) ui16_adc_pedal_torque_noExpo  ,
+		(int) ui16_adc_pedal_torque_no_curve  ,
 			((int) ui8_pedal_torque_expo_coef - 20) * 12 ); // apply expo ; *12 because expo expect a value in range -256/+256
 
 	// here ui16_adc_pedal_torque_delta is known
 	ui16_adc_pedal_torque_delta_temp = ui16_adc_pedal_torque_delta;
 	
 	// for cadence sensor check and sent in TX_buffer[12..13] for calculation of human power by display 860c
-	ui16_adc_pedal_torque_delta_no_boost = ui16_adc_pedal_torque_filtered_noExpo ; // mstrens it was = ui16_adc_pedal_torque_delta;
+	ui16_adc_pedal_torque_delta_no_boost = ui16_adc_pedal_torque_filtered_no_curve ; // mstrens it was = ui16_adc_pedal_torque_delta;
 	
 
 	/*------------------------------------------------------------------------
@@ -2872,7 +2881,7 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		//ui8_tx_buffer[13] = (uint8_t) (ui16_adc_pedal_torque_delta_no_boost >> 8);
 		
 		// in this version ui16_adc_pedal_torque_delta_display used a vitual scale in order to let the display calculate the human power using ADC step
-		// this value does not take care of expo and boost (because those are only for assistance)
+		// this value does not take care of curve, smooth start...(because those are only for assistance)
 		//ui8_tx_buffer[12] = (uint8_t)(ui16_adc_pedal_torque_delta_display & 0xff);
 		//ui8_tx_buffer[13] = (uint8_t)(ui16_adc_pedal_torque_delta_display >> 8);
 		// debug new torque 
