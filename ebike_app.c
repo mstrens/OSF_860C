@@ -127,7 +127,7 @@ uint16_t ui16_adc_coaster_brake_threshold = 0;
 uint8_t ui8_coaster_brake_enabled = 0;
 static uint8_t ui8_coaster_brake_torque_threshold = 0;
 static uint16_t ui16_adc_pedal_torque = 0;
-static uint16_t ui16_adc_pedal_torque_filtered_no_curve ; // torque after averaging, normalisation, linearization  
+static uint16_t ui16_adc_pedal_torque_filtered_no_curve = 0; // torque after averaging, normalisation, linearization  
 
 static uint16_t ui16_adc_pedal_torque_delta = 0; // torque after averaging, normalisation, linearization (sometime modified e.g by smoort startup)(no curve)
 static uint16_t ui16_adc_pedal_torque_delta_temp = 0; // idem ; copy to be able to restore (not modified by some functions); used for cadence assist mode
@@ -2886,10 +2886,17 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		//ui8_tx_buffer[13] = (uint8_t)(ui16_adc_pedal_torque_delta_display >> 8);
 		// debug new torque 
 		// here just to test that the target current is correct (there is a bug somewhere)
-		ui8_tx_buffer[12] = adc_assist_current_lut[ui16_adc_pedal_torque_delta];
-		//ui8_tx_buffer[12] = ui8_pedal_torque_parameters_error;
+		ui8_tx_buffer[12] = adc_assist_current_lut[ui16_adc_pedal_torque_delta_no_boost];
 		ui8_tx_buffer[13] = 0 ;
-
+		if (ui16_adc_pedal_torque_delta_no_boost > 160){ // overwrite the value provide by the LUT
+			ui8_tx_buffer[12] = 1; // use a dummy value to detect the case
+			ui8_tx_buffer[13] = 1;  
+		} else {
+			
+		}
+		
+		
+		//ui8_tx_buffer[12] = ui8_pedal_torque_parameters_error;
 
 		// PAS cadence
 		ui8_tx_buffer[14] = ui8_pedal_cadence_RPM;
