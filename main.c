@@ -373,11 +373,10 @@ int main(void)
        
         // avoid a reset
         XMC_WDT_Service(); // reset if we do not run here within the 0,5 sec
-        #if (USE_SPIDER_LOGIC_FOR_TORQUE > (0)) 
-        if (ui8_pas_new_transition) {
-            new_torque_sample();
-        }
-        #endif
+        // for spider logic 
+        //if (ui8_pas_new_transition) { // set as comment because getting new pas event (for torque) is done in ebike_app now
+        //    new_torque_sample();
+        //}
                 
         uint32_t temp_ticks;
         

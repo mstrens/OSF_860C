@@ -137,9 +137,66 @@ static uint8_t ui8_torque_sensor_calibration_enabled = 0;
 static uint8_t ui8_hybrid_torque_parameter = 0;
 static uint8_t ui8_eMTB_based_on_power = 1;
 // added by mstrens
+#define TOFFSET_CYCLES 120 // 3sec (25ms*120)
+static uint8_t toffset_cycle_counter = 0;
+// get_pedal_torque has been totally rewrittent for TSDZ8 (do not update based on TSDZ2)
+
+// for Spider logic  
+static uint16_t ui16_TSamples[21];
+static uint8_t ui8_TSamplesNum = 0;
+static uint8_t ui8_TSamplesPos = 0;
+static uint16_t ui16_TSum = 0;
+
+// Difference between two samples taken at the same PAS position
+static int16_t i16_TorqueDiffSamePosition = 0;
+static int16_t i16_TorqueDiffSamePositionFiltered = 0;
+
+// Filtered instantaneous torque in in get_pedal_torque (at 40Hz)
+static uint16_t ui16_TorqueInstantFiltered = 0;
+
+extern volatile uint8_t ui8_pas_active;  // updated in systick
+extern volatile uint16_t ui16_torque_event_adc;
+extern volatile uint8_t ui8_torque_event_seq;
+static uint8_t ui8_torque_event_seq_consumed = 0;
+static uint8_t ui8_pas_active_prev = 0;
+
+// Pedal torque state management
+#define ENABLE_PEDAL_TORQUE_STATE_MANAGEMENT  1
+
+#define TORQUE_START_MIN_WHEEL_SPEED_X10      20
+#define TORQUE_START_CAPTURE_TRANSITIONS      20
+#define TORQUE_START_BLEND_TRANSITIONS        10
+#define TORQUE_START_MAX_TORQUE               40
+
+#define TORQUE_IDLE                           0
+#define TORQUE_START                          1
+#define TORQUE_NORMAL                         2
+
+static uint8_t ui8_torque_state = TORQUE_IDLE;
+static uint8_t ui8_torque_start_transition_count = 0;
+
+static uint16_t ui16_torque_start_max = 0;
+static uint16_t ui16_torque_start_first_sample = 0;
+
+// Latest normalised sample received at a PAS transition
+static uint16_t ui16_torque_last_pas_sample = 0;
+static uint8_t ui8_torque_new_pas_sample = 0;
+
 #define LUT_CURRENT_SIZE 161 // Lut is 161 because normalized torque varies from 0 up to 160; so table can be read directly
 uint8_t adc_assist_current_lut[161] = {0}; //current conversion table
- 
+static void reset_torque_samples(void);
+static void update_pedal_torque_state(void);
+uint8_t pedal_torque_linearise_adc(uint16_t ui16_adc_torque_filtered);
+static uint16_t pedal_torque_denormalize_for_display( uint16_t ui16_torque_norm);
+
+// values used to linearise and normalise ADC torque
+uint16_t ui16_adc_pedal_torque_adc_knee;    // ADC at knee point
+uint32_t ui32_pedal_torque_k1_q16;           // pente segment 1, Q16
+uint32_t ui32_pedal_torque_k2_q16;           // pente segment 2, Q16
+uint8_t  ui8_pedal_torque_knee_value;        // output at knee point (0...160)
+uint8_t ui8_pedal_torque_parameters_error = 10;   // this value should be replaced by 0 when configuration parameters are received from display
+uint16_t ui16_adc_pedal_torque_delta_display; // use to transmit the adc torque being used by display when it calculates human torque (multiplying by ADC step)
+
 
 // wheel speed sensor
 static uint16_t ui16_wheel_speed_x10 = 0;
@@ -324,8 +381,38 @@ void ebike_app_controller(void) // is called every 25ms by main()
 	// Calculate filtered Motor Current (Ampx5)
     ui8_motor_current_filtered_x5 = (uint8_t)(((uint16_t) ui16_adc_motor_phase_current * BATTERY_CURRENT_PER_10_BIT_ADC_STEP_X100) / 20);
 	
-	// get pedal torque ; calculate ui16_pedal_torque_x100 and ui16_human_power_x10 (human power)
+	// prepare pedal torque to be used
+	uint8_t ui8_pas_active_now = ui8_pas_active; // save the value from systick ISR
+	if (ui8_pas_active_now != ui8_pas_active_prev) {
+		if (!ui8_pas_active_now) { 	
+			reset_torque_samples(); // Pedaling stopped: reset the sliding torque buffer.
+			ui8_torque_event_seq_consumed = ui8_torque_event_seq; // Discard any pending torque sample.
+		}
+		ui8_pas_active_prev = ui8_pas_active_now;
+	}
+
+	if (ui8_pas_active_now) { 
+		uint8_t ui8_seq_before = ui8_torque_event_seq;
+		if (ui8_seq_before != ui8_torque_event_seq_consumed) {
+			uint16_t ui16_adc_sample = ui16_torque_event_adc; // = raw adc when pas trensition occured
+			uint8_t ui8_seq_after = ui8_torque_event_seq;
+			if (ui8_seq_before == ui8_seq_after) { // Check that the sample was not replaced during the read.
+				if (ui8_pas_active) { // Check that PAS is still active.
+					ui8_torque_event_seq_consumed = ui8_seq_before;
+					new_torque_sample(ui16_adc_sample); // process new raw ADC captured during a PAS transition
+				}
+			}
+		}
+	}
+
+	// Get actual torque value (independent of PAS events).
+	//uint16_t ui16_adc_torque = ui16_adc_torque_filtered;
+
+	// Calculate pedal torque and human power.
 	get_pedal_torque();
+
+	// Adjust torque according to the current pedaling state.
+	update_pedal_torque_state();
 	
 	// send/receive data every 2 cycles (25ms * 2)
 	// control external lights every 4 cycles (25ms * 4)
@@ -391,8 +478,8 @@ void ebike_app_controller(void) // is called every 25ms by main()
 static void ebike_control_motor(void) // is called every 25ms by ebike_app_controller()
 {
     // reset control variables (safety)
-    ui8_duty_cycle_ramp_up_inverse_step = PWM_DUTY_CYCLE_RAMP_UP_INVERSE_STEP_DEFAULT;
-    ui8_duty_cycle_ramp_down_inverse_step = PWM_DUTY_CYCLE_RAMP_DOWN_INVERSE_STEP_DEFAULT;
+    ui8_duty_cycle_ramp_up_inverse_step = PWM_DUTY_CYCLE_RAMP_UP_INVERSE_STEP_DEFAULT; // 194 = low acceleration
+    ui8_duty_cycle_ramp_down_inverse_step = PWM_DUTY_CYCLE_RAMP_DOWN_INVERSE_STEP_DEFAULT; // 73 = low deceleration
     ui8_adc_battery_current_target = 0;
     ui8_duty_cycle_target = 0;
 	
@@ -425,19 +512,25 @@ static void ebike_control_motor(void) // is called every 25ms by ebike_app_contr
     // select riding mode and calculate ui8_adc_battery_current_target and ui8_duty_cycle_target is 255 (or 0)
     //        It also adapt the ramp up and down inverse step that has an impact on how fast the motor react to a change.
 		switch (ui8_riding_mode) {
-			case POWER_ASSIST_MODE: apply_power_assist(); break;
+			case POWER_ASSIST_MODE: apply_torque_assist(); break;
 			case TORQUE_ASSIST_MODE: apply_torque_assist(); break;
 			case CADENCE_ASSIST_MODE: apply_cadence_assist(); break;
-			case eMTB_ASSIST_MODE: apply_emtb_assist(); break;
-			case HYBRID_ASSIST_MODE: apply_hybrid_assist(); break;
+			case eMTB_ASSIST_MODE: apply_torque_assist(); break;
+			case HYBRID_ASSIST_MODE: apply_torque_assist(); break;
+			
+			//case POWER_ASSIST_MODE: apply_power_assist(); break;
+			//case TORQUE_ASSIST_MODE: apply_torque_assist(); break;
+			//case CADENCE_ASSIST_MODE: apply_cadence_assist(); break;
+			//case eMTB_ASSIST_MODE: apply_emtb_assist(); break;
+			//case HYBRID_ASSIST_MODE: apply_hybrid_assist(); break;
 			case CRUISE_MODE: apply_cruise(); break;
 			case WALK_ASSIST_MODE: apply_walk_assist(); break;
 			case MOTOR_CALIBRATION_MODE: apply_calibration_assist(); break;
 		}
 	} else { // we are in testing mode 
 		// for testing, we force the 4 parameters used to control the motor
-		ui8_duty_cycle_ramp_up_inverse_step = PWM_DUTY_CYCLE_RAMP_UP_INVERSE_STEP_DEFAULT;     // 194
-		ui8_duty_cycle_ramp_down_inverse_step = PWM_DUTY_CYCLE_RAMP_DOWN_INVERSE_STEP_DEFAULT;  //73
+		ui8_duty_cycle_ramp_up_inverse_step = PWM_DUTY_CYCLE_RAMP_UP_INVERSE_STEP_DEFAULT;     // 194 = low acceleration
+		ui8_duty_cycle_ramp_down_inverse_step = PWM_DUTY_CYCLE_RAMP_DOWN_INVERSE_STEP_DEFAULT;  // 73 = low deceleration
 		// set current target to the testing value and check with max
 		ui8_adc_battery_current_target = (uint16_t) ui8_battery_current_target_testing *100 / BATTERY_CURRENT_PER_10_BIT_ADC_STEP_X100;
 		if (ui8_adc_battery_current_target > ADC_10_BIT_BATTERY_CURRENT_MAX)
@@ -454,8 +547,8 @@ static void ebike_control_motor(void) // is called every 25ms by ebike_app_contr
 		}
 		ui8_riding_mode_parameter =  50; // if it is set on 0 , it means that there is no assist and motor stays/goes off in safety checks
 		// todo : check if those fields are ok for 860C version
-		ui8_duty_cycle_ramp_up_inverse_step = DEFAULT_RAMP_UP_INVERSE_TESTING;
-		ui8_duty_cycle_ramp_down_inverse_step = DEFAULT_RAMP_DOWN_INVERSE_TESTING;
+		ui8_duty_cycle_ramp_up_inverse_step = DEFAULT_RAMP_UP_INVERSE_TESTING; // 194 = low acceleration
+		ui8_duty_cycle_ramp_down_inverse_step = DEFAULT_RAMP_DOWN_INVERSE_TESTING; // 73 = low deceleration
 	}
 
     // select optional ADC function
@@ -634,34 +727,34 @@ static void ebike_control_motor(void) // is called every 25ms by ebike_app_contr
 static void set_motor_ramp(void)
 {
 	uint8_t ui8_tmp;
-	if (ui16_wheel_speed_x10 >= 200) {
-        ui8_duty_cycle_ramp_up_inverse_step = PWM_DUTY_CYCLE_RAMP_UP_INVERSE_STEP_MIN;
-        ui8_duty_cycle_ramp_down_inverse_step = PWM_DUTY_CYCLE_RAMP_DOWN_INVERSE_STEP_MIN;
+	if (ui16_wheel_speed_x10 >= 200) {    // above 20 km/h use fast acceleration
+        ui8_duty_cycle_ramp_up_inverse_step = PWM_DUTY_CYCLE_RAMP_UP_INVERSE_STEP_MIN; //24
+        ui8_duty_cycle_ramp_down_inverse_step = PWM_DUTY_CYCLE_RAMP_DOWN_INVERSE_STEP_MIN; //9
     }
 	else {
-        ui8_duty_cycle_ramp_up_inverse_step = map_ui8((uint8_t)(ui16_wheel_speed_x10>>2),
+        ui8_duty_cycle_ramp_up_inverse_step = map_ui8((uint8_t)(ui16_wheel_speed_x10>>2), // at very low speed, use (user) slower acceleration 
                 (uint8_t)10, // 10*4 = 40 -> 4 kph
                 (uint8_t)50, // 50*4 = 200 -> 20 kph
-                (uint8_t)ui8_duty_cycle_ramp_up_inverse_step_default,
-                (uint8_t)PWM_DUTY_CYCLE_RAMP_UP_INVERSE_STEP_MIN);
-        ui8_tmp = map_ui8(ui8_pedal_cadence_RPM,
+                (uint8_t)ui8_duty_cycle_ramp_up_inverse_step_default, // value set by user between 194 and 24
+                (uint8_t)PWM_DUTY_CYCLE_RAMP_UP_INVERSE_STEP_MIN); //24
+        ui8_tmp = map_ui8(ui8_pedal_cadence_RPM,   // at very low cadence, use (user) slower acceleration
                 (uint8_t)20, // 20 rpm
                 (uint8_t)70, // 70 rpm
                 (uint8_t)ui8_duty_cycle_ramp_up_inverse_step_default,
-                (uint8_t)PWM_DUTY_CYCLE_RAMP_UP_INVERSE_STEP_MIN);
+                (uint8_t)PWM_DUTY_CYCLE_RAMP_UP_INVERSE_STEP_MIN); //24
         if (ui8_tmp < ui8_duty_cycle_ramp_up_inverse_step) {
-            ui8_duty_cycle_ramp_up_inverse_step = ui8_tmp;
+            ui8_duty_cycle_ramp_up_inverse_step = ui8_tmp; // fastest acceleration set by wheel and cadence
 		}
         ui8_duty_cycle_ramp_down_inverse_step = map_ui8((uint8_t)(ui16_wheel_speed_x10>>2),
                 (uint8_t)10, // 10*4 = 40 -> 4 kph
                 (uint8_t)50, // 50*4 = 200 -> 20 kph
                 (uint8_t)ui8_duty_cycle_ramp_down_inverse_step_default,
-                (uint8_t)PWM_DUTY_CYCLE_RAMP_DOWN_INVERSE_STEP_MIN);
+                (uint8_t)PWM_DUTY_CYCLE_RAMP_DOWN_INVERSE_STEP_MIN); // 9
         ui8_tmp = map_ui8(ui8_pedal_cadence_RPM,
                 (uint8_t)20, // 20 rpm
                 (uint8_t)70, // 70 rpm
                 (uint8_t)ui8_duty_cycle_ramp_down_inverse_step_default,
-                (uint8_t)PWM_DUTY_CYCLE_RAMP_DOWN_INVERSE_STEP_MIN);
+                (uint8_t)PWM_DUTY_CYCLE_RAMP_DOWN_INVERSE_STEP_MIN); //9
         if (ui8_tmp < ui8_duty_cycle_ramp_down_inverse_step) {
             ui8_duty_cycle_ramp_down_inverse_step = ui8_tmp;
 		}
@@ -840,7 +933,9 @@ static void apply_torque_assist(void)
             ui8_adc_battery_current_target = (uint8_t)ui16_adc_battery_current_target_torque_assist;
         }
 		
-		// set startup assist battery current target
+		// set startup assist battery current target (flag is set/reset in display when pressing UP button more than 4 sec)
+		// When on, current target remain the highiest since activation.
+
 		if (ui8_startup_assist_flag) {
 			if (ui8_adc_battery_current_target > ui8_startup_assist_adc_battery_current_target) {
 				ui8_startup_assist_adc_battery_current_target = ui8_adc_battery_current_target;
@@ -851,6 +946,7 @@ static void apply_torque_assist(void)
 			ui8_startup_assist_adc_battery_current_target = 0;
 		}
 		
+
 		// set duty cycle target
         if (ui8_adc_battery_current_target) {
             ui8_duty_cycle_target = ui8_pwm_duty_cycle_max;
@@ -1595,103 +1691,243 @@ int expo(int x, int k)
 }
 
 // here the code for get_pedal_torque()
-#define TOFFSET_CYCLES 120 // 3sec (25ms*120)
-static uint8_t toffset_cycle_counter = 0;
-// get_pedal_torque has been totally rewrittent for TSDZ8 (do not update based on TSDZ2)
-
-#if  (USE_SPIDER_LOGIC_FOR_TORQUE > (0)) 
-static uint16_t ui16_TSamples[21];
-static uint8_t ui8_TSamplesNum = 0;
-static uint8_t ui8_TSamplesPos = 0;
-static uint16_t ui16_TSum = 0;
-#if (USE_SPIDER_LOGIC_FOR_TORQUE == (2))
-static uint16_t ui16_TExpected[21];  // expected torque value based on expected in previous rotation and difference in TSamples
-static uint16_t ui16_TExpectedNew ;
-#endif
-uint16_t ui16_TSampleOld;
-// PWM IRQ set ui8_pas_new_transition when a new PAS signal transition is detected.
 // 20 transtions/revolution (one every 18 deg)
 // @120 rmp: 40 transitions/sec 1 every 25 ms
 // on exit, ui16_TSum contains the sum of 20 values (if ui8_TSampleNum = 20 = buffer is full)
-void new_torque_sample() {
+void new_torque_sample(uint16_t ui16_adc_sample) // called only when a valid pas transition occurs (by ebike_app_controller() running at 40Hz). 
+{
+    uint16_t ui16_TorqueDeltaADC_norm;
+    uint16_t ui16_TSampleOld;
 
-    if (ui8_pas_new_transition & 0x80) {
-    	// Pedal stop or backward rotation -> reset all
-        ui8_pas_new_transition = 0;
-        ui8_TSamplesNum = 0;
-        ui16_TSum = 0;
-        ui8_TSamplesPos = 0;
-        return;
-    }
-
-    ui8_pas_new_transition = 0; // reset the flag saying there is a PAS transition
-	uint16_t ui16_TorqueDeltaADC_norm = 0; // will contain the raw remap delta value
-	uint16_t ui16_adc_torque = ui16_adc_torque_filtered; // save the value being calculated in motor.c because it can change in irq
-	if ( ui16_adc_torque > ui16_adc_pedal_torque_offset) {
-    	// map the delta value to max 160.
-		ui16_TorqueDeltaADC_norm = ((uint32_t)(ui16_adc_torque - ui16_adc_pedal_torque_offset) * ADC_TORQUE_SENSOR_RANGE_TARGET) /ui16_adc_pedal_torque_range ;
-		if (ui16_TorqueDeltaADC_norm > ADC_TORQUE_SENSOR_RANGE_TARGET) { // for safety
-			ui16_TorqueDeltaADC_norm = ADC_TORQUE_SENSOR_RANGE_TARGET;
-		}
-	}
-    #if ((USE_SPIDER_LOGIC_FOR_TORQUE == (1)) || (USE_SPIDER_LOGIC_FOR_TORQUE == (2)))
-	// when define == 3, we do not reset the buffer
-	if (ui16_TorqueDeltaADC_norm == 0) {   // perhaps this could be omitted
-    	// torque adc value less than 0 torque reference ADC -> reset all
-        ui8_TSamplesNum = 0;
-        ui16_TSum = 0;
-        ui8_TSamplesPos = 0;
-        return;
-    }
+    ui16_TorqueDeltaADC_norm = pedal_torque_linearise_adc(ui16_adc_sample); // linearise and normalise the raw value
+	
+	#if ENABLE_PEDAL_TORQUE_STATE_MANAGEMENT
+    ui16_torque_last_pas_sample = ui16_TorqueDeltaADC_norm;
+    ui8_torque_new_pas_sample = 1;
 	#endif
-	ui16_TSampleOld = ui16_TSamples[ui8_TSamplesPos] ; // latest value that will be lost (valid only if buffer is full = TSamplesNum == 20)
-    ui16_TSamples[ui8_TSamplesPos] = ui16_TorqueDeltaADC_norm; // store the new delta value value
-    ui16_TSum += ui16_TorqueDeltaADC_norm; // Add to the average the new sample
-    if (ui8_TSamplesNum == 20) { // when buffer is already full
-        // Remove from the sum the sample at the same pedal position of the previous pedal stroke (saved in old)
-        if (ui16_TSum > ui16_TSampleOld) { 
-			ui16_TSum -= ui16_TSampleOld;
-		} else {              // this should not happen because the value should already be part of the sum; added for safety
-			ui16_TSum = 0; 
-		}
-		#if (USE_SPIDER_LOGIC_FOR_TORQUE == (2))
-		// calculate new expected = old Expected(in the same pedal position) + new torque - old torque (only if result is posiif, else 0)
-		ui16_TExpectedNew = ui16_TExpected[ui8_TSamplesPos] + ui16_TorqueDeltaADC_norm;
-		if (ui16_TExpectedNew > ui16_TSampleOld) {
-			ui16_TExpectedNew -= ui16_TSampleOld;
-		} else {
-			ui16_TExpectedNew = 0; 
-		}
-		// save the expected torque; to be used in get_pedal_torque;
-		ui16_TExpected[ui8_TSamplesPos] = ui16_TExpectedNew;
-		#endif
+
+    ui16_TSampleOld = ui16_TSamples[ui8_TSamplesPos];
+    if (ui8_TSamplesNum == 20) {
+		// Signed difference between samples at the same PAS position
+		i16_TorqueDiffSamePosition = (int16_t)ui16_TorqueDeltaADC_norm - (int16_t)ui16_TSampleOld;
+        ui16_TSum -= ui16_TSampleOld; // Remove oldest sample from sum
     } else {
-		ui8_TSamplesNum++;
-		#if (USE_SPIDER_LOGIC_FOR_TORQUE == (2))
-		if (ui8_TSamplesNum == 20){ 
-        	// fill expected array with the average
-			ui16_TExpectedNew = ui16_TSum / 20;
-			for (uint8_t i=0;i<20;i++){
-				ui16_TExpected[i] = ui16_TExpectedNew;
-			}
-		}
-		#endif
-	}
-	ui8_TSamplesPos++;  // increase the pos
-	if (ui8_TSamplesPos >= 20) {
+        // Buffer not yet full: no valid same-position comparison
+        i16_TorqueDiffSamePosition = 0;
+        ui8_TSamplesNum++;
+    }
+
+    // Store new sample
+    ui16_TSamples[ui8_TSamplesPos] = ui16_TorqueDeltaADC_norm;
+    ui16_TSum += ui16_TorqueDeltaADC_norm;
+
+    // Advance circular buffer position
+    ui8_TSamplesPos++;
+    if (ui8_TSamplesPos >= 20) {
         ui8_TSamplesPos = 0;
     }
-    
 }
 
 
-// values used to linearise and normalise ADC torque
-uint16_t ui16_adc_pedal_torque_adc_knee;    // ADC at knee point
-uint32_t ui32_pedal_torque_k1_q16;           // pente segment 1, Q16
-uint32_t ui32_pedal_torque_k2_q16;           // pente segment 2, Q16
-uint8_t  ui8_pedal_torque_knee_value;        // output at knee point (0...160)
-uint8_t ui8_pedal_torque_parameters_error = 10;   // this value should be replaced by 0 when configuration parameters are received from display
-uint16_t ui16_adc_pedal_torque_delta_display; // use to transmit the adc torque being used by display when it calculates human torque (multiplying by ADC step)
+//for SPIDER LOGIC 
+// ui16_adc_pedal_torque_offset_init = filtered raw ADC after 3 sec = offset when no weight on pedal
+// ui16_adc_pedal_torque_offset_set = offset received from display
+// ui16_adc_torque_filtered = raw value (with filter) calculated in motor because calculated in irq
+// ui16_adc_torque = local copy of ui16_adc_torque_filtered (because value can change in irq)
+// ui16_TorqueDeltaADC_norm =  converted ui16_adc_torque_filtered with linearization and normalisation (0...160 for 0...80kg) (filled in buffer)
+// ui16_adc_pedal_torque_filtered_no_curve = averaging of ui16_TorqueDeltaADC_norm on one pedal rotation (spider logic) (0...160) (in spider logic)
+//                                           To be use as basis for human power calculation (see also ui16_adc_pedal_torque_delta_display); 
+// ui16_adc_pedal_torque_delta =  ui16_adc_pedal_torque_filtered_no_curve eventually modified by e.g. smooth start (to be used for assistance)
+// ui16_adc_pedal_torque_delta_temp = copy of ui16_adc_pedal_torque_filtered_no_curve (used in cadence mode to restore original value)
+// ui16_adc_pedal_torque_delta_no_boost = ui16_adc_pedal_torque_delta used for cadence sensor check(ERR03); sent in tx_buffer[]
+// uint16_t ui16_adc_pedal_torque_delta_display; // ADC vitual scale; use to transmit the adc torque being used by display when it calculates human torque (multiplying by ADC step)
+//                                               // based on ui16_adc_pedal_torque_filtered_no_curve
+// uint32_t ui32_pedal_torque_x100 (in controler) = ((uint32_t)ui16_adc_pedal_torque_delta * 167U + 1U) >> 1; // to get the same value as the display calculation
+#define TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MIN  15
+#define TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MAX  30
+static void get_pedal_torque(void) {
+	if (toffset_cycle_counter < TOFFSET_CYCLES) {  // less than 3 sec
+		ui16_adc_pedal_torque_offset_init = filter(ui16_adc_torque_filtered, ui16_adc_pedal_torque_offset_init , 4) ; // get filtered torque captured in motor.c irq1
+        toffset_cycle_counter++;
+		ui16_adc_pedal_torque = ui16_adc_pedal_torque_offset_init;
+	} else { // after 3 sec
+		ui16_adc_pedal_torque = ui16_adc_torque_filtered; // ui16_adc_torque_filtered is the value calculated in irq
+	}
+	ui16_adc_pedal_torque_offset = ui16_adc_pedal_torque_offset_set ; // this value is received from the config (in 860C)
+	ui16_adc_pedal_torque_delta = 0; // this is the final value to retun 
+	uint16_t ui16_TorqueDeltaADC_norm = 0;
+	uint16_t ui16_adc_torque = ui16_adc_torque_filtered; // save the value being calculated in motor.c because it can change in irq
+	// check that init value (calculated at power on) is valid with parameters from display
+	if ((toffset_cycle_counter >= TOFFSET_CYCLES)&&(ui8_m_motor_init_status == MOTOR_INIT_STATUS_INIT_OK)) {
+		if ((ui16_adc_pedal_torque_offset_init > ui16_adc_pedal_torque_offset_min) && // min = value from display - 60 
+		  (ui16_adc_pedal_torque_offset_init < ui16_adc_pedal_torque_offset_max)) {  // max = value from display + offset adj
+			ui8_adc_pedal_torque_offset_error = 0;
+		}
+		else {
+			ui8_adc_pedal_torque_offset_error = 1;
+			ui16_adc_torque = 0; // reset for safety so motor can't start
+		}
+	}
+
+	// linearisation and normalisation of current adc torque (not the one from latest PAS transition done in new pas sample (value is in now in range 0...160)
+	ui16_TorqueDeltaADC_norm = pedal_torque_linearise_adc(ui16_adc_torque);
+	// Update instantaneous torque filter continuously
+	ui16_TorqueInstantFiltered = filter(ui16_TorqueDeltaADC_norm, ui16_TorqueInstantFiltered, 5);
+
+	// Filter signed same-position difference (IIR coefficient = 1/4)
+	int32_t i32_diff = (int32_t)i16_TorqueDiffSamePosition - (int32_t)i16_TorqueDiffSamePositionFiltered;
+	i16_TorqueDiffSamePositionFiltered += i32_diff / 4;
+	
+	// calulate final torque value to use for human power, assistance ,...
+	if (ui8_TSamplesNum == 20) {
+		uint16_t ui16_TorqueAverage = ui16_TSum / 20;
+		uint16_t ui16_diff = (i16_TorqueDiffSamePositionFiltered >= 0) ? (uint16_t)i16_TorqueDiffSamePositionFiltered : (uint16_t)(-i16_TorqueDiffSamePositionFiltered);
+		if (ui16_diff <= TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MIN) {
+			// Low difference: use average over one revolution
+			ui16_adc_pedal_torque_filtered_no_curve = ui16_TorqueAverage;
+		} else if (ui16_diff >= TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MAX) {
+			// High difference: use filtered instantaneous torque
+			ui16_adc_pedal_torque_filtered_no_curve = ui16_TorqueInstantFiltered;
+		} else {
+			// Progressive transition between both methods
+			uint16_t ui16_weight = ui16_diff - TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MIN;
+			ui16_adc_pedal_torque_filtered_no_curve = ((uint32_t)ui16_TorqueAverage *
+				 (TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MAX - ui16_weight) + (uint32_t)ui16_TorqueInstantFiltered * ui16_weight)
+				 / (TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MAX - TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MIN);
+		}
+	} else { // Buffer not full
+		if (ui8_TSamplesNum > 0) {
+			ui16_adc_pedal_torque_filtered_no_curve = ui16_TSum / ui8_TSamplesNum;
+		} else {
+			ui16_adc_pedal_torque_filtered_no_curve = ui16_TorqueDeltaADC_norm;
+		}
+	}
+	
+	// When curves are used, conversion torque to target current is done directly in apply torque assist function
+	// this conversion uses ui16_adc_pedal_torque_delta (but this field can be modified inside torque assist function e.g. for smooth start)
+	// when linear normalised torque is smaller than offset, then set torque to 0 (security thresehold for sensor depending on pedal position)
+	if (ui16_adc_pedal_torque_filtered_no_curve < ui8_adc_pedal_torque_offset_adj) {
+		ui16_adc_pedal_torque_delta = 0;
+	} else {
+		ui16_adc_pedal_torque_delta = ui16_adc_pedal_torque_filtered_no_curve ;
+	}
+	
+	// here ui16_adc_pedal_torque_delta is known
+	ui16_adc_pedal_torque_delta_temp = ui16_adc_pedal_torque_delta;
+	
+	// for cadence sensor check and sent in TX_buffer[12..13] for calculation of human power by display 860c
+	ui16_adc_pedal_torque_delta_no_boost = ui16_adc_pedal_torque_filtered_no_curve; // mstrens it was = ui16_adc_pedal_torque_delta;
+	// 860c performs his own calculation of human power. So we have to send a special value in buffer[12...13]
+	ui16_adc_pedal_torque_delta_display = pedal_torque_denormalize_for_display(ui16_adc_pedal_torque_filtered_no_curve);
+}
+
+static void reset_torque_samples(void) {
+    uint8_t i;
+    // Reset sample buffer
+    for (i = 0; i < 20; i++) {
+        ui16_TSamples[i] = 0;
+    }
+
+    ui8_TSamplesNum = 0;
+    ui8_TSamplesPos = 0;
+    ui16_TSum = 0;
+
+    // Reset same-position difference
+    i16_TorqueDiffSamePosition = 0;
+    i16_TorqueDiffSamePositionFiltered = 0;
+
+	#if ENABLE_PEDAL_TORQUE_STATE_MANAGEMENT
+    // Reset torque state machine
+    ui8_torque_state = TORQUE_IDLE;
+    ui8_torque_start_transition_count = 0;
+    ui16_torque_start_max = 0;
+    ui16_torque_start_first_sample = 0;
+    ui16_torque_last_pas_sample = 0;
+    ui8_torque_new_pas_sample = 0;
+	#endif
+}
+
+// take care of startup from stillstand
+// this can further update ui16_adc_pedal_torque_delta that was calculated by get_pedal_torque().
+// still it does not update other pedal_torque like 
+static void update_pedal_torque_state(void) {
+#if ENABLE_PEDAL_TORQUE_STATE_MANAGEMENT
+	if (ui8_adc_pedal_torque_offset_error) {
+		ui16_adc_pedal_torque_delta = 0;
+		return;
+	}
+    // Process a new PAS sample only once.
+    if (ui8_torque_new_pas_sample) {
+        uint16_t ui16_sample = ui16_torque_last_pas_sample; // norm value from last pas transition
+        ui8_torque_new_pas_sample = 0;
+        // Apply the same minimum torque threshold as get_pedal_torque().
+        if (ui16_sample < ui8_adc_pedal_torque_offset_adj) { ui16_sample = 0; } // same as in get_pedal_torque()
+        if (ui8_torque_state == TORQUE_IDLE) {
+            // First PAS transition after a period without pedaling.
+            if (ui16_wheel_speed_x10 < TORQUE_START_MIN_WHEEL_SPEED_X10) {
+                // Starting from an apparently stopped bicycle.
+                ui8_torque_state = TORQUE_START;
+                ui8_torque_start_transition_count = 1;
+                // First sample is used for motor activation,
+                // but is NOT used for maximum torque capture.
+                ui16_torque_start_first_sample = ui16_sample;
+                ui16_torque_start_max = 0;
+            } else {                 // Bicycle was already moving: normal torque processing.
+                ui8_torque_state = TORQUE_NORMAL;
+            }
+        }
+        else if (ui8_torque_state == TORQUE_START) {
+            if (ui8_torque_start_transition_count < (TORQUE_START_CAPTURE_TRANSITIONS + TORQUE_START_BLEND_TRANSITIONS)) {
+                ui8_torque_start_transition_count++;
+                // Capture maximum only during transitions 2 to 20.
+                if (ui8_torque_start_transition_count <= TORQUE_START_CAPTURE_TRANSITIONS) {
+                    if (ui16_sample > ui16_torque_start_max) {
+                        ui16_torque_start_max = ui16_sample;
+                    }
+                }
+            }
+        }
+    }
+
+    // Apply the start torque correction at every 25 ms cycle.
+    // This is necessary because get_pedal_torque() recalculates ui16_adc_pedal_torque_delta at every cycle.
+	// 
+    if (ui8_torque_state == TORQUE_START) {
+        uint16_t ui16_start_torque;
+        if (ui8_torque_start_transition_count == 1) {
+            // First PAS sample: immediate activation, limited to 40.
+            ui16_start_torque = ui16_torque_start_first_sample;
+        } else if (ui8_torque_start_transition_count <= TORQUE_START_CAPTURE_TRANSITIONS) {
+            // Capture phase: use the maximum of samples 2 to 20.
+            ui16_start_torque = ui16_torque_start_max;
+        } else {
+            // Blend phase: progressively return to normal torque.
+            uint8_t ui8_blend_step = ui8_torque_start_transition_count - TORQUE_START_CAPTURE_TRANSITIONS;
+            uint16_t ui16_limited_max = ui16_torque_start_max;
+            if (ui16_limited_max > TORQUE_START_MAX_TORQUE) {
+                ui16_limited_max = TORQUE_START_MAX_TORQUE;
+            }
+            if (ui8_blend_step >= TORQUE_START_BLEND_TRANSITIONS) {
+                // End of blend: normal torque.
+                ui16_adc_pedal_torque_delta = ui16_adc_pedal_torque_filtered_no_curve;
+                ui8_torque_state = TORQUE_NORMAL;
+                ui16_torque_start_max = 0;
+                return;
+            }
+            // Linear interpolation between limited maximum and
+            // the normal torque calculated by get_pedal_torque().
+            ui16_start_torque = (uint16_t)( ((uint32_t)ui16_limited_max * (TORQUE_START_BLEND_TRANSITIONS - ui8_blend_step) +
+				 (uint32_t)ui16_adc_pedal_torque_filtered_no_curve * ui8_blend_step) / TORQUE_START_BLEND_TRANSITIONS 	);	
+        }
+        // Limit the compensation torque during the initial phase.
+        if (ui16_start_torque > TORQUE_START_MAX_TORQUE && ui8_torque_start_transition_count <= TORQUE_START_CAPTURE_TRANSITIONS) {
+            ui16_start_torque = TORQUE_START_MAX_TORQUE;
+        }
+        ui16_adc_pedal_torque_delta = ui16_start_torque;
+    }
+#endif
+}
+
 
 // this function is called when new parameters are received from display
 void pedal_torque_update_linearisation_parameters(void) {
@@ -1804,6 +2040,9 @@ static uint16_t pedal_torque_denormalize_for_display( uint16_t ui16_torque_norm)
     ui32_result = (((uint32_t)ui16_torque_norm * 167UL) + (uint32_t) ui8_adc_step) / ((uint32_t)ui8_adc_step * 2UL);
     return (uint16_t)ui32_result;
 }
+
+
+
 
 // Code to decode the assist level (for torque) and to convert normalised torque to target current (using a LUT)
 //================================================================
@@ -1940,362 +2179,6 @@ static uint16_t pedal_torque_denormalize_for_display( uint16_t ui16_torque_norm)
 		 adc_assist_current_lut[torque] = (uint8_t)current;
 	 } // end for
  }
-
-//( (USE_SPIDER_LOGIC_FOR_TORQUE > 0 (so 1, 2, 3)
-#define TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MAX 100 // max value is 160
-// ui16_adc_pedal_torque_offset_init = filtered raw ADC after 3 sec = offset when no weight on pedal
-// ui16_adc_pedal_torque_offset_set = offset received from display
-// ui16_adc_torque_filtered = raw value (with filter) calculated in motor because calculated in irq
-// ui16_adc_torque = local copy of ui16_adc_torque_filtered (because value can change in irq)
-// ui16_TorqueDeltaADC_norm =  converted ui16_adc_torque_filtered with linearization and normalisation (0...160 for 0...80kg) (filled in buffer)
-// ui16_adc_pedal_torque_filtered_no_curve = averaging of ui16_TorqueDeltaADC_norm on one pedal rotation (spider logic) (0...160) (in spider 3)
-//                                           To be use as basis for human power calculation (see also ui16_adc_pedal_torque_delta_display); 
-// ui16_adc_pedal_torque_delta =  ui16_adc_pedal_torque_filtered_no_curve eventually modified by e.g. smooth start (to be used for assistance)
-// ui16_adc_pedal_torque_delta_temp = copy of ui16_adc_pedal_torque_filtered_no_curve (used in cadence mode to restore original value)
-// ui16_adc_pedal_torque_delta_no_boost = ui16_adc_pedal_torque_delta used for cadence sensor check(ERR03); sent in tx_buffer[]
-// uint16_t ui16_adc_pedal_torque_delta_display; // ADC vitual scale; use to transmit the adc torque being used by display when it calculates human torque (multiplying by ADC step)
-//                                               // based on ui16_adc_pedal_torque_filtered_no_curve
-// uint32_t ui32_pedal_torque_x100 (in controler) = ((uint32_t)ui16_adc_pedal_torque_delta * 167U + 1U) >> 1; // to get the same value as the display calculation
-
-static void get_pedal_torque(void) {
-	if (toffset_cycle_counter < TOFFSET_CYCLES) {  // less than 3 sec
-		ui16_adc_pedal_torque_offset_init = filter(ui16_adc_torque_filtered, ui16_adc_pedal_torque_offset_init , 4) ; // get filtered torque captured in motor.c irq1
-        toffset_cycle_counter++;
-		ui16_adc_pedal_torque = ui16_adc_pedal_torque_offset_init;
-	} else { // after 3 sec
-		ui16_adc_pedal_torque = ui16_adc_torque_filtered; // ui16_adc_torque_filtered is the value calculated in irq
-	}
-	ui16_adc_pedal_torque_offset = ui16_adc_pedal_torque_offset_set ; // this value is received from the config (in 860C)
-	ui16_adc_pedal_torque_delta = 0; // this is the final value to retun 
-	uint16_t ui16_TorqueDeltaADC_norm = 0;
-	uint16_t ui16_adc_torque = ui16_adc_torque_filtered; // save the value being calculated in motor.c because it can change in irq
-	// check that init value (calculated at power on) is valid with parameters from display
-	if ((toffset_cycle_counter >= TOFFSET_CYCLES)&&(ui8_m_motor_init_status == MOTOR_INIT_STATUS_INIT_OK)) {
-		if ((ui16_adc_pedal_torque_offset_init > ui16_adc_pedal_torque_offset_min) && // min = value from display - 60 
-		  (ui16_adc_pedal_torque_offset_init < ui16_adc_pedal_torque_offset_max)) {  // max = value from display + offset adj
-			ui8_adc_pedal_torque_offset_error = 0;
-		}
-		else {
-			ui8_adc_pedal_torque_offset_error = 1;
-			ui16_adc_torque = 0; // reset for safety so motor can't start
-		}
-	}
-	// linearisation and normalisation of adc torque (value is in now in range 0...160)
-	ui16_TorqueDeltaADC_norm = pedal_torque_linearise_adc(ui16_adc_torque); 
-#if ((USE_SPIDER_LOGIC_FOR_TORQUE == (1)) || (USE_SPIDER_LOGIC_FOR_TORQUE == (3)) )
-	// when TSampleNum == 20,
-	//                     if difference with previous at the same position,is low, use the average (no filter because already average over one rotation)
-	//                     else ; use new value but with filtering
-	// else use the new value after some filtering
-	if (ui8_TSamplesNum == 20)  { // replace by an average when difference is low
-		uint16_t ui16_tmp ;  // difference with previous position
-		if (ui16_TorqueDeltaADC_norm > ui16_TSampleOld) {
-			ui16_tmp =  ui16_TorqueDeltaADC_norm - ui16_TSampleOld;
-		} else {
-			ui16_tmp = ui16_TSampleOld - ui16_TorqueDeltaADC_norm;
-		}
-
-		if (ui16_tmp < TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MAX  ) {
-			ui16_adc_pedal_torque_filtered_no_curve = ui16_TSum / ((uint8_t)20); // overwrite with avg when difference with previous rotation is low
-		} else {      // when difference is big, apply a filter
-			ui16_adc_pedal_torque_filtered_no_curve = filter( ui16_TorqueDeltaADC_norm , ui16_adc_pedal_torque_filtered_no_curve , 5);
-		}
-	} else {   // when buffer is not full
-		#if (USE_SPIDER_LOGIC_FOR_TORQUE == (1)) 
-		ui16_adc_pedal_torque_filtered_no_curve = filter( ui16_TorqueDeltaADC_norm , ui16_adc_pedal_torque_filtered_no_curve , 5); 
-		#else // (USE_SPIDER_LOGIC_FOR_TORQUE == (3) we use the average
-		if (ui8_TSamplesNum > 0 && ui16_TorqueDeltaADC_norm > 0) {
-			ui16_adc_pedal_torque_filtered_no_curve = ui16_TSum / ui8_TSamplesNum; // partial rotation: avg of 1-19 samples
-		} else {
-			// No samples yet, or no current torque (foot off pedal) — use filtered ADC.
-			// Decays to 0 when rider stops; responds instantly at standstill.
-			ui16_adc_pedal_torque_filtered_no_curve = filter(ui16_TorqueDeltaADC_norm,
-				ui16_adc_pedal_torque_filtered_no_curve, 5);
-		}
-		#endif
-	}
-
-#else  // (USE_SPIDER_LOGIC_FOR_TORQUE == (2))
-	// when ui8_TSamplesNum == 20, we can compare with previous sample and we use Texpected that has been calculated
-	// else, we use current value (remapped to 160) and filtered
-	if (ui8_TSamplesNum == 20){
-		ui16_adc_pedal_torque_filtered_no_curve = filter( ui16_TExpectedNew, ui16_adc_pedal_torque_filtered_no_curve, 4);
-	} else {  // TSampleNum =0/19;
-		ui16_adc_pedal_torque_filtered_no_curve = filter( ui16_TorqueDeltaADC_norm , ui16_adc_pedal_torque_filtered_no_curve , 5); 
-	}
-#endif	
-	// when linear normalised torque is smaller than offset, then set torque to 0 (security thresehold for sensor depe,ding on pedal position)
-	if (ui16_adc_pedal_torque_filtered_no_curve < ui8_adc_pedal_torque_offset_adj) ui16_adc_pedal_torque_filtered_no_curve = 0;
-	
-	// When curves are used, conversion torque to target current is done directly in apply torque assist function
-	// this conversion uses ui16_adc_pedal_torque_delta (but this field can be modified inside torque assist function e.g. for smooth start)
-	ui16_adc_pedal_torque_delta = ui16_adc_pedal_torque_filtered_no_curve ;
-					
-	// here ui16_adc_pedal_torque_delta is known
-	ui16_adc_pedal_torque_delta_temp = ui16_adc_pedal_torque_delta;
-	
-	// for cadence sensor check and sent in TX_buffer[12..13] for calculation of human power by display 860c
-	ui16_adc_pedal_torque_delta_no_boost = ui16_adc_pedal_torque_filtered_no_curve; // mstrens it was = ui16_adc_pedal_torque_delta;
-	// 860c performs his own calculation of human power. So we have to send a special value in buffer[12...13]
-	ui16_adc_pedal_torque_delta_display = pedal_torque_denormalize_for_display(ui16_adc_pedal_torque_filtered_no_curve);
-
-}
-#else // NORMAL or KATANA logic : (USE_SPIDER_LOGIC_FOR_TORQUE == (0)) 
-      //       so with KATANA logic or Max logic
-#if (USE_KATANA1234_LOGIC_FOR_TORQUE == (1))
-#define KATANA_BUFFER_LEN 40
-uint8_t katana_buffer[KATANA_BUFFER_LEN] ;
-uint8_t katana_index = 0;
-uint8_t katana_count = 0;
-uint16_t katana_sum = 0; 	
-#endif
-#if (USE_KATANA1234_LOGIC_FOR_TORQUE == (2))
-#define KATANA_BUFFER_LEN_MAX (40)
-#define KATANA_BUFFER_LEN_MIN (40)
-#define KATANA_2_POWER (6)                    // for a size of 64
-#define KATANA_MODULO ((1<<KATANA_2_POWER)-1)
-uint8_t katana_buffer[1<<KATANA_2_POWER] ; // using a power of 2 allow faster modulo: 64 = 2^6
-
-uint8_t katana_buffer_len = KATANA_BUFFER_LEN_MAX; 
-uint8_t katana_next_read = 0;
-uint8_t katana_next_write = 0;
-uint8_t katana_count = 0;
-uint16_t katana_sum = 0; 	
-#endif
-
-static uint16_t ui16_adc_pedal_torque_no_curve;
-
-static void get_pedal_torque(void)
-{
-	// parameters that could be filled by the user are
-	// adc_pedal_torque_offset_adj (range 0/34 in 860C param, default 20,Rx_buf[50] ); In javaconfigurator range is -20/+20
-	//     value transmitted is display * range/160 when calib is enabled, display value when disabled 
-	//     for TSDZ8, this value is added to ui16_adc_pedal_torque_offset_set to get adc_pedal_torque_offset_max
-	//     adc_pedal_torque_offset_max is used for a test at startup and to force torque to 0 when raw adc is lower (avoid assistance when no weight)      
-	// adc_pedal_torque_range_adj (range 0/40, default 20, Rx_buffer[51]) :
-	//     For TSDZ8, is reused to calculate the knee point (intersection of first and second line segments.
-	//     It is the % of ADC torque range of the second segment = (ADC max - ADC knee)/(ADC_max - ADC offset)
-	// adc_pedal_torque_angle_adj (range 160/16 based on an index being filled by the user, Rx_buffer[52])
-	//     Using it would require to recalculate the original display value looking in an array with the value sent by the display
-	//     Currently, it is not used
-	// ui16_adc_pedal_torque_offset_set (Rx_buffer[76-77])= ADC whith no load (= value as defined in 860C)
-	// Note: In 860C, user can fill "Torque adcmax" but this field is not transmitted (but used to calculate range that is sent in pos 78-79)
-	// ui8_pedal_torque_per_10_bit_ADC_step_x100 (Rx_buffer[83]) is used to calculate human torque.
-	//     The transmitted value is "torque_sensor_Step" (not calibrated) or "torque_sensor_Step_adv" (calibrated)
-	//     
-	// ui8_assist_without_pedal_rotation_threshold (Rx_buf[84]) is transmitted and used (apply assistance when cadence is 0 and torque is higher that threhold)
-	// 
-	// some values are transmitted by the display but can't be filled by user
-	// ui16_adc_pedal_torque_range (Rx_buffer[78-79])=  range calculated in 860c based on torque_sensor_ADC_offset and torque_sensor_ADC_max filled in 860C
-	// ui8_adc_torque_calibration_offset (Rx_buffer[53]); it is not used because it can't be modified by user and depends on calib is enabled or not
-	// ui8_adc_torque_middle_offset_adj (Rx_buffer[54]) ; it is not used ; replaced by a fixed value 20 as middel of range_adj
-
-		// we have to take care of an offset in ADC torque value.
-		// Experience shows that for TSDZ8 ADC value with no load depends on the position of the pedal.
-		// So the value measured during the first 3 sec (with no load) is not valid for further handling
-		// Best is to use a value provided by the user.
-		// We have also to add a margin (for safety and to allow a kind of dead zone for small pressure).
-		// In TSDZ2 there are 2 margins (one hardcoded and one to be filled by user).
-		// Furthermore, the applied margin depends on range and on calibration enabled or not.
-		// Furthermore, the margin has a range 0/34 in 860c and -20/+20 (but transmitted 0/40) in VLCD5 javaconfigurator 
-		// this is complex.
-		// to make it easier, for TSDZ8, margin has to be included in ui16_adc_pedal_torque_offset
-		
-	if (toffset_cycle_counter < TOFFSET_CYCLES) {  // less than 3 sec
-        // filter again the adc_torque_filtered value
-		ui16_adc_pedal_torque_offset_init = filter(ui16_adc_torque_filtered, ui16_adc_pedal_torque_offset_init , 4) ; // get filtered torque captured in motor.c irq1
-        toffset_cycle_counter++;
-		
-		// check the offset calibration at the end of the 3 sec delay with
-		// the value min and max calculated based on the offset (no load) value sent by 860c and some tolerances (for min)
-		if ((toffset_cycle_counter == TOFFSET_CYCLES)&&(ui8_torque_sensor_calibration_enabled)) {
-			if ((ui16_adc_pedal_torque_offset_init > ui16_adc_pedal_torque_offset_min)&& 
-			  (ui16_adc_pedal_torque_offset_init < ui16_adc_pedal_torque_offset_max)) {
-				ui8_adc_pedal_torque_offset_error = 0;
-			}
-			else {
-				ui8_adc_pedal_torque_offset_error = 1;
-			}
-		}
-		ui16_adc_pedal_torque = ui16_adc_pedal_torque_offset_init;
-		ui16_adc_pedal_torque_offset = ui16_adc_pedal_torque_offset_set ;	
-	} else { // after 3 sec
-		// we recalculate the offset because changing some value on the display did not updated the offset without a reset
-		ui16_adc_pedal_torque_offset = ui16_adc_pedal_torque_offset_set ;
-		// commented by mstrens 
-		/*
-		if (ui8_pedal_cadence_RPM) {
-			ui16_adc_pedal_torque_offset -= ui8_adc_torque_middle_offset_adj; // take care of the ratio range/target (160)
-			ui16_adc_pedal_torque_offset += ui8_adc_pedal_torque_offset_adj; // take care of the ratio range/target (160)
-		}
-		
-		if ((ui8_coaster_brake_enabled)&&(ui16_adc_pedal_torque_offset > ui8_coaster_brake_torque_threshold)) {
-			//ui16_adc_coaster_brake_threshold = ui16_adc_pedal_torque_offset - ui8_coaster_brake_torque_threshold;
-			ui16_adc_coaster_brake_threshold = ui16_adc_pedal_torque_offset_cal - ui8_coaster_brake_torque_threshold;
-		}
-		else {
-			ui16_adc_coaster_brake_threshold = 0;
-		}
-		*/
-		
-		// was used only when katana and spider was not used
-		// When cadence decrease ratio exceed some value, we reset the current and previous Max rotation value
-		// max cadence is 120; so max cadence decrease ratio is (120-1)*256/(120+1) = 256
-		// (2-1)*256/1 = 256
-		// (110-90)*256/100 = 25
- 		//#define CADENCE_DECREASE_RATIO 25
-		//if (i16_pedal_cadence_RPM_decrease_ratio > CADENCE_DECREASE_RATIO) {
-		//	ui16_adc_torque_actual_rotation = 0;
-		//	ui16_adc_torque_previous_rotation = 0 ;
-		//	ui8_adc_torque_rotation_reset = 1 ; // will force also a reset in the motor.c irq to be safe and reset rpm counter
-		//}
-		
-		/*
-        // get adc pedal torque
-		// by default we use ui16_adc_torque_filtered (calculated in motor.c irq)
-		// when cadence is high enough, we use the max between actual value, actual rotation and previous rotation
-		ui16_adc_pedal_torque = ui16_adc_torque_filtered; // copy the value from irq because it can change
-		#if (USE_KATANA1234_LOGIC_FOR_TORQUE == (0)) // when we use the logic based on the max of current, max of current rotation, max of previous rotation
-		#define PEDAL_CADENCE_MIN_FOR_USING_ROTATION 30
-		if (ui8_pedal_cadence_RPM > PEDAL_CADENCE_MIN_FOR_USING_ROTATION) { 
-			if ( ui16_adc_pedal_torque < ui16_adc_torque_actual_rotation) ui16_adc_pedal_torque = ui16_adc_torque_actual_rotation ;
-			if ( ui16_adc_pedal_torque < ui16_adc_torque_previous_rotation) ui16_adc_pedal_torque = ui16_adc_torque_previous_rotation ;
-		} else {
-			ui8_adc_torque_rotation_reset = 1 ; // will force also a reset of torque rotation in the motor.c irq and so we use the actual value 
-		}
-		#endif
-		*/
-    }
-	
-	// here we know the ui16_adc_pedal_torque but we still have to take care of 
-	// - offset
-	// - remap in order to have a max range of 160 (value used by TSDZ2 
-	uint16_t ui16_adc_pedal_torque_delta_160 = 0; // first set delat = 0 (= delta when lower than offset)
-	if (ui16_adc_pedal_torque > ui16_adc_pedal_torque_offset ) {
-		ui16_adc_pedal_torque_delta_160 = ((ui16_adc_pedal_torque - ui16_adc_pedal_torque_offset) * ADC_TORQUE_SENSOR_RANGE_TARGET) / ui16_adc_pedal_torque_range ;
-		if (ui16_adc_pedal_torque_delta_160 > ADC_TORQUE_SENSOR_RANGE_TARGET) ui16_adc_pedal_torque_delta_160 = ADC_TORQUE_SENSOR_RANGE_TARGET;
-	}
-	
-	#if (USE_KATANA1234_LOGIC_FOR_TORQUE == (1))
-		// no cadence -> immediately clear the buffer to have a quicker starting / stopping reaction
-		// fill the value one or several times in the buffer and calculate average
-		if (ui8_pedal_cadence_RPM == 0U) { 			
-			katana_sum = 0;
-			katana_count = 0;
-			katana_index = 0;
-		}
-		uint16_t katana_dif = 0;
-		uint8_t katana_factor = 16;
-		if (ui16_adc_pedal_torque_delta_160 > ui16_adc_pedal_torque_no_curve) katana_dif = ui16_adc_pedal_torque_delta_160 - ui16_adc_pedal_torque_no_curve;
-		else katana_dif = ui16_adc_pedal_torque_no_curve - ui16_adc_pedal_torque_delta_160;
-		
-		if (katana_dif < 60) katana_factor = 1;
-		else if (katana_dif < 80) katana_factor = 2;
-		else if (katana_dif < 100) katana_factor = 4;
-		else if (katana_dif < 130) katana_factor = 8;
-		while ( katana_factor){  // fill buffer one or several times
-			katana_sum += ui16_adc_pedal_torque_delta_160;
-			if (katana_count < KATANA_BUFFER_LEN) katana_count++;
-			else katana_sum -= katana_buffer[katana_index];
-			katana_buffer[katana_index] = ui16_adc_pedal_torque_delta_160 ;
-			katana_index++;
-			if (katana_index >= KATANA_BUFFER_LEN) katana_index = 0;
-			katana_factor--;
-		}
-		if (katana_count > 0) {
-			ui16_adc_pedal_torque_delta_160 = katana_sum / katana_count ;
-		}					
-	#endif
-	#if (USE_KATANA1234_LOGIC_FOR_TORQUE == (2))
-		// no cadence -> immediately clear the buffer to have a quicker starting / stopping reaction
-		// fill the value one or several times in the buffer and calculate average
-		if (ui8_pedal_cadence_RPM == 0U) { 			
-			katana_sum = 0;
-			katana_count = 0;
-			katana_next_read = 0;
-			katana_next_write = 0;
-			katana_buffer_len = KATANA_BUFFER_LEN_MAX;
-		} else {
-			// increase or decrease logical buffer length based on the cadence if required
-			// cadence is in RPM; this function is called 60sec* 40call/sec = 2400 per min.
-			// we try that buffer len == number of call per rotation.
-			// still we respect some min/max limit and we increase/decrease the length only only by 1 at each call if needed
-			// reduce execution time and smooth changes.
-			uint16_t katana_len_max_cadence = 2400/ ui8_pedal_cadence_RPM;
-			if (( katana_len_max_cadence > katana_buffer_len ) && (katana_buffer_len < KATANA_BUFFER_LEN_MAX )) {
-				katana_buffer_len++;
-			} else if (( katana_len_max_cadence < katana_buffer_len ) && (katana_buffer_len > KATANA_BUFFER_LEN_MIN )) {
-				katana_buffer_len--;
-				if (katana_count > 0) {
-					katana_sum -= katana_buffer[katana_next_read];
-					katana_count--;
-					katana_next_read++;
-					katana_next_read &= KATANA_MODULO; // reset to 0 when reach 64
-				}
-			}		
-		}
-		// number of values added depends on the (absolute) difference between current value and new one	
-		uint16_t katana_dif = 0;
-		uint8_t katana_factor = 16;
-		if (ui16_adc_pedal_torque_delta_160 > ui16_adc_pedal_torque_no_curve) katana_dif = ui16_adc_pedal_torque_delta_160 - ui16_adc_pedal_torque_no_curve;
-		else katana_dif = ui16_adc_pedal_torque_no_curve - ui16_adc_pedal_torque_delta_160;
-		if (katana_dif < 60) katana_factor = 1;
-		else if (katana_dif < 80) katana_factor = 2;
-		else if (katana_dif < 100) katana_factor = 4;
-		else if (katana_dif < 130) katana_factor = 8;
-		while ( katana_factor){  // fill buffer one or several times
-			if ( katana_count == katana_buffer_len){ // when buffer is totally used, first remove oldiest value (but do not increase count)
-				katana_sum -= katana_buffer[katana_next_read];
-				katana_next_read++;
-				katana_next_read &= KATANA_MODULO;
-			} else {                                // when there is place in the buffer, increase count
-				katana_count++;
-			}
-			// add new value to sum and in the buffer
-			katana_sum += ui16_adc_pedal_torque_delta_160;
-			katana_buffer[katana_next_write] = ui16_adc_pedal_torque_delta_160 ;
-			katana_next_write++;
-			katana_next_write &= KATANA_MODULO;
-			katana_factor--;
-		}
-		if (katana_count > 0) {
-			ui16_adc_pedal_torque_delta_160 = katana_sum / katana_count ; // calculate average as final result
-		}
-			// check maximum : should not happen but added for safety.
-		if 	(ui16_adc_pedal_torque_delta_160 > ADC_TORQUE_SENSOR_RANGE_TARGET) ui16_adc_pedal_torque_delta_160 = ADC_TORQUE_SENSOR_RANGE_TARGET;
-	#endif
-	// save the value before applying expo in order to calculate variation in katana1234 logic on next loop (here above)
-	ui16_adc_pedal_torque_no_curve = ui16_adc_pedal_torque_delta_160 ; 
-	
-	// apply expo : value is in range 0/256 and so does not need to be remaped 
-	//              coeff expect a value in range-256/256 while range_adj is in range 0/40
-	//                      so we have to substract 20 and multiply by 12.
-	ui16_adc_pedal_torque_delta =  expo(
-		(int) ui16_adc_pedal_torque_no_curve  ,
-			((int) ui8_pedal_torque_expo_coef - 20) * 12 ); // apply expo ; *12 because expo expect a value in range -256/+256
-
-	// here ui16_adc_pedal_torque_delta is known
-	ui16_adc_pedal_torque_delta_temp = ui16_adc_pedal_torque_delta;
-	
-	// for cadence sensor check and sent in TX_buffer[12..13] for calculation of human power by display 860c
-	ui16_adc_pedal_torque_delta_no_boost = ui16_adc_pedal_torque_filtered_no_curve ; // mstrens it was = ui16_adc_pedal_torque_delta;
-	
-
-	/*------------------------------------------------------------------------
-
-    NOTE: regarding the human power calculation
-    
-    (1) Formula: power = torque * rotations per second * 2 * pi
-    (2) Formula: power = torque * rotations per minute * 2 * pi / 60
-    (3) Formula: power = torque * rotations per minute * 0.1047
-    (4) Formula: power = torque * 100 * rotations per minute * 0.001047
-    (5) Formula: power = torque * 100 * rotations per minute / 955
-    (6) Formula: power * 10  =  torque * 100 * rotations per minute / 96
-    
-	------------------------------------------------------------------------*/
-}
-#endif // get_pedal_torque
-
 
 static void check_system(void)
 {
@@ -2735,7 +2618,7 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		ui8_riding_mode_parameter = ui8_rx_buffer[3];
 		
 		// hybrid torque parameter
-		ui8_hybrid_torque_parameter = ui8_rx_buffer[4];
+		ui8_hybrid_torque_parameter = ui8_rx_buffer[4]; // is the parameter from torque assist mode, buffer[3] contains then the parameter from power mode.
 		
 		ui8_temp = ui8_rx_buffer[5];
 		// lights state
@@ -2871,7 +2754,7 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		ui8_tx_buffer[7] |= (uint8_t) ((ui16_adc_torque_filtered & 0x300) >> 2); //xx00 0000
 
 		// pedal torque delta no boost
-		// those bytes are used in 860C to calculate human power so it may not take exponential into account
+		// those bytes are used in 860C to calculate human power so it may not take curves into account
 		// In 860C field is named ui16_adc_pedal_torque_delta
 		//    860C calculate human power with rt_vars.ui16_pedal_power_x10 = 
 		//       (rt_vars.ui16_adc_pedal_torque_delta * rt_vars.ui8_pedal_torque_per_10_bit_ADC_step_x100 * rt_vars.ui8_pedal_cadence) / 96;
@@ -2882,22 +2765,17 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		
 		// in this version ui16_adc_pedal_torque_delta_display used a vitual scale in order to let the display calculate the human power using ADC step
 		// this value does not take care of curve, smooth start...(because those are only for assistance)
-		//ui8_tx_buffer[12] = (uint8_t)(ui16_adc_pedal_torque_delta_display & 0xff);
-		//ui8_tx_buffer[13] = (uint8_t)(ui16_adc_pedal_torque_delta_display >> 8);
+		ui8_tx_buffer[12] = (uint8_t)(ui16_adc_pedal_torque_delta_display & 0xff);
+		ui8_tx_buffer[13] = (uint8_t)(ui16_adc_pedal_torque_delta_display >> 8);
 		// debug new torque 
 		// here just to test that the target current is correct (there is a bug somewhere)
-		ui8_tx_buffer[12] = adc_assist_current_lut[ui16_adc_pedal_torque_delta_no_boost];
-		ui8_tx_buffer[13] = 0 ;
-		if (ui16_adc_pedal_torque_delta_no_boost > 160){ // overwrite the value provide by the LUT
-			ui8_tx_buffer[12] = 1; // use a dummy value to detect the case
-			ui8_tx_buffer[13] = 1;  
-		} else {
-			
-		}
+		//ui8_tx_buffer[12] = adc_assist_current_lut[ui16_adc_pedal_torque_delta_no_boost];
+		//ui8_tx_buffer[13] = 0 ;
+		//if (ui16_adc_pedal_torque_delta_no_boost > 160){ // overwrite the value provide by the LUT
+		//	ui8_tx_buffer[12] = 1; // use a dummy value to detect the case
+		//	ui8_tx_buffer[13] = 1;  
+		//}
 		
-		
-		//ui8_tx_buffer[12] = ui8_pedal_torque_parameters_error;
-
 		// PAS cadence
 		ui8_tx_buffer[14] = ui8_pedal_cadence_RPM;
 		
@@ -3052,8 +2930,8 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		ui8_duty_cycle_ramp_up_inverse_step_default = map_ui8((uint8_t)ui8_motor_acceleration_adjustment,
 				(uint8_t) 0,
                 (uint8_t) 100,
-                (uint8_t) PWM_DUTY_CYCLE_RAMP_UP_INVERSE_STEP_DEFAULT,
-                (uint8_t) PWM_DUTY_CYCLE_RAMP_UP_INVERSE_STEP_MIN);
+                (uint8_t) PWM_DUTY_CYCLE_RAMP_UP_INVERSE_STEP_DEFAULT, // 194
+                (uint8_t) PWM_DUTY_CYCLE_RAMP_UP_INVERSE_STEP_MIN);    // 24
 		
 		// received target speed for cruise
 		//ui16_wheel_speed_target_received_x10 = (uint16_t) (ui8_rx_buffer[15] * 10);
@@ -3064,8 +2942,8 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		ui8_duty_cycle_ramp_down_inverse_step_default = map_ui8((uint8_t)ui8_motor_deceleration_adjustment,
 				(uint8_t) 0,
                 (uint8_t) 100,
-                (uint8_t) PWM_DUTY_CYCLE_RAMP_DOWN_INVERSE_STEP_DEFAULT,
-                (uint8_t) PWM_DUTY_CYCLE_RAMP_DOWN_INVERSE_STEP_MIN);
+                (uint8_t) PWM_DUTY_CYCLE_RAMP_DOWN_INVERSE_STEP_DEFAULT, // 73
+                (uint8_t) PWM_DUTY_CYCLE_RAMP_DOWN_INVERSE_STEP_MIN);    // 9
 		
 		// Torque ADC offset adjustment (0 / 34)
 		ui8_adc_pedal_torque_offset_adj = ui8_rx_buffer[50]; // mstrens : reuse for checks at power on (has for ADC offset max)

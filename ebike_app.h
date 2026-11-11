@@ -85,7 +85,8 @@ typedef struct  _configuration_variables
 extern uint8_t ui8_test_mode_flag ;
 extern uint8_t hall_reference_angle ;
 
-void new_torque_sample();
+//void new_torque_sample();
+void new_torque_sample(uint16_t ui16_adc_sample);
 
 // only for 860C version
 void fillRxBuffer();  

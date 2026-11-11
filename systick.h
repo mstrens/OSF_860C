@@ -32,7 +32,7 @@ extern volatile uint8_t ui8_brake_state;
 extern volatile uint8_t ui8_battery_SOC_saved_flag;
 extern volatile uint8_t ui8_battery_SOC_reset_flag;
 
-extern volatile uint8_t ui8_pas_new_transition;
+//extern volatile uint8_t ui8_pas_new_transition;
 
 extern volatile uint8_t ui8_controller_duty_cycle_ramp_up_inverse_step;
 extern volatile uint8_t ui8_controller_duty_cycle_ramp_down_inverse_step;

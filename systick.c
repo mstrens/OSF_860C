@@ -51,9 +51,11 @@ volatile uint8_t ui8_battery_SOC_saved_flag = 0;
 volatile uint8_t ui8_battery_SOC_reset_flag = 0;
 
 // to manage torque sensor using the logic of mspider in https://github.com/TSDZ2-ESP32/TSDZ2-Smart-EBike
-// 1 = one of 1/20 of a rotation occured (= 4 state transitions )
-// 0x80  = reverse rotation  or timeout detected (stop)-> reset
-volatile uint8_t ui8_pas_new_transition = 0; // use also in ebike_app.c and main.c
+volatile uint8_t ui8_pas_active = 0;
+    // 1 = valid forward PAS sequence detected and not yet stopped
+    // 0 = no active PAS sequence (startup, timeout or confirmed reverse)
+volatile uint16_t ui16_torque_event_adc; // saved value of raw adc (filtered in sytick) to be used in 40Hz loop
+volatile uint8_t ui8_torque_event_seq; // used by 40Hz loop to detect that new torque_event_adc value is available (comparing with previous counter value)
 
 volatile uint8_t ui8_controller_duty_cycle_ramp_up_inverse_step = PWM_DUTY_CYCLE_RAMP_UP_INVERSE_STEP_DEFAULT; // 194
 volatile uint8_t ui8_controller_duty_cycle_ramp_down_inverse_step = PWM_DUTY_CYCLE_RAMP_DOWN_INVERSE_STEP_DEFAULT; // 73
@@ -96,6 +98,8 @@ void SysTick_Handler(void) {
     static uint32_t ui32_prev_cadence_tick_max = 0;          // pour détecter un vrai nouveau front
     static uint8_t ui8_pas_counter = 0; // counter to detect a full pedal rotation (after 20 valid transitions)
 
+    uint8_t ui8_new_valid_pas_event = 0; // inside systick says if a valid transition occured.
+
 //  ========= only for documentation if we have to use pwm ticks
 //static inline uint32_t read_ui32_pwm_ticks_atomic(void) {
 //    uint32_t a,b;
@@ -109,18 +113,18 @@ void SysTick_Handler(void) {
     uint32_t ui32_cadence_tick_snapshot[5];
 
     // Atomically capture all cadence values
-    uint32_t primask = __get_PRIMASK();
-    __disable_irq();
+    //uint32_t primask = __get_PRIMASK();
+    //__disable_irq();
     for (uint8_t i = 0; i < 5; ++i) {
         ui32_cadence_tick_snapshot[i] = ui32_cadence_last_ticks[i];
     }
-    __set_PRIMASK(primask);
+    //__set_PRIMASK(primask);
 
     // Process snapshot (no longer needs protection)
     uint32_t ui32_cadence_tick_max = ui32_cadence_tick_snapshot[0];
     for (uint8_t i = 1; i <= 4; ++i) {
         uint32_t t = ui32_cadence_tick_snapshot[i];
-        if(t > ui32_cadence_tick_max) { ui32_cadence_tick_max = t; ui8_cadence_idx_max = i; }
+        if ((int32_t)(t - ui32_cadence_tick_max) > 0) { ui32_cadence_tick_max = t; ui8_cadence_idx_max = i; }
     }
 
     // Check if a new cadence event occured
@@ -129,7 +133,7 @@ void SysTick_Handler(void) {
         if (ui8_cadence_idx_max == 4) { // --- reverse transition seen ---
             // DEBOUNCE spurious reverses: a single reverse quadrature code is almost always detent-edge
             // dither, not real backward pedalling. Zeroing cadence AND wiping the rotation-average torque
-            // buffer (pas_new_transition=0x80) on ONE reverse made cadence glitch to 0 for ~300 ms while
+            // buffer on ONE reverse made cadence glitch to 0 for ~300 ms while
             // pedalling FORWARD at speed (the quadrature dithers at a detent edge), which fed the
             // per-stroke dead-spot torque zeros and forced long debounces everywhere downstream. Require
             // several consecutive reverses; any interleaved forward transition resets the count. Genuine
@@ -139,7 +143,7 @@ void SysTick_Handler(void) {
             if (ui8_cadence_reverse_cnt >= CADENCE_REVERSE_DEBOUNCE) { // believed real backward rotation
                 ui16_cadence_sensor_ticks = 0; // reset value used in ebike_app.c
                 i8_prev_cadence_index = -1;
-                ui8_pas_new_transition = 0x80; // used in mspider logic for torque sensor // to do
+                ui8_pas_active = 0;
             }
             // else: ignore this isolated reverse - keep cadence and the torque buffer intact
         } else { // --- forward cadence (codes 0..3) ---
@@ -159,8 +163,11 @@ void SysTick_Handler(void) {
                     ui16_cadence_sensor_ticks = (uint16_t) ui32_cadence_delta_ticks;
                     ui32_prev_cadence_tick =  ui32_curr_cadence_tick;
                     
-                    ui8_pas_new_transition = 1; // mspider logic for torque sensor;mark for one of the 20 transitions per rotation
-                    ui8_pas_counter++; // mstrens : increment the counter when the transition is valid           
+                    ui8_pas_active = 1; // there is a valid transition (state)
+                    ui8_pas_counter++; // mstrens : increment the counter when the transition is valid
+                    ui8_new_valid_pas_event = 1; // this is an event to inform 40Hz loop that there is a torque value to add to buffer
+
+
                 } else {
                     // when max timestamp changed (but not yet the timestamp of reference transition)
                     //  set the cadence to 7 RPM for immediate start if it was 0
@@ -173,15 +180,17 @@ void SysTick_Handler(void) {
 
     // cadence TIMEOUTS --------- 
     if ((ui32_ms_counter - ui32_last_cadence_ms) > (ui16_cadence_ticks_count_min_speed_adj)) { // adj =4270 at 4km/h ... 341 at 40 km/h
-        ui16_cadence_sensor_ticks = 0; // reset cadence
-        i8_prev_cadence_index = -1;
-        ui32_prev_cadence_tick = 0;
-        ui8_pas_new_transition = 0x80; // for mspider logic for torque sensor
-        ui8_pas_counter = 0; // mstrens :  reset the counter for full rotation
+        if (i8_prev_cadence_index >= 0) {
+            ui16_cadence_sensor_ticks = 0; // reset cadence
+            i8_prev_cadence_index = -1;
+            ui32_prev_cadence_tick = 0;
+            ui8_pas_counter = 0; // mstrens :  reset the counter for full rotation
+            ui8_pas_active = 0;  // no valid pas transition
+        }
     }
-     
+    
     // --------- 2) Wheel ---------
-    uint32_t ui32_wheel_pwm_tick = ui32_wheel_last_pwm_ticks; // single aligned 32-bit read is atomic on Cortex-M4
+    uint32_t ui32_wheel_pwm_tick = ui32_wheel_last_pwm_ticks; // single aligned 32-bit read is atomic on Cortex-M0
     if (ui32_wheel_pwm_tick != ui32_prev_wheel_pwm_tick) {
         uint32_t ui32_wheel_delta_ticks;
         if (ui32_prev_wheel_pwm_tick == 0) {
@@ -221,7 +230,10 @@ void SysTick_Handler(void) {
             ui16_adc_torque_new_filtered--;
     }
     ui16_adc_torque_filtered = ui16_adc_torque_new_filtered;
-    
+    if (ui8_new_valid_pas_event) {                 // save the curent value when a pas transition occured.
+        ui16_torque_event_adc = ui16_adc_torque_filtered;
+        ui8_torque_event_seq++;
+    }
     //      4) get the voltage 
      //ui16_adc_voltage  = (XMC_VADC_GROUP_GetResult(vadc_0_group_1_HW , 4 ) & 0x0FFF) >> 2; // battery gr1 ch6 result 4
     // changed to take care of infineon VADC init (result in reg 6)
