@@ -1771,8 +1771,7 @@ void new_torque_sample(uint16_t ui16_adc_sample) // called only when a valid pas
 // uint32_t ui32_pedal_torque_x100 (in controler) = ((uint32_t)ui16_adc_pedal_torque_delta * 167U + 1U) >> 1; // to get the same value as the display calculation
 #define TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MIN  20
 #define TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MAX  40
-#define TORQUE_DIFF_CORRECTION_GAIN_Q8       192  // 75 %
-
+#define TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_RATIO_Q8     192 // 75%
 static void get_pedal_torque(void) {
 	if (toffset_cycle_counter < TOFFSET_CYCLES) {  // less than 3 sec
 		ui16_adc_pedal_torque_offset_init = filter(ui16_adc_torque_filtered, ui16_adc_pedal_torque_offset_init , 4) ; // get filtered torque captured in motor.c irq1
@@ -1806,31 +1805,26 @@ static void get_pedal_torque(void) {
 	int32_t i32_diff = (int32_t)i16_TorqueDiffSamePosition - (int32_t)i16_TorqueDiffSamePositionFiltered;
 	i16_TorqueDiffSamePositionFiltered += i32_diff / 4;
 	
-		// Calculate final torque value to use for human power, assistance, ...
+	// Calculate final torque value to use for human power, assistance, ...
 	if (ui8_TSamplesNum == 20) {
-		uint16_t ui16_TorqueAverage = ui16_TSum / 20;
-		// to increase reactivity, we compare the latest torque (captured at PAS transition) with the one 360° before
-		// The difference (signed) is more or less applied to the mobile average (depending how big it absolute value) and with some gain
-		
-		// Absolute value of the signed torque difference
+		uint16_t ui16_TorqueAverage = ui16_TSum / 20; // Average torque over one complete crank revolution
+		// Absolute value of filtered same-position torque difference
 		uint16_t ui16_abs_diff = (i16_TorqueDiffSamePositionFiltered >= 0) ? (uint16_t)i16_TorqueDiffSamePositionFiltered : (uint16_t)(-i16_TorqueDiffSamePositionFiltered);
-		uint16_t ui16_correction_factor = 0; // Correction factor in Q8 (0 to 256)
+		// Calculate instantaneous torque weight (Q8: 256 = 100%)
+		uint16_t ui16_alpha_q8 = 0;
 		if (ui16_abs_diff > TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MIN) {
 			if (ui16_abs_diff >= TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MAX) {
-				ui16_correction_factor = 256; 
+				ui16_alpha_q8 = 256;
 			} else {
-				ui16_correction_factor = ((uint32_t)(ui16_abs_diff - TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MIN) << 8) /
-					(TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MAX - TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MIN);
-			}
+				ui16_alpha_q8 = ((uint32_t)(ui16_abs_diff - TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MIN) << 8) /
+					(TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MAX - TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MIN); }
 		}
-		// Apply signed correction with Q8 gain
-		int32_t i32_correction = ((int32_t)i16_TorqueDiffSamePositionFiltered * ui16_correction_factor * TORQUE_DIFF_CORRECTION_GAIN_Q8) >> 16;
-		int32_t i32_torque_corrected = (int32_t)ui16_TorqueAverage + i32_correction;
-
-		// Limit normalized torque to 0..160
-		if (i32_torque_corrected < 0) { i32_torque_corrected = 0;}
-		else if (i32_torque_corrected > 160) { i32_torque_corrected = 160;}
-		ui16_adc_pedal_torque_filtered_no_curve = (uint16_t)i32_torque_corrected;
+		// Limit instantaneous torque weight using the configured ratio
+		ui16_alpha_q8 = (ui16_alpha_q8 * TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_RATIO_Q8) >> 8;
+	
+		// Blend average torque and filtered instantaneous torque
+		ui16_adc_pedal_torque_filtered_no_curve = ((uint32_t)ui16_TorqueAverage * (256 - ui16_alpha_q8) +
+				(uint32_t)ui16_TorqueInstantFiltered * ui16_alpha_q8) >> 8;
 	} else if (ui8_TSamplesNum > 0) {
 		// Partial buffer: use the available average
 		ui16_adc_pedal_torque_filtered_no_curve = ui16_TSum / ui8_TSamplesNum;
