@@ -188,6 +188,8 @@ static void reset_torque_samples(void);
 static void update_pedal_torque_state(void);
 uint8_t pedal_torque_linearise_adc(uint16_t ui16_adc_torque_filtered);
 static uint16_t pedal_torque_denormalize_for_display( uint16_t ui16_torque_norm);
+static void update_ramp_up_with_torque_impulse();
+
 
 // values used to linearise and normalise ADC torque
 uint16_t ui16_adc_pedal_torque_adc_knee;    // ADC at knee point
@@ -761,6 +763,29 @@ static void set_motor_ramp(void)
     }
 }
 
+#define TORQUE_DIFF_MIN             20
+	#define TORQUE_DIFF_MAX             60
+	#define TORQUE_RAMP_BOOST_MAX_PCT   50
+	#define TORQUE_RAMP_BOOST_FACTOR_Q8 ((100U - TORQUE_RAMP_BOOST_MAX_PCT) * 256U / 100U)
+
+static void update_ramp_up_with_torque_impulse(){
+	
+	int16_t diff = i16_TorqueDiffSamePositionFiltered;
+	if (diff > TORQUE_DIFF_MIN) {
+		uint8_t ramp_normal = ui8_duty_cycle_ramp_up_inverse_step;
+		uint8_t ramp_min = (uint8_t)( ((uint16_t)ramp_normal * TORQUE_RAMP_BOOST_FACTOR_Q8) >> 8 );
+		if (ramp_min < PWM_DUTY_CYCLE_RAMP_UP_INVERSE_STEP_MIN) {
+			ramp_min = PWM_DUTY_CYCLE_RAMP_UP_INVERSE_STEP_MIN;
+		}
+		ui8_duty_cycle_ramp_up_inverse_step = map_ui8(
+			(uint8_t)diff,
+			TORQUE_DIFF_MIN,
+			TORQUE_DIFF_MAX,
+			ramp_normal,
+			ramp_min
+		);
+	}
+}
 
 // calculate startup boost & new pedal torque delta
 static void apply_startup_boost(void)
@@ -924,7 +949,8 @@ static void apply_torque_assist(void)
 		uint16_t ui16_adc_battery_current_target_torque_assist = ((uint16_t)adc_assist_current_lut[ui16_adc_pedal_torque_delta] * (uint16_t) ui8_adc_battery_current_max) >> 8; // convert torque to ADC	current	
 		// set motor acceleration / deceleration (adapt the ramp up and down inverse step) based on wheel speed and cadence (to react faster when running fast)
 		set_motor_ramp();
-		
+		update_ramp_up_with_torque_impulse();
+
         // set battery current target
 	    if (ui16_adc_battery_current_target_torque_assist > ui8_adc_battery_current_max) {
             ui8_adc_battery_current_target = ui8_adc_battery_current_max;
@@ -1743,8 +1769,10 @@ void new_torque_sample(uint16_t ui16_adc_sample) // called only when a valid pas
 // uint16_t ui16_adc_pedal_torque_delta_display; // ADC vitual scale; use to transmit the adc torque being used by display when it calculates human torque (multiplying by ADC step)
 //                                               // based on ui16_adc_pedal_torque_filtered_no_curve
 // uint32_t ui32_pedal_torque_x100 (in controler) = ((uint32_t)ui16_adc_pedal_torque_delta * 167U + 1U) >> 1; // to get the same value as the display calculation
-#define TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MIN  15
-#define TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MAX  30
+#define TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MIN  20
+#define TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MAX  40
+#define TORQUE_DIFF_CORRECTION_GAIN_Q8       192  // 75 %
+
 static void get_pedal_torque(void) {
 	if (toffset_cycle_counter < TOFFSET_CYCLES) {  // less than 3 sec
 		ui16_adc_pedal_torque_offset_init = filter(ui16_adc_torque_filtered, ui16_adc_pedal_torque_offset_init , 4) ; // get filtered torque captured in motor.c irq1
@@ -1778,29 +1806,37 @@ static void get_pedal_torque(void) {
 	int32_t i32_diff = (int32_t)i16_TorqueDiffSamePosition - (int32_t)i16_TorqueDiffSamePositionFiltered;
 	i16_TorqueDiffSamePositionFiltered += i32_diff / 4;
 	
-	// calulate final torque value to use for human power, assistance ,...
+		// Calculate final torque value to use for human power, assistance, ...
 	if (ui8_TSamplesNum == 20) {
 		uint16_t ui16_TorqueAverage = ui16_TSum / 20;
-		uint16_t ui16_diff = (i16_TorqueDiffSamePositionFiltered >= 0) ? (uint16_t)i16_TorqueDiffSamePositionFiltered : (uint16_t)(-i16_TorqueDiffSamePositionFiltered);
-		if (ui16_diff <= TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MIN) {
-			// Low difference: use average over one revolution
-			ui16_adc_pedal_torque_filtered_no_curve = ui16_TorqueAverage;
-		} else if (ui16_diff >= TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MAX) {
-			// High difference: use filtered instantaneous torque
-			ui16_adc_pedal_torque_filtered_no_curve = ui16_TorqueInstantFiltered;
-		} else {
-			// Progressive transition between both methods
-			uint16_t ui16_weight = ui16_diff - TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MIN;
-			ui16_adc_pedal_torque_filtered_no_curve = ((uint32_t)ui16_TorqueAverage *
-				 (TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MAX - ui16_weight) + (uint32_t)ui16_TorqueInstantFiltered * ui16_weight)
-				 / (TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MAX - TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MIN);
+		// to increase reactivity, we compare the latest torque (captured at PAS transition) with the one 360° before
+		// The difference (signed) is more or less applied to the mobile average (depending how big it absolute value) and with some gain
+		
+		// Absolute value of the signed torque difference
+		uint16_t ui16_abs_diff = (i16_TorqueDiffSamePositionFiltered >= 0) ? (uint16_t)i16_TorqueDiffSamePositionFiltered : (uint16_t)(-i16_TorqueDiffSamePositionFiltered);
+		uint16_t ui16_correction_factor = 0; // Correction factor in Q8 (0 to 256)
+		if (ui16_abs_diff > TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MIN) {
+			if (ui16_abs_diff >= TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MAX) {
+				ui16_correction_factor = 256; 
+			} else {
+				ui16_correction_factor = ((uint32_t)(ui16_abs_diff - TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MIN) << 8) /
+					(TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MAX - TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MIN);
+			}
 		}
-	} else { // Buffer not full
-		if (ui8_TSamplesNum > 0) {
-			ui16_adc_pedal_torque_filtered_no_curve = ui16_TSum / ui8_TSamplesNum;
-		} else {
-			ui16_adc_pedal_torque_filtered_no_curve = ui16_TorqueDeltaADC_norm;
-		}
+		// Apply signed correction with Q8 gain
+		int32_t i32_correction = ((int32_t)i16_TorqueDiffSamePositionFiltered * ui16_correction_factor * TORQUE_DIFF_CORRECTION_GAIN_Q8) >> 16;
+		int32_t i32_torque_corrected = (int32_t)ui16_TorqueAverage + i32_correction;
+
+		// Limit normalized torque to 0..160
+		if (i32_torque_corrected < 0) { i32_torque_corrected = 0;}
+		else if (i32_torque_corrected > 160) { i32_torque_corrected = 160;}
+		ui16_adc_pedal_torque_filtered_no_curve = (uint16_t)i32_torque_corrected;
+	} else if (ui8_TSamplesNum > 0) {
+		// Partial buffer: use the available average
+		ui16_adc_pedal_torque_filtered_no_curve = ui16_TSum / ui8_TSamplesNum;
+	} else {
+		// No PAS sample available, use current value
+		ui16_adc_pedal_torque_filtered_no_curve = ui16_TorqueDeltaADC_norm;
 	}
 	
 	// When curves are used, conversion torque to target current is done directly in apply torque assist function
@@ -1846,13 +1882,26 @@ static void reset_torque_samples(void) {
     ui8_torque_new_pas_sample = 0;
 	#endif
 }
+/* State handling
+Événement	                    Comportement
+Premier PAS, vélo arrêté	    TORQUE_START, échantillon 1 utilisé, plafonné à 40
+Transitions 2 à 20	            Capture du maximum, assistance plafonnée à 40
+Transitions 21 à 29	            Mélange progressif maximum / moyenne
+Transition 30	                Passage à TORQUE_NORMAL
+Premier PAS, vélo déjà roulant	Passage direct à TORQUE_NORMAL
+Arrêt du pédalage	            Retour à TORQUE_IDLE et réinitialisation
 
+Le point important est bien respecté : le premier échantillon n'entre pas dans le calcul du maximum. Le maximum réel est conservé dans ui16_torque_start_max, et seul le couple utilisé pour l'assistance est plafonné.
+
+Le calcul de mélange est également correct. À la transition 30, le résultat est exactement la moyenne normale.
+*/
 // take care of startup from stillstand
 // this can further update ui16_adc_pedal_torque_delta that was calculated by get_pedal_torque().
 // still it does not update other pedal_torque like 
 static void update_pedal_torque_state(void) {
 #if ENABLE_PEDAL_TORQUE_STATE_MANAGEMENT
 	if (ui8_adc_pedal_torque_offset_error) {
+		ui8_torque_new_pas_sample = 0; // Discard pending sample
 		ui16_adc_pedal_torque_delta = 0;
 		return;
 	}

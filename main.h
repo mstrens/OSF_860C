@@ -23,8 +23,8 @@
 
 //#include "config.h"
 #include "common.h"
-                                    // !!!!!!!!!!!!!!
-#define FIRMWARE_VERSION "0.3.1"      // 
+                                   
+#define FIRMWARE_VERSION "0.3.3"      // 
 //#define MAIN_CONFIGURATOR_VERSION 2   // for configurator (must be the same as in xls sheet)
 //#define SUB_CONFIGURATOR_VERSION 1    // is not used (just for reference)
 

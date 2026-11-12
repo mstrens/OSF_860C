@@ -254,7 +254,8 @@ void SysTick_Handler(void) {
     //     6) get brake state-
     ui8_brake_state = XMC_GPIO_GetInput(IN_BRAKE_PORT, IN_BRAKE_PIN) == 0; // Low level means that brake is on
         
-    /*  Has been commented for testing PLL; to be activated later on !!!!!!!!!!!!!!!!!!!!!!
+    /*  Has been commented for testing PLL; 
+    // this code is not used anymore because lead angle is now calculated based on rpm and then automatically optimised based on ID, IE currents
     //     5) get lead angle 
     static uint32_t ui32_foc_angle_accum = 0; // use more bits for better accuracy in IIR
     // update foc_angle and adc_motor_phase_current
