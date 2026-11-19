@@ -14,7 +14,7 @@ extern volatile uint32_t ui32_wheel_last_pwm_ticks; // dernier front roue (ui32_
 
 // cadence sensor
 extern volatile uint16_t ui16_cadence_sensor_ticks;
-
+extern volatile uint16_t ui16_cadence_reverse_ref_counter;
 
 // wheel speed sensor
 extern volatile uint16_t ui16_wheel_speed_sensor_ticks;

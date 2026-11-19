@@ -30,6 +30,7 @@ volatile uint32_t ui32_wheel_speed_sensor_ticks_total = 0;
 volatile uint32_t ui32_pwm_ticks = 0;          // compteur soft 19kHz
 volatile uint32_t ui32_cadence_last_ticks[6] = {0};   // timestamps pédalage (codes 0..5)
 volatile uint32_t ui32_wheel_last_pwm_ticks = 0; // dernier front roue (ui32_pwm_ticks)
+volatile uint16_t ui16_cadence_reverse_ref_counter = 0; // count reverse PAS (to update ttorque sensor offset)
 
 uint8_t lead_angle_multiplicator = 64;
 
@@ -56,6 +57,9 @@ volatile uint8_t ui8_pas_active = 0;
     // 0 = no active PAS sequence (startup, timeout or confirmed reverse)
 volatile uint16_t ui16_torque_event_adc; // saved value of raw adc (filtered in sytick) to be used in 40Hz loop
 volatile uint8_t ui8_torque_event_seq; // used by 40Hz loop to detect that new torque_event_adc value is available (comparing with previous counter value)
+
+volatile uint16_t ui16_adc_torque_offset_auto = 0;
+volatile uint8_t ui8_torque_offset_auto_ready = 0;
 
 volatile uint8_t ui8_controller_duty_cycle_ramp_up_inverse_step = PWM_DUTY_CYCLE_RAMP_UP_INVERSE_STEP_DEFAULT; // 194
 volatile uint8_t ui8_controller_duty_cycle_ramp_down_inverse_step = PWM_DUTY_CYCLE_RAMP_DOWN_INVERSE_STEP_DEFAULT; // 73
@@ -98,6 +102,14 @@ void SysTick_Handler(void) {
     static uint32_t ui32_prev_cadence_tick_max = 0;          // pour détecter un vrai nouveau front
     static uint8_t ui8_pas_counter = 0; // counter to detect a full pedal rotation (after 20 valid transitions)
 
+    #define TORQUE_OFFSET_REVERSE_DEBOUNCE  3U
+    #define TORQUE_OFFSET_REVERSE_SAMPLES   20U
+    static uint16_t ui16_prev_reverse_ref_counter = 0;
+    static uint8_t ui8_reverse_ref_cnt = 0;
+    static uint8_t ui8_torque_offset_sample_cnt = 0;
+    static uint32_t ui32_torque_offset_sample_sum = 0;
+
+
     uint8_t ui8_new_valid_pas_event = 0; // inside systick says if a valid transition occured.
 
 //  ========= only for documentation if we have to use pwm ticks
@@ -110,14 +122,19 @@ void SysTick_Handler(void) {
     // --------- 1) cadence ---------
     // Cherche l'index (0..4) ayant le timestamp le plus grand
     uint8_t ui8_cadence_idx_max = 0;
-    uint32_t ui32_cadence_tick_snapshot[5];
+    uint32_t ui32_cadence_tick_snapshot[6];
 
-    // Atomically capture all cadence values
+    uint16_t ui16_reverse_ref_counter_snapshot = ui16_cadence_reverse_ref_counter;// Capture dcounter before the timestamps
+
+    // Atomically capture all cadence timestamps
     //uint32_t primask = __get_PRIMASK();
     //__disable_irq();
-    for (uint8_t i = 0; i < 5; ++i) {
-        ui32_cadence_tick_snapshot[i] = ui32_cadence_last_ticks[i];
-    }
+    ui32_cadence_tick_snapshot[0] = ui32_cadence_last_ticks[0];
+    ui32_cadence_tick_snapshot[1] = ui32_cadence_last_ticks[1];
+    ui32_cadence_tick_snapshot[2] = ui32_cadence_last_ticks[2];
+    ui32_cadence_tick_snapshot[3] = ui32_cadence_last_ticks[3];
+    ui32_cadence_tick_snapshot[4] = ui32_cadence_last_ticks[4];
+    ui32_cadence_tick_snapshot[5] = ui32_cadence_last_ticks[5];
     //__set_PRIMASK(primask);
 
     // Process snapshot (no longer needs protection)
@@ -125,6 +142,12 @@ void SysTick_Handler(void) {
     for (uint8_t i = 1; i <= 4; ++i) {
         uint32_t t = ui32_cadence_tick_snapshot[i];
         if ((int32_t)(t - ui32_cadence_tick_max) > 0) { ui32_cadence_tick_max = t; ui8_cadence_idx_max = i; }
+    }
+    
+    // Check if latest event for unvalid PAS (index 5) is more recent than latest event from index 0...4
+    uint8_t ui8_cadence_latest_idx = ui8_cadence_idx_max;
+    if ((int32_t)(ui32_cadence_tick_snapshot[5] - ui32_cadence_tick_max) > 0) {
+        ui8_cadence_latest_idx = 5;
     }
 
     // Check if a new cadence event occured
@@ -230,6 +253,40 @@ void SysTick_Handler(void) {
             ui16_adc_torque_new_filtered--;
     }
     ui16_adc_torque_filtered = ui16_adc_torque_new_filtered;
+    
+    // --------- Automatic torque offset calibration during reverse pedalling ---------
+    uint16_t ui16_reverse_ref_delta =     ui16_reverse_ref_counter_snapshot - ui16_prev_reverse_ref_counter;
+    ui16_prev_reverse_ref_counter = ui16_reverse_ref_counter_snapshot;
+    // A forward or invalid transition interrupts reverse pedalling.
+    if (ui8_cadence_latest_idx != 4) {
+        ui8_reverse_ref_cnt = 0;
+        ui8_torque_offset_sample_cnt = 0;
+        ui32_torque_offset_sample_sum = 0;
+    } else if (ui16_reverse_ref_delta != 0) {
+        // If more than one reference event was missed, restart the debounce.
+        if (ui16_reverse_ref_delta > 1) {
+            ui8_reverse_ref_cnt = 0;
+            ui8_torque_offset_sample_cnt = 0;
+            ui32_torque_offset_sample_sum = 0;
+        }
+        // Confirm reverse rotation.
+        if (ui8_reverse_ref_cnt < TORQUE_OFFSET_REVERSE_DEBOUNCE) {
+            ui8_reverse_ref_cnt++;
+        }
+        // Start collecting samples after reverse rotation is confirmed.
+        if ((ui8_reverse_ref_cnt >= TORQUE_OFFSET_REVERSE_DEBOUNCE) && (ui8_torque_offset_sample_cnt < TORQUE_OFFSET_REVERSE_SAMPLES) &&
+                !ui8_torque_offset_auto_ready) {
+            ui32_torque_offset_sample_sum += ui16_adc_torque_filtered;
+            ui8_torque_offset_sample_cnt++;
+            // One complete set of 20 angular positions has been collected.
+            if (ui8_torque_offset_sample_cnt >= TORQUE_OFFSET_REVERSE_SAMPLES) {
+                ui16_adc_torque_offset_auto = (uint16_t)((ui32_torque_offset_sample_sum + TORQUE_OFFSET_REVERSE_SAMPLES / 2U) /
+                        TORQUE_OFFSET_REVERSE_SAMPLES);
+                ui8_torque_offset_auto_ready = 1;
+            }
+        }
+    }
+
     if (ui8_new_valid_pas_event) {                 // save the curent value when a pas transition occured.
         ui16_torque_event_adc = ui16_adc_torque_filtered;
         ui8_torque_event_seq++;

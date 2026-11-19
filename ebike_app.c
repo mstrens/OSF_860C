@@ -183,7 +183,7 @@ static uint16_t ui16_torque_last_pas_sample = 0;
 static uint8_t ui8_torque_new_pas_sample = 0;
 
 #define LUT_CURRENT_SIZE 161 // Lut is 161 because normalized torque varies from 0 up to 160; so table can be read directly
-uint8_t adc_assist_current_lut[161] = {0}; //current conversion table
+uint8_t adc_assist_current_lut[2][161] = {0}; //current conversion table
 static void reset_torque_samples(void);
 static void update_pedal_torque_state(void);
 uint8_t pedal_torque_linearise_adc(uint16_t ui16_adc_torque_filtered);
@@ -946,7 +946,13 @@ static void apply_torque_assist(void)
         	//        * ui8_torque_assist_factor) / TORQUE_ASSIST_FACTOR_DENOMINATOR; // denominator is 60 for TSDZ8 and 120 for TSDZ2 (to get twice more assist for same weight on pedal)
 		// adc_assist_current_lut max value is 255 and represent 100% of max current.
 		if (ui16_adc_pedal_torque_delta > 160) ui16_adc_pedal_torque_delta = 160; // safety check
-		uint16_t ui16_adc_battery_current_target_torque_assist = ((uint16_t)adc_assist_current_lut[ui16_adc_pedal_torque_delta] * (uint16_t) ui8_adc_battery_current_max) >> 8; // convert torque to ADC	current	
+		uint8_t assist_current_0 = adc_assist_current_lut[0][ui16_adc_pedal_torque_delta];
+		if (ui8_riding_mode == HYBRID_ASSIST_MODE) {      // for hybrid mode, we use the max of the 2 assist level given by the adc_asssit_current_lut[][]
+			uint8_t assist_current_1 = adc_assist_current_lut[0][ui16_adc_pedal_torque_delta];
+			if (assist_current_1 > assist_current_0) assist_current_0 = assist_current_1;
+		}	 
+		uint16_t ui16_adc_battery_current_target_torque_assist = ((uint16_t)assist_current_0 * (uint16_t) ui8_adc_battery_current_max) >> 8; // convert torque to ADC	current	
+		
 		// set motor acceleration / deceleration (adapt the ramp up and down inverse step) based on wheel speed and cadence (to react faster when running fast)
 		set_motor_ramp();
 		update_ramp_up_with_torque_impulse();
@@ -1577,7 +1583,7 @@ static void calc_wheel_speed(void)
 
 static void calc_cadence(void)
 {
-    // get the cadence sensor ticks from the ISR
+    // get the cadence sensor ticks from the ISR (save the value)
     uint16_t ui16_cadence_sensor_ticks_temp = ui16_cadence_sensor_ticks;
 
     // adjust cadence sensor ticks counter min depending on wheel speed
@@ -1769,8 +1775,8 @@ void new_torque_sample(uint16_t ui16_adc_sample) // called only when a valid pas
 // uint16_t ui16_adc_pedal_torque_delta_display; // ADC vitual scale; use to transmit the adc torque being used by display when it calculates human torque (multiplying by ADC step)
 //                                               // based on ui16_adc_pedal_torque_filtered_no_curve
 // uint32_t ui32_pedal_torque_x100 (in controler) = ((uint32_t)ui16_adc_pedal_torque_delta * 167U + 1U) >> 1; // to get the same value as the display calculation
-#define TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MIN  20
-#define TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MAX  40
+#define TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MIN  20  // 10 Kg
+#define TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_MAX  40  // 20 kg
 #define TORQUE_SENSOR_ADC_REMAP_NORM_DIFF_RATIO_Q8     192 // 75%
 static void get_pedal_torque(void) {
 	if (toffset_cycle_counter < TOFFSET_CYCLES) {  // less than 3 sec
@@ -2125,7 +2131,7 @@ static uint16_t pedal_torque_denormalize_for_display( uint16_t ui16_torque_norm)
  
  // Decode the value received from the display and PRECALCULATE the complete torque -> current LUT.
  // called only when the assistance level changes
- void decode_assist_parameter(uint8_t assist_parameter)
+ void decode_assist_parameter(uint8_t assist_parameter, uint8_t assist_mode)
  {
 	 uint8_t max_current; // 0=51=20%, 1=102=40%, 2=153=60%, 3=204=80%, 4=255=100%
 	 uint16_t cmax; // Saturation torque in internal torque units (0...160
@@ -2187,12 +2193,12 @@ static uint16_t pedal_torque_denormalize_for_display( uint16_t ui16_torque_norm)
 		 uint32_t current;
  
 		 if (torque == 0) { // Zero torque
-			 adc_assist_current_lut[torque] = 0;
+			 adc_assist_current_lut[assist_mode][torque] = 0;
 			 continue;
 		 }
  
 		 if (torque >= cmax) { // Saturation 
-			 adc_assist_current_lut[torque] = max_current;
+			 adc_assist_current_lut[assist_mode][torque] = max_current;
 			 continue;
 		 }
  
@@ -2219,7 +2225,7 @@ static uint16_t pedal_torque_denormalize_for_display( uint16_t ui16_torque_norm)
 		 current = ( (uint32_t)y * (uint32_t)max_current * 257UL + 32768UL ) >> 16;
  
 		 if (current > max_current) current = max_current;
-		 adc_assist_current_lut[torque] = (uint8_t)current;
+		 adc_assist_current_lut[assist_mode][torque] = (uint8_t)current;
 	 } // end for
  }
 
@@ -2750,11 +2756,16 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 		ui8_throttle_virtual = ui8_rx_buffer[11];
 
 		static uint8_t ui8_riding_mode_parameter_prev = 0;
+		static uint8_t ui8_hybrid_torque_parameter_prev = 0;
 		// when assist level or battery current max change, then LUT table has to be recalculated
 		if (ui8_riding_mode_parameter != ui8_riding_mode_parameter_prev) {
-				ui8_riding_mode_parameter_prev = ui8_riding_mode_parameter;
-				decode_assist_parameter(ui8_riding_mode_parameter);
+			ui8_riding_mode_parameter_prev = ui8_riding_mode_parameter;
+			decode_assist_parameter(ui8_riding_mode_parameter,0); // 0 is the lut used for all assist mode
 		}
+		if (ui8_hybrid_torque_parameter != ui8_hybrid_torque_parameter_prev) {
+			ui8_hybrid_torque_parameter_prev = ui8_hybrid_torque_parameter;
+			decode_assist_parameter(ui8_hybrid_torque_parameter,1); // 1 is the lut with POWER used for hybrid assist mode
+	}
 
 		///////////////////////////////////////////////////////////////////////////////////////
 		
@@ -3082,7 +3093,8 @@ static void communications_process_packages(uint8_t ui8_frame_type)
 			ui8_assist_without_pedal_rotation_threshold = 0;
 		}
 		pedal_torque_update_linearisation_parameters(); // update all parameters used to linearise and normalise ADC torque value.
-		decode_assist_parameter(ui8_riding_mode_parameter);		
+		decode_assist_parameter(ui8_riding_mode_parameter,0); // 0 is the lut used for all assist mode
+		decode_assist_parameter(ui8_hybrid_torque_parameter,1); // 1 is the lut with POWER used for hybrid assist mode
 		break;
 
       // firmware version

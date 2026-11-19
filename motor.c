@@ -409,6 +409,9 @@ static inline __attribute__((always_inline))  void collect_wheel_cadence_data(){
         uint8_t ui8_cadence_idx = ((ui8_prev_cadence_state << 2) | ui8_cadence_state) & 0x0F;
         uint8_t ui8_cadence_code = ui8_cadence_transpose[ui8_cadence_idx];
         ui32_cadence_last_ticks[ui8_cadence_code] = ui32_pwm_ticks; // enregistre l’instant du code
+        if (ui8_cadence_idx == 1U) { // Only one of the 4 backward transitions is counted
+            ui16_cadence_reverse_ref_counter++;
+        }
         ui8_prev_cadence_state = ui8_cadence_state;
     }    
 }

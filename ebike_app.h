@@ -111,8 +111,7 @@ uint16_t read_battery_soc(void);
 //static void calc_oem_wheel_speed(void);
 //static void ebike_control_lights(void);
 
-void decode_assist_parameter(uint8_t assist_parameter);
-
+void decode_assist_parameter(uint8_t assist_parameter, uint8_t assist_mode);
 
 #endif /* _EBIKE_APP_H_ */
 
